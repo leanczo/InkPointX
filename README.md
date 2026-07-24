@@ -68,6 +68,21 @@ And published releases are here:
 2. Use your usual USB/web flasher workflow.
 3. Download `firmware.bin` from `yokki-vans/inkpointx` releases and flash it.
 
+### First-time flash for new users (no special flashing software)
+
+If your device has not been flashed yet, this is the simplest safe method:
+
+1. Download the latest `firmware.bin` from the release page (the same as before).
+2. Insert a microSD card into your computer and format it as FAT32 (most memory cards are already). 
+3. Copy only one file to the card root: `firmware.bin`.
+4. Unmount/eject the card and insert it into the reader.
+5. Turn off the reader, then hold the **left side button (UP)** while turning it on (or while pressing Power).
+6. The screen will enter **Recovery Mode** and open **SD Card Firmware Update**.
+7. Select `firmware.bin`, confirm **Update firmware?**, then wait until the process finishes.
+8. Reboot happens automatically. Do not remove power during the process.
+
+This method works even from a stock reader and does not require any PC flashing utility.
+
 ### OTA from device menu
 
 In the device Settings menu, open update check:
