@@ -1,9 +1,9 @@
 """
-PlatformIO pre-build script: inject git branch and short SHA into
-CROSSPOINT_VERSION for the default (dev) environment.
+PlatformIO pre-build script: inject a stable version into CROSSPOINT_VERSION
+for the default (dev) environment.
 
-Results in a version string like:  1.1.0-dev-feat-kosync-xpath-05c6cf8
-Release environments are unaffected; they set CROSSPOINT_VERSION in the ini.
+This script intentionally keeps the default build version stable, equal to
+crosspoint.version in platformio.ini.
 """
 
 import configparser
@@ -84,12 +84,10 @@ def inject_version(env):
 
     project_dir = env['PROJECT_DIR']
     base_version = get_base_version(project_dir)
-    branch = get_git_branch(project_dir)
-    short_sha = get_git_short_sha(project_dir)
-    version_string = f'{base_version}-dev-{branch}-{short_sha}'
+    version_string = f'v{base_version}' if not base_version.startswith('v') else base_version
 
     env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
-    print(f'CrossPoint build version: {version_string}')
+    print(f'InkPoint X build version: {version_string}')
 
 
 # PlatformIO/SCons entry point — Import and env are SCons builtins injected at runtime.

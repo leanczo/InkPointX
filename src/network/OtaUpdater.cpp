@@ -14,13 +14,57 @@
 #include <esp_wifi.h>
 // clang-format on
 
+#include <cctype>
 #include <string>
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/yokki-vans/inkpointx/releases/latest";
+
+bool parseVersion(const char* version, int& major, int& minor, int& patch) {
+  major = 0;
+  minor = 0;
+  patch = 0;
+
+  if (!version) {
+    return false;
+  }
+
+  while (*version && !std::isdigit(static_cast<unsigned char>(*version))) {
+    ++version;
+  }
+
+  auto readNumber = [](const char*& p, int& value) {
+    if (!p || !std::isdigit(static_cast<unsigned char>(*p))) {
+      return false;
+    }
+    value = 0;
+    while (*p && std::isdigit(static_cast<unsigned char>(*p))) {
+      value = value * 10 + (*p - '0');
+      ++p;
+    }
+    return true;
+  };
+
+  const char* p = version;
+  if (!readNumber(p, major)) {
+    return false;
+  }
+
+  if (*p == '.') {
+    ++p;
+    readNumber(p, minor);
+  }
+
+  if (*p == '.') {
+    ++p;
+    readNumber(p, patch);
+  }
+
+  return true;
+}
 
 esp_err_t http_client_set_header_cb(esp_http_client_handle_t http_client) {
-  return esp_http_client_set_header(http_client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+  return esp_http_client_set_header(http_client, "User-Agent", "InkPoint-ESP32-" CROSSPOINT_VERSION);
 }
 }  // namespace
 
@@ -77,8 +121,11 @@ bool OtaUpdater::isUpdateNewer() const {
   const auto currentVersion = CROSSPOINT_VERSION;
 
   // semantic version check (only match on 3 segments)
-  sscanf(latestVersion.c_str(), "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
-  sscanf(currentVersion, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
+  if (!parseVersion(currentVersion, currentMajor, currentMinor, currentPatch) ||
+      !parseVersion(latestVersion.c_str(), latestMajor, latestMinor, latestPatch)) {
+    // If version strings are not in expected semver format, fall back to strict string comparison.
+    return latestVersion > currentVersion;
+  }
 
   /*
    * Compare major versions.
