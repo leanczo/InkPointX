@@ -4,7 +4,7 @@
 
 InkPoint X is a custom firmware for Xteink X3/X4 devices, built as a fork of **CrossPoint Reader**.
 
-Firmware version: **v1.0.2**
+Firmware version: **v1.0.3**
 
 > Runs on ESP32-C3 (X4 and X3), with full web server support, Wi‑Fi features, OTA updates, and extended reading functionality.
 
@@ -15,7 +15,7 @@ InkPoint X inherits the core architecture and baseline features from CrossPoint 
 - full **FB2** format support
 - full **PDF** support
 - improved reading and status flow (including reading statistics and photo frame enhancements already integrated)
-- cleaner, stable versioning (`v1.0.2`) and dedicated release publishing in a separate repository
+- cleaner, stable versioning (`v1.0.3`) and dedicated release publishing in a separate repository
 
 ## Main differences vs CrossPoint and CrossInk
 
@@ -28,7 +28,7 @@ InkPoint X inherits the core architecture and baseline features from CrossPoint 
 | Reading stats | limited | extended | ✅ (integrated and adapted from CrossInk) |
 | Photo frame | missing / experimental | missing | ✅ (built-in app in the main menu) |
 | Branding/logo | CrossPoint | CrossInk | InkPoint X |
-| Default version format | `1.x-dev-*` for dev builds | varies | `v1.0.2` (stable) |
+| Default version format | `1.x-dev-*` for dev builds | varies | `v1.0.3` (stable) |
 
 ### FB2 support
 
@@ -128,7 +128,7 @@ pio run
 
 ## Versioning and troubleshooting
 
-In local/dev builds, the version shown in logs is now always `v1.0.2` (no `-dev-*` suffix), which is required for consistent OTA comparison.
+In local/dev builds, the version shown in logs is now always `v1.0.3` (no `-dev-*` suffix), which is required for consistent OTA comparison.
 
 If a new book is not detected on device:
 
