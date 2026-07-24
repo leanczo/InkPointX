@@ -1,100 +1,100 @@
 # InkPoint X
 
-InkPoint X — это кастомная прошивка для Xteink X3/X4, построенная как форк **CrossPoint Reader**.
+InkPoint X is a custom firmware for Xteink X3/X4 devices, built as a fork of **CrossPoint Reader**.
 
-Версия прошивки: **v1.0**
+Firmware version: **v1.0**
 
-> Работает на ESP32-C3 (X4 и X3), с полной поддержкой веб-сервера, Wi‑Fi, OTA-обновлений и расширенного чтения.
+> Runs on ESP32-C3 (X4 and X3), with full web server support, Wi‑Fi features, OTA updates, and extended reading functionality.
 
-## Что это за проект
+## What this project is
 
-InkPoint X берёт за основу архитектуру и базовые возможности CrossPoint и добавляет/улучшает:
+InkPoint X inherits the core architecture and baseline features from CrossPoint and adds/improves:
 
-- полноценную поддержку формата **FB2**
-- полноценную поддержку **PDF**
-- доработанную логику чтения и индикации (включая ранее реализованные расширения по статистике чтения и фоторамке)
-- более удобную и предсказуемую версионность (`v1.0`) и публикацию релизов в отдельном репозитории
+- full **FB2** format support
+- full **PDF** support
+- improved reading and status flow (including reading statistics and photo frame enhancements already integrated)
+- cleaner, stable versioning (`v1.0`) and dedicated release publishing in a separate repository
 
-## Главное отличие от CrossPoint
+## Main differences vs CrossPoint and CrossInk
 
-| Возможность | CrossPoint | CrossInk | InkPoint X |
-|---|---|---|---|
+| Feature | CrossPoint | CrossInk | InkPoint X |
+| --- | --- | --- | --- |
 | EPUB / TXT / BMP | ✅ | ✅ | ✅ |
-| FB2 | ➖ | частично (в зависимости от сборки) | ✅ (полноценная локальная поддержка импорта, разметки, вложений и навигации) |
-| PDF | ❌/ограничено | ❌/ограничено | ✅ (полноценный просмотр/чтение страниц, масштабирование, кеширование, навигация) |
-| OTA-обновления | ✅ | ✅ (вариативно) | ✅ (через релизы GitHub репозитория `yokki-vans/inkpointx`) |
-| Статистика чтения | ограниченно | расширенная | ✅ (уже интегрирована из CrossInk и адаптирована) |
-| Фоторамка | отсутствует/экспериментально | отсутствует | ✅ (встроенное приложение в меню) |
-| Фирменный лого/бренд | CrossPoint | CrossInk | InkPoint X |
-| Версия по умолчанию | `1.x-dev-*` для dev-сборок | зависит | `v1.0` (стабильная) |
+| FB2 | Partial/indirect | Partial (depends on build) | ✅ (complete local support for import, markup handling, attachments, and navigation) |
+| PDF | ❌/Limited | ❌/Limited | ✅ (full page rendering, zoom/navigation, and caching) |
+| OTA updates | ✅ | ✅ (implementation varies) | ✅ (via GitHub releases of `yokki-vans/inkpointx`) |
+| Reading stats | limited | extended | ✅ (integrated and adapted from CrossInk) |
+| Photo frame | missing / experimental | missing | ✅ (built-in app in the main menu) |
+| Branding/logo | CrossPoint | CrossInk | InkPoint X |
+| Default version format | `1.x-dev-*` for dev builds | varies | `v1.0` (stable) |
 
-### Поддержка FB2
+### FB2 support
 
-- корректная разметка и разбиение на главы/разделы
-- обработка метаданных книги
-- поддержка вложений и иллюстраций
-- переход по позиции чтения и закладки
-- корректное пересчитывание прогресса в кэше устройства
+- proper document parsing and chapter/section splitting
+- metadata extraction and storage
+- support for attachments and images
+- reading position and bookmark navigation
+- correct cache/progress recalculation on device
 
-### Поддержка PDF
+### PDF support
 
-- нативное открытие и рендеринг PDF
-- переход по страницам и базовая навигация
-- отображение и масштабирование для комфортного чтения
-- сохранение кэша для ускорения повторных заходов
+- native PDF document loading and rendering
+- page-by-page navigation
+- on-device scaling for comfortable reading
+- caching for faster repeat opens
 
-## OTA-обновления
+## OTA updates
 
-В прошивке уже есть полноценный клиент OTA:
+The firmware already includes a full OTA client:
 
-- проверка новых релизов на GitHub
-- скачивание `firmware.bin` из assets релиза
-- установка с индикатором прогресса
-- сравнение версий и защита от понижения
+- checks for new releases on GitHub
+- downloads `firmware.bin` from release assets
+- shows install progress
+- compares versions and prevents downgrade
 
-Источником релизов является репозиторий:
+The release source is:
 
 - `https://api.github.com/repos/yokki-vans/inkpointx/releases/latest`
 
-и релизы здесь:
+And published releases are here:
 
 - https://github.com/yokki-vans/inkpointx/releases
 
-## Установка / обновление
+## Installation and updating
 
-### Быстрая установка
+### Quick install
 
-1. Подключите устройство по USB-C и разбудите его.
-2. Используйте ваш привычный USB-флешер/веб-флешер по инструкции производителя.
-3. Загрузите `firmware.bin` из релизов `yokki-vans/inkpointx` и прошейте.
+1. Connect the device via USB‑C and wake it up.
+2. Use your usual USB/web flasher workflow.
+3. Download `firmware.bin` from `yokki-vans/inkpointx` releases and flash it.
 
-### OTA из меню
+### OTA from device menu
 
-В меню настроек устройства открывайте пункт проверки обновлений:
+In the device Settings menu, open update check:
 
-- Wi‑Fi → Проверить обновления
-- Если доступна более новая версия — выбирайте установку
+- Wi‑Fi → Check for updates
+- If a newer version is available, choose Update
 
-### Командная строка (если нужна)
+### Command line (optional)
 
 ```bash
 pip install esptool
 esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 firmware.bin
 ```
 
-Нужно заменить `/dev/ttyACM0` на порт вашего устройства.
+Replace `/dev/ttyACM0` with your device port.
 
-## Что ещё включено
+## What else is included
 
-- EPUB/XTC/TXT и расширенная работа с форматами
-- веб-интерфейс для управления устройством
-- WebDAV и файловый доступ по сети
-- Wi‑Fi режимы AP/STA
-- OPDS и удалённое управление библиотекой
-- поддержка пользовательских шрифтов с SD-карты
-- лого/брендинг InkPoint X на экране
+- EPUB/XTC/TXT support and extended format handling
+- device web interface and network operations
+- WebDAV and network file access
+- Wi‑Fi AP/STA modes
+- OPDS and remote library control
+- custom font loading from SD card
+- InkPoint X logo/branding on the screen
 
-## Как собрать из исходников
+## Build from source
 
 ```bash
 git clone --recursive https://github.com/yokki-vans/inkpointx
@@ -102,37 +102,35 @@ cd inkpointx
 pio run --target upload
 ```
 
-Или, для сборки только бинаря:
+For binary-only local build:
 
 ```bash
 git submodule update --init --recursive
 pio run
 ```
 
-## Версии и диагностика
+## Versioning and troubleshooting
 
-В dev/локальной среде версия в логах теперь также подставляется как `v1.0`, без
-`-dev-...` суффикса. Это важно для корректного сравнения с OTA-релизами.
+In local/dev builds, the version shown in logs is now always `v1.0` (no `-dev-*` suffix), which is required for consistent OTA comparison.
 
-Если устройство не видит новую книгу:
+If a new book is not detected on device:
 
-- убедитесь, что имя файла корректное и формат действительно поддерживается;
-- перезапустите индексирование в UI (если меняли структуру файлов на SD).
+- verify filename and supported extension
+- re-run indexing in the file browser UI after SD card structure changes
 
-## История происхождения
+## Project origin
 
-InkPoint X — форк CrossPoint Reader. Базовая кодовая база, структура проектов и основные
-концепции рендера взяты из CrossPoint, затем доработаны под:
+InkPoint X is a fork of CrossPoint Reader. The core codebase, project structure, and rendering model come from CrossPoint, then were extended for:
 
-- расширение форматов (FB2 + PDF),
-- улучшенную локальную UX-навигацию,
-- собственный бренд и версионирование,
-- OTA-контур обновлений для отдельного форка.
+- expanded format support (FB2 + PDF),
+- improved reading UX flow,
+- dedicated branding and versioning,
+- independent OTA update pipeline for this fork.
 
-## Лицензии и источники
+## Licenses and attribution
 
-Проект остаётся open-source, и использует компоненты из CrossPoint/сообщества с соблюдением их лицензий.
+This remains an open-source project and includes components from CrossPoint and the broader community under their respective licenses.
 
-## Сообщество
+## Contributing
 
-Если хотите расширять проект, добавлять форматы и улучшения, лучше вести работу через форк или issue/PR в `yokki-vans/inkpointx`.
+If you want to extend the project, add formats, or improve features, continue via fork, issues, or PRs in `yokki-vans/inkpointx`.
