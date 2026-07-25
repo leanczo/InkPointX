@@ -1,6 +1,7 @@
 #include "SettingsActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <Logging.h>
 
 #include <algorithm>
@@ -21,10 +22,12 @@
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
 #include "StatusBarSettingsActivity.h"
+#include "activities/home/FileBrowserActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/SleepImageInstaller.h"
 
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
@@ -57,6 +60,8 @@ void SettingsActivity::rebuildSettingsLists() {
   }
 
   // Append device-only ACTION items
+  displaySettings.insert(displaySettings.begin() + 2,
+                         SettingInfo::Action(StrId::STR_LOCK_SCREEN_IMAGE, SettingAction::SelectSleepImage));
   controlsSettings.insert(controlsSettings.begin(),
                           SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
@@ -264,6 +269,31 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::Language:
         startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::SelectSleepImage:
+        startActivityForResult(
+            std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/", FileBrowserActivity::Mode::PickSleepImage),
+            [this](const ActivityResult& result) {
+              if (result.isCancelled || !std::holds_alternative<FilePathResult>(result.data)) return;
+
+              GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+              renderer.displayBuffer();
+
+              const auto& path = std::get<FilePathResult>(result.data).path;
+              const bool crop =
+                  SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
+              const bool installed = SleepImageInstaller::install(path, crop);
+              if (installed) {
+                SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM;
+                SETTINGS.saveToFile();
+                GUI.drawPopup(renderer, tr(STR_DONE));
+              } else {
+                GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
+              }
+              renderer.displayBuffer();
+              delay(900);
+              rebuildSettingsLists();
+            });
+        break;
       case SettingAction::None:
         // Do nothing
         break;
@@ -374,18 +404,22 @@ void SettingsActivity::render(RenderLock&&) {
           } else {
             valueText = std::to_string(SETTINGS.*(setting.valuePtr));
           }
+        } else if (setting.type == SettingType::ACTION && setting.nameId == StrId::STR_LOCK_SCREEN_IMAGE &&
+                   Storage.exists(SleepImageInstaller::INSTALLED_IMAGE_PATH)) {
+          valueText = tr(STR_SELECTED);
         }
         return valueText;
       },
       true);
 
   // Draw help text
-  const auto confirmLabel =
-      (selectedSettingIndex == 0)
-          ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-          : (selectedSettingIndex > 0 && (*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_TIME_TO_SLEEP
-                 ? tr(STR_SELECT)
-                 : tr(STR_TOGGLE));
+  const auto confirmLabel = (selectedSettingIndex == 0)
+                                ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
+                            : (selectedSettingIndex > 0 &&
+                               ((*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_TIME_TO_SLEEP ||
+                                (*currentSettings)[selectedSettingIndex - 1].type == SettingType::ACTION))
+                                ? tr(STR_SELECT)
+                                : tr(STR_TOGGLE);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

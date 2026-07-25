@@ -99,3 +99,15 @@ ruby -rdigest -e 'puts [
   "./notosans_8_regular.h",
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"
+
+echo "#define LOCKSCREEN_CLOCK_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./locksans_clock_72_light.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"
+
+echo "#define LOCKSCREEN_DATE_FONT_ID ($(
+ruby -rdigest -e 'puts [
+  "./locksans_date_11_medium.h",
+].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+))"

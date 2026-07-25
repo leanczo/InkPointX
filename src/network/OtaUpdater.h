@@ -3,13 +3,6 @@
 #include <string>
 
 class OtaUpdater {
-  bool updateAvailable = false;
-  std::string latestVersion;
-  std::string otaUrl;
-  size_t otaSize = 0;
-  size_t processedSize = 0;
-  size_t totalSize = 0;
-
  public:
   using ProgressCallback = void (*)(void* ctx);
 
@@ -23,15 +16,28 @@ class OtaUpdater {
     OOM_ERROR,
   };
 
+  OtaUpdater() = default;
+  bool isUpdateNewer() const;
+  const std::string& getLatestVersion() const;
+  OtaUpdaterError checkForUpdate();
+  OtaUpdaterError installUpdate(ProgressCallback onProgress = nullptr, void* ctx = nullptr);
+
+  void setProgress(size_t processed, size_t total, ProgressCallback onProgress, void* ctx);
+  void resetProgress();
+
   size_t getOtaSize() const { return otaSize; }
 
   size_t getProcessedSize() const { return processedSize; }
 
   size_t getTotalSize() const { return totalSize; }
 
-  OtaUpdater() = default;
-  bool isUpdateNewer() const;
-  const std::string& getLatestVersion() const;
-  OtaUpdaterError checkForUpdate();
-  OtaUpdaterError installUpdate(ProgressCallback onProgress = nullptr, void* ctx = nullptr);
+ private:
+  bool updateAvailable = false;
+  std::string latestVersion;
+  std::string otaUrl;
+  size_t otaSize = 0;
+  size_t processedSize = 0;
+  size_t totalSize = 0;
+  int lastProgressPercent = -1;
+  size_t lastProgressBytes = 0;
 };

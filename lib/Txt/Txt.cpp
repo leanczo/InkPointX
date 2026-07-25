@@ -5,25 +5,33 @@
 #include <Logging.h>
 
 Txt::Txt(std::string path, std::string cacheBasePath)
-    : filepath(std::move(path)), cacheBasePath(std::move(cacheBasePath)) {
+    : filepath(std::move(path)), contentPath(filepath), cacheBasePath(std::move(cacheBasePath)) {
   // Generate cache path from file path hash
   const size_t hash = std::hash<std::string>{}(filepath);
   cachePath = this->cacheBasePath + "/txt_" + std::to_string(hash);
 }
+
+Txt::Txt(std::string sourcePath, std::string contentPath, std::string cachePath, std::string title,
+         std::string author)
+    : filepath(std::move(sourcePath)),
+      contentPath(std::move(contentPath)),
+      cachePath(std::move(cachePath)),
+      title(std::move(title)),
+      author(std::move(author)) {}
 
 bool Txt::load() {
   if (loaded) {
     return true;
   }
 
-  if (!Storage.exists(filepath.c_str())) {
-    LOG_ERR("TXT", "File does not exist: %s", filepath.c_str());
+  if (!Storage.exists(contentPath.c_str())) {
+    LOG_ERR("TXT", "Content file does not exist: %s", contentPath.c_str());
     return false;
   }
 
   HalFile file;
-  if (!Storage.openFileForRead("TXT", filepath, file)) {
-    LOG_ERR("TXT", "Failed to open file: %s", filepath.c_str());
+  if (!Storage.openFileForRead("TXT", contentPath, file)) {
+    LOG_ERR("TXT", "Failed to open file: %s", contentPath.c_str());
     return false;
   }
 
@@ -36,13 +44,18 @@ bool Txt::load() {
 }
 
 std::string Txt::getTitle() const {
+  if (!title.empty()) {
+    return title;
+  }
+
   // Extract filename without path and extension
   size_t lastSlash = filepath.find_last_of('/');
   std::string filename = (lastSlash != std::string::npos) ? filepath.substr(lastSlash + 1) : filepath;
 
-  // Remove .txt extension
-  if (FsHelpers::hasTxtExtension(filename)) {
-    filename = filename.substr(0, filename.length() - 4);
+  // Remove the plain-text or Markdown extension.
+  if (FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename)) {
+    const size_t dot = filename.find_last_of('.');
+    filename = filename.substr(0, dot);
   }
 
   return filename;
@@ -176,7 +189,7 @@ bool Txt::readContent(uint8_t* buffer, size_t offset, size_t length) const {
   }
 
   HalFile file;
-  if (!Storage.openFileForRead("TXT", filepath, file)) {
+  if (!Storage.openFileForRead("TXT", contentPath, file)) {
     return false;
   }
 

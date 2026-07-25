@@ -29,7 +29,7 @@ constexpr int bookmarkStatusIconTopCrop = 2;
 bool statusBarTextLaneVisible() {
   return SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
          SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE || SETTINGS.statusBarBattery ||
-         (SETTINGS.statusBarClock && halClock.isAvailable());
+         (SETTINGS.statusBarClock && halClock.hasValidTime());
 }
 
 void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int y) {
@@ -823,8 +823,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     leftClusterWidth += batteryWidth;
   }
 
-  // Draw Clock (X3 only — DS3231 RTC)
-  if (SETTINGS.statusBarClock && halClock.isAvailable()) {
+  // Draw hardware RTC time on X3 or the current software time on X4.
+  if (SETTINGS.statusBarClock && halClock.hasValidTime()) {
     char timeBuf[9];
     if (halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
       int clockTextWidth = renderer.getTextWidth(SMALL_FONT_ID, timeBuf);

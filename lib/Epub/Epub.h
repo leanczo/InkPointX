@@ -19,6 +19,9 @@ class Epub {
   std::string tocNavItem;
   // where is the EPUBfile?
   std::string filepath;
+  // Optional unpacked EPUB package. FB2 books are converted to this low-memory
+  // representation and then use the exact same parser/reader as zipped EPUBs.
+  std::string looseItemRoot;
   // the base path for items in the EPUB file
   std::string contentBasePath;
   // Uniq cache key based on filepath
@@ -36,9 +39,12 @@ class Epub {
   bool parseTocNavFile() const;
   void discoverCssFilesFromZip();
   void parseCssFiles() const;
+  void detectLoosePackage();
+  std::string getLooseItemPath(const std::string& itemHref) const;
 
  public:
-  explicit Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
+  explicit Epub(std::string filepath, const std::string& cacheDir, std::string looseItemRoot = {})
+      : filepath(std::move(filepath)), looseItemRoot(std::move(looseItemRoot)) {
     // create a cache key based on the filepath
     cachePath = cacheDir + "/epub_" + std::to_string(std::hash<std::string>{}(this->filepath));
   }
@@ -49,6 +55,7 @@ class Epub {
   void setupCacheDir() const;
   const std::string& getCachePath() const;
   const std::string& getPath() const;
+  const std::string& getLooseItemRoot() const { return looseItemRoot; }
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
   const std::string& getLanguage() const;

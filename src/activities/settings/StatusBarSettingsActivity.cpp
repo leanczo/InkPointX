@@ -15,8 +15,8 @@
 #include "fontIds.h"
 
 namespace {
-// Menu items in their natural order. Clock entries are appended only when the
-// DS3231 RTC is present so X4 devices don't see them at all.
+// Menu items in their natural order. X3 keeps time in its DS3231; X4 exposes
+// the same controls for the software clock used by the sleep screen.
 enum MenuItem {
   ITEM_CHAPTER_PAGE_COUNT = 0,
   ITEM_BOOK_PROGRESS_PERCENTAGE,
@@ -25,15 +25,14 @@ enum MenuItem {
   ITEM_TITLE,
   ITEM_BATTERY,
   ITEM_XTC_STATUS_BAR,
-  ITEM_CLOCK,             // X3 only
-  ITEM_CLOCK_FORMAT,      // X3 only
-  ITEM_CLOCK_UTC_OFFSET,  // X3 only, launches ClockOffsetActivity
-  ITEM_CLOCK_SYNC,        // X3 only, launches ClockSyncActivity
+  ITEM_CLOCK,
+  ITEM_CLOCK_FORMAT,
+  ITEM_CLOCK_UTC_OFFSET,
+  ITEM_CLOCK_SYNC,
   ITEM_COUNT
 };
 
-constexpr int BASE_MENU_ITEMS = ITEM_CLOCK;  // Items shown on every device
-constexpr int FULL_MENU_ITEMS = ITEM_COUNT;  // Items shown when RTC is available
+constexpr int FULL_MENU_ITEMS = ITEM_COUNT;
 
 const StrId menuNames[FULL_MENU_ITEMS] = {
     StrId::STR_CHAPTER_PAGE_COUNT,
@@ -88,7 +87,7 @@ void StatusBarSettingsActivity::onEnter() {
   Activity::onEnter();
 
   selectedIndex = 0;
-  visibleItemCount = halClock.isAvailable() ? FULL_MENU_ITEMS : BASE_MENU_ITEMS;
+  visibleItemCount = FULL_MENU_ITEMS;
 
   // Clamp statusBarProgressBar and statusBarTitle in case of corrupt/migrated data
   if (SETTINGS.statusBarProgressBar >= PROGRESS_BAR_ITEMS) {

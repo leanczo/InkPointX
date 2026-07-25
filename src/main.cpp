@@ -34,6 +34,11 @@
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
+// Native PDF parsing has legitimate recursive dictionary/array paths and can
+// enter newlib formatting while several parser frames are live.  The Arduino
+// default (8 KiB) is too small for real-world PDFs on ESP32-C3.
+SET_LOOP_TASK_STACK_SIZE(16384);
+
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
 ActivityManager activityManager(renderer, mappedInputManager);
@@ -106,6 +111,12 @@ EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
 EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
 EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+
+// Compact OFL-licensed Inter subsets used exclusively by the sleep lock screen.
+EpdFont lockScreenClockFont(&locksans_clock_72_light);
+EpdFontFamily lockScreenClockFontFamily(&lockScreenClockFont);
+EpdFont lockScreenDateFont(&locksans_date_11_medium);
+EpdFontFamily lockScreenDateFontFamily(&lockScreenDateFont);
 
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
@@ -251,6 +262,10 @@ void enterDeepSleep(bool fromTimeout = false) {
   deepSleepInProgress = true;
   activityManager.goToSleep(fromTimeout);
 
+  // X4 loses its internal clock when the battery latch removes power. Keep the
+  // best known epoch on SD so the next boot still has a useful visual fallback.
+  halClock.saveCurrentTime();
+
   if (isQuickResumeSleep) {
     saveSleepFrameBuffer();
   }
@@ -295,6 +310,8 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+  renderer.insertFont(LOCKSCREEN_CLOCK_FONT_ID, lockScreenClockFontFamily);
+  renderer.insertFont(LOCKSCREEN_DATE_FONT_ID, lockScreenDateFontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);
@@ -345,6 +362,7 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+  halClock.restoreFromStorage();
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -392,7 +410,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
+  LOG_DBG("MAIN", "Starting InkPoint X version " CROSSPOINT_VERSION);
 
   // Resolve the single boot-presentation decision. Skipping the splash also
   // skips the panel-clearing pass and the X3 initial-full-sync arming (see

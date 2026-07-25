@@ -100,7 +100,8 @@ bool BookMetadataCache::endWrite() {
   return true;
 }
 
-bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMetadata& metadata) {
+bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMetadata& metadata,
+                                     const std::string& looseItemRoot) {
   // Open all three files, writing to meta, reading from spine and toc
   if (!Storage.openFileForWrite("BMC", cachePath + bookBinFile, bookFile)) {
     return false;
@@ -171,8 +172,10 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   }
 
   ZipFile zip(epubPath);
-  // Pre-open zip file to speed up size calculations
-  if (!zip.open()) {
+  const bool loosePackage = !looseItemRoot.empty();
+  // Pre-open zip file to speed up size calculations. FB2-derived packages are
+  // ordinary files in a cache directory and deliberately skip ZipFile.
+  if (!loosePackage && !zip.open()) {
     LOG_ERR("BMC", "Could not open EPUB zip for size calculations");
     // Explicit close() required: member variables persist beyond function scope
     bookFile.close();
@@ -191,7 +194,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
   std::deque<uint32_t> spineSizes;
   bool useBatchSizes = false;
 
-  if (spineCount >= LARGE_SPINE_THRESHOLD) {
+  if (!loosePackage && spineCount >= LARGE_SPINE_THRESHOLD) {
     LOG_DBG("BMC", "Using batch size lookup for %d spine items", spineCount);
 
     std::deque<ZipFile::SizeTarget> targets;
@@ -241,7 +244,17 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     lastSpineTocIndex = spineEntry.tocIndex;
 
     size_t itemSize = 0;
-    if (useBatchSizes) {
+    if (loosePackage) {
+      const std::string path = FsHelpers::normalisePath(spineEntry.href);
+      const std::string itemPath = looseItemRoot + "/" + path;
+      HalFile itemFile;
+      if (Storage.openFileForRead("BMC", itemPath, itemFile)) {
+        itemSize = static_cast<size_t>(itemFile.fileSize64());
+        itemFile.close();
+      } else {
+        LOG_ERR("BMC", "Warning: Could not get size for loose spine item: %s", path.c_str());
+      }
+    } else if (useBatchSizes) {
       itemSize = spineSizes[i];
       if (itemSize == 0) {
         const std::string path = FsHelpers::normalisePath(spineEntry.href);
@@ -263,7 +276,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     writeSpineEntry(bookFile, spineEntry);
   }
   // Close opened zip file
-  zip.close();
+  if (!loosePackage) zip.close();
 
   // Loop through toc entries from toc file writing to book.bin
   tocFile.seek(0);

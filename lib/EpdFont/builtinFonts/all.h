@@ -1,5 +1,7 @@
 #pragma once
 
+#include <builtinFonts/locksans_clock_72_light.h>
+#include <builtinFonts/locksans_date_11_medium.h>
 #include <builtinFonts/notoserif_12_bold.h>
 #include <builtinFonts/notoserif_12_bolditalic.h>
 #include <builtinFonts/notoserif_12_italic.h>

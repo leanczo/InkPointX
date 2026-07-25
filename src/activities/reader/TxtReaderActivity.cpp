@@ -21,7 +21,7 @@ namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 4;          // Increment when cache format changes
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -37,10 +37,9 @@ void TxtReaderActivity::onEnter() {
 
   // Save current txt as last opened file and add to recent books
   auto filePath = txt->getPath();
-  auto fileName = filePath.substr(filePath.rfind('/') + 1);
   APP_STATE.openEpubPath = filePath;
   APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(filePath, fileName, "", "");
+  RECENT_BOOKS.addBook(filePath, txt->getTitle(), txt->getAuthor(), "");
 
   // Trigger first update
   requestUpdate();
@@ -48,6 +47,10 @@ void TxtReaderActivity::onEnter() {
 
 void TxtReaderActivity::onExit() {
   Activity::onExit();
+
+  if (initialized && txt && !pageOffsets.empty()) {
+    savePageIndexCache();
+  }
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -82,10 +85,10 @@ void TxtReaderActivity::loop() {
     currentPage--;
     requestUpdate();
   } else if (nextTriggered) {
-    if (currentPage < totalPages - 1) {
+    if (currentPage + 1 < static_cast<int>(pageOffsets.size())) {
       currentPage++;
       requestUpdate();
-    } else {
+    } else if (fullyIndexed) {
       onGoHome();
     }
   }
@@ -119,57 +122,20 @@ void TxtReaderActivity::initializeReader() {
 
   LOG_DBG("TRS", "Viewport: %dx%d, lines per page: %d", viewportWidth, viewportHeight, linesPerPage);
 
-  // Try to load cached page index first
+  // Load any pages discovered during earlier reading sessions. A new book is
+  // deliberately not indexed in full here: large FB2/TXT files should open
+  // immediately, with the next page offset discovered while rendering.
   if (!loadPageIndexCache()) {
-    // Cache not found, build page index
-    buildPageIndex();
-    // Save to cache for next time
-    savePageIndexCache();
+    pageOffsets.clear();
+    pageOffsets.push_back(0);
+    totalPages = 1;
+    fullyIndexed = false;
   }
 
   // Load saved progress
   loadProgress();
 
   initialized = true;
-}
-
-void TxtReaderActivity::buildPageIndex() {
-  pageOffsets.clear();
-  pageOffsets.push_back(0);  // First page starts at offset 0
-
-  size_t offset = 0;
-  const size_t fileSize = txt->getFileSize();
-
-  LOG_DBG("TRS", "Building page index for %zu bytes...", fileSize);
-
-  GUI.drawPopup(renderer, tr(STR_INDEXING));
-
-  while (offset < fileSize) {
-    std::vector<std::string> tempLines;
-    size_t nextOffset = offset;
-
-    if (!loadPageAtOffset(offset, tempLines, nextOffset)) {
-      break;
-    }
-
-    if (nextOffset <= offset) {
-      // No progress made, avoid infinite loop
-      break;
-    }
-
-    offset = nextOffset;
-    if (offset < fileSize) {
-      pageOffsets.push_back(offset);
-    }
-
-    // Yield to other tasks periodically
-    if (pageOffsets.size() % 20 == 0) {
-      vTaskDelay(1);
-    }
-  }
-
-  totalPages = pageOffsets.size();
-  LOG_DBG("TRS", "Built page index: %d pages", totalPages);
 }
 
 bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset) {
@@ -244,44 +210,73 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
         break;
       }
 
-      int lineWidth = renderer.getTextAdvanceX(cachedFontId, line.c_str(), EpdFontFamily::REGULAR);
+      // Build a visual line word by word. The previous implementation started
+      // with the entire (up to 8 KB) paragraph and repeatedly measured shorter
+      // prefixes. FB2 paragraphs are commonly one very long XML line, making
+      // that algorithm quadratic and causing multi-minute indexing.
+      const int spaceWidth = renderer.getTextAdvanceX(cachedFontId, " ", EpdFontFamily::REGULAR);
+      size_t breakPos = 0;
+      size_t cursor = 0;
+      int usedWidth = 0;
 
-      if (lineWidth <= viewportWidth) {
-        outLines.push_back(line);
-        lineBytePos = displayLen;  // Consumed entire display content
-        line.clear();
+      while (cursor < line.length()) {
+        while (cursor < line.length() && line[cursor] == ' ') cursor++;
+        const size_t wordStart = cursor;
+        while (cursor < line.length() && line[cursor] != ' ') cursor++;
+        const size_t wordEnd = cursor;
+        if (wordStart == wordEnd) break;
+
+        const std::string word = line.substr(wordStart, wordEnd - wordStart);
+        const int wordWidth = renderer.getTextAdvanceX(cachedFontId, word.c_str(), EpdFontFamily::REGULAR);
+        const int separatorWidth = breakPos > 0 ? spaceWidth : 0;
+        if (usedWidth + separatorWidth + wordWidth <= viewportWidth) {
+          usedWidth += separatorWidth + wordWidth;
+          breakPos = wordEnd;
+          continue;
+        }
+
+        if (breakPos > 0) break;
+
+        // A single word is wider than the viewport. Find the largest UTF-8
+        // prefix that fits with logarithmic rather than byte-by-byte probing.
+        size_t low = 1;
+        size_t high = word.length();
+        size_t best = 0;
+        while (low <= high) {
+          const size_t midpoint = low + (high - low) / 2;
+          size_t candidate = midpoint;
+          while (candidate > 0 && candidate < word.length() &&
+                 (static_cast<unsigned char>(word[candidate]) & 0xC0) == 0x80) {
+            candidate--;
+          }
+          if (candidate == 0) {
+            low = midpoint + 1;
+            continue;
+          }
+          const std::string prefix = word.substr(0, candidate);
+          if (renderer.getTextAdvanceX(cachedFontId, prefix.c_str(), EpdFontFamily::REGULAR) <= viewportWidth) {
+            best = candidate;
+            low = midpoint + 1;
+          } else {
+            if (candidate <= 1) break;
+            high = candidate - 1;
+          }
+        }
+        if (best == 0) {
+          best = 1;
+          while (best < word.length() && (static_cast<unsigned char>(word[best]) & 0xC0) == 0x80) best++;
+        }
+        breakPos = wordStart + best;
         break;
       }
 
-      // Find break point
-      size_t breakPos = line.length();
-      while (breakPos > 0 && renderer.getTextAdvanceX(cachedFontId, line.substr(0, breakPos).c_str(),
-                                                      EpdFontFamily::REGULAR) > viewportWidth) {
-        // Try to break at space
-        size_t spacePos = line.rfind(' ', breakPos - 1);
-        if (spacePos != std::string::npos && spacePos > 0) {
-          breakPos = spacePos;
-        } else {
-          // Break at character boundary for UTF-8
-          breakPos--;
-          // Make sure we don't break in the middle of a UTF-8 sequence
-          while (breakPos > 0 && (line[breakPos] & 0xC0) == 0x80) {
-            breakPos--;
-          }
-        }
-      }
-
-      if (breakPos == 0) {
-        breakPos = 1;
-      }
+      if (breakPos == 0) breakPos = line.length();
 
       outLines.push_back(line.substr(0, breakPos));
 
-      // Skip space at break point
+      // Skip whitespace at the break point.
       size_t skipChars = breakPos;
-      if (breakPos < line.length() && line[breakPos] == ' ') {
-        skipChars++;
-      }
+      while (skipChars < line.length() && line[skipChars] == ' ') skipChars++;
       lineBytePos += skipChars;
       line = line.substr(skipChars);
     } while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage);
@@ -335,13 +330,37 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   // Bounds check
   if (currentPage < 0) currentPage = 0;
-  if (currentPage >= totalPages) currentPage = totalPages - 1;
+  if (currentPage >= static_cast<int>(pageOffsets.size())) currentPage = pageOffsets.size() - 1;
 
   // Load current page content
   size_t offset = pageOffsets[currentPage];
   size_t nextOffset;
   currentPageLines.clear();
   loadPageAtOffset(offset, currentPageLines, nextOffset);
+  currentPageEndOffset = nextOffset;
+
+  bool indexChanged = false;
+  if (nextOffset > offset && currentPage + 1 == static_cast<int>(pageOffsets.size())) {
+    if (nextOffset < txt->getFileSize()) {
+      pageOffsets.push_back(nextOffset);
+    } else {
+      fullyIndexed = true;
+    }
+    indexChanged = true;
+  }
+
+  if (fullyIndexed) {
+    totalPages = pageOffsets.size();
+  } else if (nextOffset > 0) {
+    const uint64_t estimate =
+        (static_cast<uint64_t>(txt->getFileSize()) * static_cast<uint64_t>(currentPage + 1) + nextOffset - 1) /
+        nextOffset;
+    totalPages = std::max<int>(pageOffsets.size(), static_cast<int>(estimate));
+  } else {
+    totalPages = pageOffsets.size();
+  }
+
+  if (indexChanged) savePageIndexCache();
 
   renderer.clearScreen();
   renderPage();
@@ -413,7 +432,7 @@ void TxtReaderActivity::renderPage() {
 }
 
 void TxtReaderActivity::renderStatusBar() const {
-  const float progress = totalPages > 0 ? (currentPage + 1) * 100.0f / totalPages : 0;
+  const float progress = txt->getFileSize() > 0 ? currentPageEndOffset * 100.0f / txt->getFileSize() : 0;
   std::string title;
   if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
     title = txt->getTitle();
@@ -459,6 +478,7 @@ bool TxtReaderActivity::loadPageIndexCache() {
   // - int32_t: font ID (to invalidate cache on font change)
   // - int32_t: screen margin (to invalidate cache on margin change)
   // - uint8_t: paragraph alignment (to invalidate cache on alignment change)
+  // - uint8_t: whether the final page has been discovered
   // - uint32_t: total pages count
   // - N * uint32_t: page offsets
 
@@ -526,6 +546,10 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
+  uint8_t complete;
+  serialization::readPod(f, complete);
+  fullyIndexed = complete != 0;
+
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
@@ -539,6 +563,9 @@ bool TxtReaderActivity::loadPageIndexCache() {
     pageOffsets.push_back(offset);
   }
 
+  if (pageOffsets.empty()) {
+    return false;
+  }
   totalPages = pageOffsets.size();
   LOG_DBG("TRS", "Loaded page index cache: %d pages", totalPages);
   return true;
@@ -561,6 +588,7 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedFontId));
   serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
   serialization::writePod(f, cachedParagraphAlignment);
+  serialization::writePod(f, static_cast<uint8_t>(fullyIndexed ? 1 : 0));
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   // Write page offsets
@@ -580,7 +608,9 @@ ScreenshotInfo TxtReaderActivity::getScreenshotInfo() const {
   }
   info.currentPage = currentPage + 1;
   info.totalPages = totalPages;
-  info.progressPercent = totalPages > 0 ? static_cast<int>((currentPage + 1) * 100.0f / totalPages + 0.5f) : 0;
+  info.progressPercent = txt && txt->getFileSize() > 0
+                             ? static_cast<int>(currentPageEndOffset * 100.0f / txt->getFileSize() + 0.5f)
+                             : 0;
   if (info.progressPercent > 100) info.progressPercent = 100;
   return info;
 }

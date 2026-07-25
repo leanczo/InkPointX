@@ -21,7 +21,7 @@ class StatusBarSettingsActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   int selectedIndex = 0;
-  // Decided in onEnter() based on halClock.isAvailable() so clock entries are hidden on X4.
+  // Clock controls are available on both X3 hardware RTC and X4 software time.
   int visibleItemCount = 0;
 
   void handleSelection();

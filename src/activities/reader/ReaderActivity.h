@@ -14,9 +14,17 @@ class ReaderActivity final : public Activity {
   static std::unique_ptr<Epub> loadEpub(const std::string& path);
   static std::unique_ptr<Xtc> loadXtc(const std::string& path);
   static std::unique_ptr<Txt> loadTxt(const std::string& path);
+  static std::unique_ptr<Epub> loadFb2AsEpub(const std::string& path);
+  std::unique_ptr<Epub> loadPdfAsEpub(const std::string& path);
+  static void pdfProgressCallback(void* context, size_t page, size_t pageCount);
+  void renderPdfProgress(size_t page, size_t pageCount);
   static bool isXtcFile(const std::string& path);
   static bool isTxtFile(const std::string& path);
+  static bool isFb2File(const std::string& path);
+  static bool isPdfFile(const std::string& path);
   static bool isBmpFile(const std::string& path);
+
+  int lastPdfProgressBucket = -1;
 
   void goToLibrary(const std::string& fromBookPath = "");
   void onGoToEpubReader(std::unique_ptr<Epub> epub);
