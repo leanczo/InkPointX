@@ -31,6 +31,8 @@ class OtaUpdateActivity : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool preventAutoSleep() override { return state == CHECKING_FOR_UPDATE || state == UPDATE_IN_PROGRESS; }
+  bool preventAutoSleep() override {
+    return state == CHECKING_FOR_UPDATE || state == WAITING_CONFIRMATION || state == UPDATE_IN_PROGRESS;
+  }
   bool skipLoopDelay() override { return true; }  // Prevent power-saving mode
 };

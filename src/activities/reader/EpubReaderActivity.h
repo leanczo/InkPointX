@@ -6,6 +6,8 @@
 #include <optional>
 
 #include "BookmarkEntry.h"
+#include "BookReadingStats.h"
+#include "GlobalReadingStats.h"
 #include "EpubReaderMenuActivity.h"
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
@@ -24,6 +26,12 @@ class EpubReaderActivity final : public Activity {
   int cachedChapterTotalPageCount = 0;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
+  unsigned long pageShownAtMs = 0UL;
+  uint32_t sessionReadingSeconds = 0UL;
+  ReadingStatsDateTime sessionStartLocalDateTime;
+  bool hasSessionStartLocalDateTime = false;
+  BookReadingStats stats;
+  GlobalReadingStats globalStats;
   // Signals that the next render should reposition within the newly loaded section
   // based on a cross-book percentage jump.
   bool pendingPercentJump = false;
@@ -69,6 +77,11 @@ class EpubReaderActivity final : public Activity {
   bool launchKOReaderSync();
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
+  float getCurrentBookProgressPercent() const;
+  bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
+  void recordCurrentPageReadingTime(const char* source = "unknown");
+  bool estimateRemainingPages(float& remainingPages) const;
+  bool estimateTimeLeftSeconds(uint32_t& seconds) const;
   void pageTurn(bool isForwardTurn);
   void loadCachedBookmarks();
   void addBookmark();

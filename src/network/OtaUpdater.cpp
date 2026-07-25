@@ -12,6 +12,7 @@
 #include <esp_http_client.h>
 #include <esp_https_ota.h>
 #include <esp_wifi.h>
+#include "FirmwareFlasher.h"
 // clang-format on
 
 #include <cctype>
@@ -19,6 +20,81 @@
 
 namespace {
 constexpr char latestReleaseUrl[] = "https://api.github.com/repos/yokki-vans/inkpointx/releases/latest";
+constexpr char otaStagingPath[] = "/.ota_update.bin";
+
+struct FlashProgressContext {
+  OtaUpdater* updater = nullptr;
+  OtaUpdater::ProgressCallback onProgress = nullptr;
+  void* callbackContext = nullptr;
+};
+
+void onFlashProgress(size_t processed, size_t total, void* context) {
+  auto* flashContext = static_cast<FlashProgressContext*>(context);
+  if (!flashContext || !flashContext->updater) {
+    return;
+  }
+  flashContext->updater->setProgress(processed, total, flashContext->onProgress, flashContext->callbackContext);
+}
+
+OtaUpdater::OtaUpdaterError performDirectHttpOta(const std::string& otaUrl, OtaUpdater::ProgressCallback onProgress, void* ctx,
+                                                  OtaUpdater* updater) {
+  esp_https_ota_handle_t ota_handle = NULL;
+  esp_err_t esp_err;
+
+  esp_http_client_config_t client_config = {
+      .url = otaUrl.c_str(),
+      .timeout_ms = 60000,
+      .buffer_size = 4096,
+      .buffer_size_tx = 1024,
+      .skip_cert_common_name_check = true,
+      .crt_bundle_attach = esp_crt_bundle_attach,
+      .keep_alive_enable = true,
+  };
+
+  http_client_init_cb_t setUa = +[](esp_http_client_handle_t client) -> esp_err_t {
+    return esp_http_client_set_header(client, "User-Agent", "InkPoint-ESP32-" CROSSPOINT_VERSION);
+  };
+
+  esp_https_ota_config_t ota_config = {
+      .http_config = &client_config,
+      .http_client_init_cb = setUa,
+  };
+
+  esp_err = esp_https_ota_begin(&ota_config, &ota_handle);
+  if (esp_err != ESP_OK) {
+    LOG_DBG("OTA", "HTTP OTA Begin Failed: %s", esp_err_to_name(esp_err));
+    return OtaUpdater::INTERNAL_UPDATE_ERROR;
+  }
+
+  do {
+    esp_err = esp_https_ota_perform(ota_handle);
+    if (updater) {
+      updater->setProgress(esp_https_ota_get_image_len_read(ota_handle), updater->getTotalSize(), onProgress, ctx);
+    }
+    delay(1);
+  } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+
+  if (esp_err != ESP_OK) {
+    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s", esp_err_to_name(esp_err));
+    esp_https_ota_finish(ota_handle);
+    return OtaUpdater::HTTP_ERROR;
+  }
+
+  if (!esp_https_ota_is_complete_data_received(ota_handle)) {
+    LOG_ERR("OTA", "esp_https_ota_is_complete_data_received Failed: %s", esp_err_to_name(esp_err));
+    esp_https_ota_finish(ota_handle);
+    return OtaUpdater::INTERNAL_UPDATE_ERROR;
+  }
+
+  esp_err = esp_https_ota_finish(ota_handle);
+  if (esp_err != ESP_OK) {
+    LOG_ERR("OTA", "esp_https_ota_finish Failed: %s", esp_err_to_name(esp_err));
+    return OtaUpdater::INTERNAL_UPDATE_ERROR;
+  }
+
+  LOG_INF("OTA", "OTA update completed (direct)");
+  return OtaUpdater::OK;
+}
 
 bool parseVersion(const char* version, int& major, int& minor, int& patch) {
   major = 0;
@@ -63,10 +139,51 @@ bool parseVersion(const char* version, int& major, int& minor, int& patch) {
   return true;
 }
 
-esp_err_t http_client_set_header_cb(esp_http_client_handle_t http_client) {
-  return esp_http_client_set_header(http_client, "User-Agent", "InkPoint-ESP32-" CROSSPOINT_VERSION);
-}
 }  // namespace
+
+void OtaUpdater::resetProgress() {
+  lastProgressPercent = -1;
+  lastProgressBytes = 0;
+}
+
+void OtaUpdater::setProgress(const size_t processed, const size_t total, const ProgressCallback onProgress, void* ctx) {
+  processedSize = processed;
+  if (total > 0) {
+    totalSize = total;
+  }
+
+  if (total == 0) {
+    if (!onProgress) {
+      return;
+    }
+    if (processed == 0 || processed - lastProgressBytes < (64 * 1024)) {
+      return;
+    }
+    lastProgressBytes = processed;
+    onProgress(ctx);
+    return;
+  }
+
+  lastProgressBytes = processed;
+
+  if (lastProgressPercent < 0) {
+    lastProgressPercent = 0;
+    if (onProgress) {
+      onProgress(ctx);
+    }
+    return;
+  }
+
+  const int pct = (processed * 100) / total;
+  if (pct == lastProgressPercent) {
+    return;
+  }
+
+  lastProgressPercent = pct;
+  if (onProgress) {
+    onProgress(ctx);
+  }
+}
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   LOG_DBG("OTA", "Checking for update (current: %s)", CROSSPOINT_VERSION);
@@ -163,75 +280,77 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return UPDATE_OLDER_ERROR;
   }
 
-  esp_https_ota_handle_t ota_handle = NULL;
-  esp_err_t esp_err;
-
-  esp_http_client_config_t client_config = {
-      .url = otaUrl.c_str(),
-      .timeout_ms = 15000,
-      // 4096 holds the github->CDN redirect headers (the 512 default truncates
-      // them); TX only carries our GET. Both are contiguous blocks contending
-      // with the TLS handshake on a tight internal arena, so keep them minimal.
-      .buffer_size = 4096,
-      .buffer_size_tx = 1024,
-      .skip_cert_common_name_check = true,
-      .crt_bundle_attach = esp_crt_bundle_attach,
-      .keep_alive_enable = true,
-  };
-
-  esp_https_ota_config_t ota_config = {
-      .http_config = &client_config,
-      .http_client_init_cb = http_client_set_header_cb,
-  };
-
-  /* For better timing and connectivity, we disable power saving for WiFi */
-  esp_wifi_set_ps(WIFI_PS_NONE);
-
-  esp_err = esp_https_ota_begin(&ota_config, &ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_DBG("OTA", "HTTP OTA Begin Failed: %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
+  resetProgress();
+  const auto restorePowerSave = []() { esp_wifi_set_ps(WIFI_PS_MIN_MODEM); };
+  if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {
+    LOG_ERR("OTA", "Failed to disable Wi-Fi power save for update");
   }
 
-  int lastReportedPct = -1;
-  do {
-    esp_err = esp_https_ota_perform(ota_handle);
-    processedSize = esp_https_ota_get_image_len_read(ota_handle);
-    // Fire the callback only on whole-percent change. Without this it fired
-    // every ~100ms perform iteration, waking the render task whose framebuffer
-    // work contends with TLS on the same internal arena. E-ink can't repaint
-    // faster than a percent tick anyway.
-    if (onProgress && totalSize > 0) {
-      const int pct = static_cast<int>(static_cast<uint64_t>(processedSize) * 100 / totalSize);
-      if (pct != lastReportedPct) {
-        lastReportedPct = pct;
-        onProgress(ctx);
-      }
+  setProgress(0, totalSize, onProgress, ctx);
+  const bool canStage = Storage.ready();
+
+  const auto directUpdate = [&]() {
+    const auto result = performDirectHttpOta(otaUrl, onProgress, ctx, this);
+    if (result != OtaUpdater::OK) {
+      LOG_ERR("OTA", "Direct OTA update failed");
     }
-    delay(100);  // TODO: should we replace this with something better?
-  } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
+    return result;
+  };
 
-  /* Return back to default power saving for WiFi in case of failing */
-  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
-    return HTTP_ERROR;
+  if (!canStage) {
+    LOG_DBG("OTA", "Storage not ready, using direct OTA path only");
+    const auto directResult = directUpdate();
+    restorePowerSave();
+    return directResult;
   }
 
-  if (!esp_https_ota_is_complete_data_received(ota_handle)) {
-    LOG_ERR("OTA", "esp_https_ota_is_complete_data_received Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
-    return INTERNAL_UPDATE_ERROR;
+  const auto directResult = directUpdate();
+  if (directResult == OtaUpdater::OK) {
+    restorePowerSave();
+    return directResult;
   }
 
-  esp_err = esp_https_ota_finish(ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_finish Failed: %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
+  LOG_DBG("OTA", "Direct OTA path failed, trying staging path");
+
+  if (Storage.exists(otaStagingPath)) {
+    Storage.remove(otaStagingPath);
   }
 
-  LOG_INF("OTA", "Update completed");
+  auto onDownloadProgress = [this, onProgress, ctx](size_t downloaded, size_t total) {
+    setProgress(downloaded, total, onProgress, ctx);
+  };
+
+  if (HttpDownloader::downloadToFile(otaUrl, otaStagingPath, onDownloadProgress) != HttpDownloader::OK) {
+    LOG_ERR("OTA", "OTA firmware download failed");
+    Storage.remove(otaStagingPath);
+    LOG_DBG("OTA", "Falling back to direct OTA path");
+    const auto directResult = directUpdate();
+    restorePowerSave();
+    return directResult;
+  }
+
+  FlashProgressContext flashContext{this, onProgress, ctx};
+  const auto flashResult = firmware_flash::flashFromSdPath(otaStagingPath, onFlashProgress, &flashContext);
+
+  if (flashResult != firmware_flash::Result::OK) {
+    LOG_ERR("OTA", "Firmware flash failed: %s", firmware_flash::resultName(flashResult));
+    Storage.remove(otaStagingPath);
+    LOG_DBG("OTA", "Falling back to direct OTA path after staging flash failure");
+    const auto directResult = directUpdate();
+    restorePowerSave();
+    return directResult;
+  }
+
+  if (!Storage.remove(otaStagingPath)) {
+    LOG_DBG("OTA", "Failed to remove staging OTA file");
+  }
+
+  if (onProgress) {
+    processedSize = totalSize;
+    onProgress(ctx);
+  }
+
+  LOG_INF("OTA", "OTA update staging and flash completed");
+  restorePowerSave();
   return OK;
 }

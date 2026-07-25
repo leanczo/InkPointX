@@ -7,18 +7,24 @@
 
 class Txt {
   std::string filepath;
+  std::string contentPath;
   std::string cacheBasePath;
   std::string cachePath;
+  std::string title;
+  std::string author;
   bool loaded = false;
   size_t fileSize = 0;
 
  public:
   explicit Txt(std::string path, std::string cacheBasePath);
+  Txt(std::string sourcePath, std::string contentPath, std::string cachePath, std::string title,
+      std::string author = "");
 
   bool load();
   [[nodiscard]] const std::string& getPath() const { return filepath; }
   [[nodiscard]] const std::string& getCachePath() const { return cachePath; }
   [[nodiscard]] std::string getTitle() const;
+  [[nodiscard]] const std::string& getAuthor() const { return author; }
   [[nodiscard]] size_t getFileSize() const { return fileSize; }
 
   void setupCacheDir() const;

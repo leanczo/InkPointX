@@ -1,0 +1,14 @@
+{
+  "name": "PdfioReadOnly",
+  "version": "1.6.4-x4",
+  "description": "Memory-tuned read-only PDFio 1.6.4 with callback I/O for XTEINK X4",
+  "license": "Apache-2.0",
+  "build": {
+    "flags": [
+      "-DPDFIO_READ_ONLY=1",
+      "-DPDFIO_PNGDEC_ZLIB=1",
+      "-ffunction-sections",
+      "-fdata-sections"
+    ]
+  }
+}

@@ -8,6 +8,8 @@
 #include <Utf8.h>
 #include <ZipFile.h>
 
+#include <cstdlib>
+
 #include "Epub/parsers/ContainerParser.h"
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/TocNavParser.h"
@@ -259,6 +261,12 @@ bool Epub::parseTocNavFile() const {
 }
 
 void Epub::discoverCssFilesFromZip() {
+  // Loose packages are generated with a complete OPF manifest, so there is no
+  // archive central directory to scan and no fallback discovery is needed.
+  if (!looseItemRoot.empty()) {
+    return;
+  }
+
   const std::string& opfDir = contentBasePath;
   ZipFile zf(filepath);
 
@@ -363,6 +371,7 @@ void Epub::parseCssFiles() const {
 
 // load in the meta data for the epub file
 bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
+  detectLoosePackage();
   LOG_DBG("EBP", "Loading ePub: %s", filepath.c_str());
 
   // Initialize spine/TOC cache
@@ -475,7 +484,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
 
   // Build final book.bin
   const uint32_t buildStart = millis();
-  if (!bookMetadataCache->buildBookBin(filepath, bookMetadata)) {
+  if (!bookMetadataCache->buildBookBin(filepath, bookMetadata, looseItemRoot)) {
     LOG_ERR("EBP", "Could not update mappings and sizes");
     return false;
   }
@@ -759,6 +768,36 @@ uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size
 
   const std::string path = FsHelpers::normalisePath(itemHref);
 
+  if (!looseItemRoot.empty()) {
+    const std::string loosePath = getLooseItemPath(path);
+    HalFile file;
+    if (loosePath.empty() || !Storage.openFileForRead("EBP", loosePath, file)) {
+      LOG_DBG("EBP", "Failed to read loose item %s", path.c_str());
+      return nullptr;
+    }
+
+    const uint64_t fileSize = file.fileSize64();
+    if (fileSize > SIZE_MAX - (trailingNullByte ? 1u : 0u)) {
+      file.close();
+      return nullptr;
+    }
+    const size_t contentSize = static_cast<size_t>(fileSize);
+    auto* content = static_cast<uint8_t*>(malloc(contentSize + (trailingNullByte ? 1u : 0u)));
+    if (!content) {
+      file.close();
+      return nullptr;
+    }
+    const int bytesRead = file.read(content, contentSize);
+    file.close();
+    if (bytesRead < 0 || static_cast<size_t>(bytesRead) != contentSize) {
+      free(content);
+      return nullptr;
+    }
+    if (trailingNullByte) content[contentSize] = 0;
+    if (size) *size = contentSize;
+    return content;
+  }
+
   const auto content = ZipFile(filepath).readFileToMemory(path.c_str(), size, trailingNullByte);
   if (!content) {
     LOG_DBG("EBP", "Failed to read item %s", path.c_str());
@@ -775,12 +814,47 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   }
 
   const std::string path = FsHelpers::normalisePath(itemHref);
+  if (!looseItemRoot.empty()) {
+    const std::string loosePath = getLooseItemPath(path);
+    return !loosePath.empty() && Storage.readFileToStream(loosePath.c_str(), out, chunkSize);
+  }
   return ZipFile(filepath).readFileToStream(path.c_str(), out, chunkSize);
 }
 
 bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
   const std::string path = FsHelpers::normalisePath(itemHref);
+  if (!looseItemRoot.empty()) {
+    const std::string loosePath = getLooseItemPath(path);
+    HalFile file;
+    if (loosePath.empty() || !Storage.openFileForRead("EBP", loosePath, file)) return false;
+    const uint64_t fileSize = file.fileSize64();
+    file.close();
+    if (fileSize > SIZE_MAX) return false;
+    if (size) *size = static_cast<size_t>(fileSize);
+    return true;
+  }
   return ZipFile(filepath).getInflatedFileSize(path.c_str(), size);
+}
+
+void Epub::detectLoosePackage() {
+  if (!looseItemRoot.empty()) return;
+  const std::string candidate = cachePath + "/package";
+  const std::string container = candidate + "/META-INF/container.xml";
+  if (Storage.exists(container.c_str())) {
+    looseItemRoot = candidate;
+    LOG_DBG("EBP", "Using unpacked package: %s", looseItemRoot.c_str());
+  }
+}
+
+std::string Epub::getLooseItemPath(const std::string& itemHref) const {
+  std::string path = FsHelpers::normalisePath(itemHref);
+  while (!path.empty() && path.front() == '/') path.erase(path.begin());
+  // Package references are generated locally. Still reject traversal so a
+  // malformed book cannot escape its cache directory.
+  if (path.empty() || path == ".." || path.rfind("../", 0) == 0 || path.find("/../") != std::string::npos) {
+    return {};
+  }
+  return looseItemRoot + "/" + path;
 }
 
 int Epub::getSpineItemsCount() const {
