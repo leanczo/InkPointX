@@ -5,8 +5,8 @@
  * minibidi.h — standalone header for ESP32C3 BiDi calculations
  *
  * Derived from [mintty](https://github.com/mintty/mintty/) (Thomas Wolff, MIT licence).
- * Stripped of: Arabic shaping, box-drawing mirror, terminal dependencies,
- * GCC nested functions, VLAs, and non-Hebrew/English Unicode data.
+ * Stripped of: box-drawing mirror, terminal dependencies, GCC nested
+ * functions and VLAs. Arabic shaping is handled by ArabicShaper before UAX#9.
  */
 
 #include <stdbool.h>

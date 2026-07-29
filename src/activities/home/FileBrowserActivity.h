@@ -11,12 +11,27 @@
 
 class FileBrowserActivity final : public Activity {
  public:
- // Picker modes filter files and return the selected path via ActivityResult.
-  enum class Mode { Books, PickFirmware, PickSleepImage };
+  // Picker modes filter files and return the selected path via ActivityResult.
+  enum class Mode { Manager, PickBook, PickFirmware, PickSleepImage };
 
  private:
-  // Deletion
+  // File operations
   bool removeDirFile(const std::string& fullPath);
+  bool copyDirFile(const std::string& sourcePath, const std::string& destinationDirectory);
+  bool copyFile(const std::string& sourcePath, const std::string& destinationPath);
+  bool moveDirFile(const std::string& sourcePath, const std::string& destinationDirectory);
+  bool renameDirFile(const std::string& sourcePath, const std::string& destinationPath);
+  void migrateBookState(const std::string& oldPath, const std::string& newPath);
+  void openEntry(const std::string& fullPath, bool isDirectory);
+  void showActions(const std::string& entry);
+  void createFolder();
+  void renameEntry(const std::string& fullPath);
+  void deleteEntry(const std::string& fullPath, const std::string& entry);
+  void chooseDestination(const std::string& fullPath, bool move);
+  void showOperationMessage(const char* message);
+  static bool isValidName(const std::string& name);
+  static std::string joinPath(const std::string& directory, const std::string& name);
+  static std::string baseName(const std::string& path);
 
   ButtonNavigator buttonNavigator;
 
@@ -27,7 +42,7 @@ class FileBrowserActivity final : public Activity {
   // release so we don't immediately auto-open the first entry.
   bool lockNextConfirmRelease = false;
 
-  Mode mode = Mode::Books;
+  Mode mode = Mode::Manager;
 
   // Files state
   std::string basepath = "/";
@@ -40,7 +55,7 @@ class FileBrowserActivity final : public Activity {
 
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
-                               Mode mode = Mode::Books)
+                               Mode mode = Mode::Manager)
       : Activity("FileBrowser", renderer, mappedInput),
         mode(mode),
         basepath(initialPath.empty() ? "/" : std::move(initialPath)) {}

@@ -61,7 +61,11 @@ int EpubReaderBookmarksActivity::getGutterBottom(const GfxRenderer& renderer) {
 
 int EpubReaderBookmarksActivity::getListHeight(const GfxRenderer& renderer) {
   const auto pageHeight = renderer.getScreenHeight();
-  return pageHeight - getGutterBottom(renderer) - LINE_HEIGHT;  // Reserve vertical space for title and button hints
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int contentY = isPortraitInverted ? 50 : 0;
+  const int listY = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  return pageHeight - getGutterBottom(renderer) - listY;
 }
 
 void EpubReaderBookmarksActivity::loop() {
@@ -128,12 +132,12 @@ void EpubReaderBookmarksActivity::loop() {
     requestUpdate();
   }
 
-  buttonNavigator.onNextRelease([this] {
+  buttonNavigator.onNextPress([this] {
     selectorIndex = ButtonNavigator::nextIndex(selectorIndex, bookmarks.size());
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onPreviousPress([this] {
     selectorIndex = ButtonNavigator::previousIndex(selectorIndex, bookmarks.size());
     requestUpdate();
   });
@@ -170,14 +174,13 @@ void EpubReaderBookmarksActivity::render(RenderLock&&) {
   const int hintGutterHeight = isPortraitInverted ? 50 : 0;
   const int hintGutterBottom = getGutterBottom(renderer);
   const int contentY = hintGutterHeight;
-  const int listY = contentY + LINE_HEIGHT;  // Reserve vertical space for title
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int listY = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int listHeight = getListHeight(renderer);
   const int numBookmarks = bookmarks.size();
 
-  // Manual centering to honor content gutters.
-  const int titleX =
-      contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, tr(STR_BOOKMARKS), EpdFontFamily::BOLD)) / 2;
-  renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, tr(STR_BOOKMARKS), true, EpdFontFamily::BOLD);
+  GUI.drawHeader(renderer, Rect{contentX, contentY + metrics.topPadding, contentWidth, metrics.headerHeight},
+                 tr(STR_BOOKMARKS));
 
   const auto getBookmarkTitle = [this](int index) {
     return bookmarks.at(confirmingDelete >= DELETE_MODE_DISPLAY ? selectorIndex : index).summary;

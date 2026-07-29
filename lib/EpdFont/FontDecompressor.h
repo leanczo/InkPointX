@@ -10,6 +10,12 @@ class FontDecompressor {
  public:
   static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
   static constexpr uint8_t MAX_PAGE_SLOTS = 4;  // One per font style (R/B/I/BI)
+  // UI screens repeatedly alternate between font sizes/styles. A one-group
+  // cache therefore thrashes even when the same handful of glyphs is redrawn
+  // on every button press. Keep compact glyph bitmaps in a bounded ring so
+  // those redraws do not inflate whole 10-35 KB font groups again.
+  static constexpr uint16_t GLYPH_CACHE_BYTES = 16 * 1024;
+  static constexpr uint8_t GLYPH_CACHE_ENTRIES = 192;
 
   FontDecompressor() = default;
   ~FontDecompressor();
@@ -20,6 +26,11 @@ class FontDecompressor {
   // Returns pointer to decompressed bitmap data for the given glyph.
   // Checks the page buffer (from prewarm) first, then falls back to the hot group slot.
   const uint8_t* getBitmap(const EpdFontData* fontData, const EpdGlyph* glyph, uint32_t glyphIndex);
+
+  // Populate the bounded persistent glyph cache for a short UI string.
+  // Glyphs are sorted by compressed group first, so each source group is
+  // inflated at most once instead of once per alternating character/style.
+  int warmGlyphCache(const EpdFontData* fontData, const char* utf8Text);
 
   // Free all cached data (page buffer + hot group).
   void clearCache();
@@ -75,8 +86,24 @@ class FontDecompressor {
   // Valid until the next getBitmap() call.
   std::vector<uint8_t> hotGlyphBuf;
 
+  struct GlyphCacheEntry {
+    const EpdFontData* fontData = nullptr;
+    uint32_t glyphIndex = 0;
+    uint16_t offset = 0;
+    uint16_t length = 0;
+    uint32_t lastUse = 0;
+  };
+  uint8_t* glyphCacheBuffer = nullptr;
+  GlyphCacheEntry glyphCache[GLYPH_CACHE_ENTRIES] = {};
+  uint16_t glyphCacheWriteOffset = 0;
+  uint32_t glyphCacheClock = 0;
+
   void freePageBuffer();
   void freeHotGroup();
+  void freeGlyphCache();
+  const uint8_t* findCachedGlyph(const EpdFontData* fontData, uint32_t glyphIndex);
+  const uint8_t* cacheGlyph(const EpdFontData* fontData, uint32_t glyphIndex, const EpdGlyph* glyph,
+                            const uint8_t* alignedBitmap);
   uint16_t getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex);
   uint32_t getAlignedOffset(const EpdFontData* fontData, uint16_t groupIndex, uint32_t glyphIndex);
   bool decompressGroup(const EpdFontData* fontData, uint16_t groupIndex, uint8_t* outBuf, uint32_t outSize);

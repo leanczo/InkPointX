@@ -1,5 +1,6 @@
 #include "RoundedRaffTheme.h"
 
+#include <BidiUtils.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -20,7 +21,7 @@ constexpr int kBottomRadius = 15;
 constexpr int kRowRadius = 20;
 constexpr int kInteractiveInsetX = 20;
 constexpr int kSelectableRowGap = 6;
-constexpr int kTitleFontId = UI_12_FONT_ID;     // Requested main title size: 12px
+constexpr int kTitleFontId = HEADER_FONT_ID;
 constexpr int kSubtitleFontId = SMALL_FONT_ID;  // Requested subtitle size: 8px
 constexpr int kGuideFontId = SMALL_FONT_ID;     // Closest available to requested 6px
 
@@ -57,29 +58,17 @@ void RoundedRaffTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const 
   const int titleX = rect.x + sidePadding;
   const int titleY = rect.y + 14;
 
-  const bool showBatteryPercentage =
-      SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
-  const int batteryIconX = rect.x + rect.width - sidePadding - RoundedRaffMetrics::values.batteryWidth;
-
-  // Reserve space for the widest possible percentage text to avoid title/battery overlap
-  int batteryGroupLeftX = batteryIconX;
-  if (showBatteryPercentage) {
-    // Clear a fixed-width area for the battery percentage to avoid ghosting when digit count changes (e.g. 100% -> 99%)
-    const int maxTextWidth = renderer.getTextWidth(SMALL_FONT_ID, "100%");
-    batteryGroupLeftX -= maxTextWidth + batteryPercentSpacing;
-
-    const int clearW = maxTextWidth + batteryPercentSpacing + RoundedRaffMetrics::values.batteryWidth;
-    const int clearH = std::max(renderer.getTextHeight(SMALL_FONT_ID), RoundedRaffMetrics::values.batteryHeight + 8);
-    renderer.fillRect(batteryIconX - maxTextWidth - batteryPercentSpacing, rect.y + 14, clearW, clearH, false);
-  }
+  const bool primaryHeader = rect.y <= RoundedRaffMetrics::values.topPadding;
+  const int batteryGroupWidth =
+      primaryHeader ? UITheme::getInstance().getSystemBatteryOverlayWidth(renderer) : 0;
+  const int batteryGroupLeftX = rect.x + rect.width - sidePadding - batteryGroupWidth;
 
   const int maxTitleWidth = std::max(0, batteryGroupLeftX - 20 - titleX);
-  auto headerTitle = renderer.truncatedText(kTitleFontId, title, maxTitleWidth, EpdFontFamily::BOLD);
-  renderer.drawText(kTitleFontId, titleX, titleY, headerTitle.c_str(), true, EpdFontFamily::BOLD);
-  drawBatteryRight(renderer,
-                   Rect{batteryIconX, rect.y + 14, RoundedRaffMetrics::values.batteryWidth,
-                        RoundedRaffMetrics::values.batteryHeight},
-                   showBatteryPercentage);
+  auto headerTitle = renderer.truncatedText(kTitleFontId, title, maxTitleWidth);
+  const int headerWidth = renderer.getTextWidth(kTitleFontId, headerTitle.c_str());
+  const int headerX =
+      BidiUtils::startsWithRtl(title) ? batteryGroupLeftX - 20 - headerWidth : titleX;
+  renderer.drawText(kTitleFontId, headerX, titleY, headerTitle.c_str());
 }
 
 void RoundedRaffTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
@@ -306,7 +295,9 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
                                 const std::function<std::string(int index)>& rowSubtitle,
                                 const std::function<UIIcon(int index)>& rowIcon,
                                 const std::function<std::string(int index)>& rowValue, bool highlightValue,
-                                const std::function<bool(int index)>& rowDimmed) const {
+                                const std::function<bool(int index)>& rowDimmed,
+                                const std::function<UIAccessory(int index)>& rowAccessory) const {
+  (void)rowAccessory;
   (void)rowIcon;
   (void)highlightValue;
   (void)rowDimmed;
@@ -330,6 +321,8 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
   for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
     const int rowY = rect.y + (i % pageItems) * rowStep;
     const bool isSelected = i == selectedIndex;
+    const std::string titleRaw = rowTitle(i);
+    const bool rowRtl = BidiUtils::startsWithRtl(titleRaw.c_str());
     renderer.fillRoundedRect(rowX, rowY, rowWidth, rowHeight, kRowRadius, isSelected ? Color::Black : Color::White);
 
     constexpr int kMinTitleWidth = 40;
@@ -343,7 +336,9 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
           const std::string truncatedValue =
               renderer.truncatedText(kTitleFontId, valueText.c_str(), maxValueWidth, EpdFontFamily::REGULAR);
           const int valueW = renderer.getTextWidth(kTitleFontId, truncatedValue.c_str(), EpdFontFamily::REGULAR);
-          renderer.drawText(kTitleFontId, rowX + rowWidth - kInteractiveInsetX - valueW,
+          const int valueX =
+              rowRtl ? rowX + kInteractiveInsetX : rowX + rowWidth - kInteractiveInsetX - valueW;
+          renderer.drawText(kTitleFontId, valueX,
                             rowY + (rowHeight - renderer.getLineHeight(kTitleFontId)) / 2, truncatedValue.c_str(),
                             !isSelected, EpdFontFamily::REGULAR);
           textAreaWidth = std::max(0, textAreaWidth - valueW - kMinValueGap);
@@ -353,26 +348,35 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
 
     if (hasSubtitle) {
       const std::string subtitleRaw = rowSubtitle(i);
-      auto title = renderer.truncatedText(kTitleFontId, rowTitle(i).c_str(), textAreaWidth, EpdFontFamily::BOLD);
+      auto title = renderer.truncatedText(kTitleFontId, titleRaw.c_str(), textAreaWidth, EpdFontFamily::BOLD);
+      const int titleWidth = renderer.getTextWidth(kTitleFontId, title.c_str(), EpdFontFamily::BOLD);
+      const int titleX =
+          rowRtl ? rowX + rowWidth - kInteractiveInsetX - titleWidth : rowX + kInteractiveInsetX;
 
       if (subtitleRaw.empty()) {
         // If there is no subtitle/author, center title vertically in the full row.
         const int centeredTitleY = rowY + (rowHeight - titleLineHeight) / 2;
-        renderer.drawText(kTitleFontId, rowX + kInteractiveInsetX, centeredTitleY, title.c_str(), !isSelected,
-                          EpdFontFamily::BOLD);
+        renderer.drawText(kTitleFontId, titleX, centeredTitleY, title.c_str(), !isSelected, EpdFontFamily::BOLD);
       } else {
         const int titleY = rowY + subtitleTopPadding;
         const int subtitleY = titleY + titleLineHeight + subtitleInterLineGap;
         auto subtitle =
             renderer.truncatedText(kSubtitleFontId, subtitleRaw.c_str(), textAreaWidth, EpdFontFamily::REGULAR);
-        renderer.drawText(kTitleFontId, rowX + kInteractiveInsetX, titleY, title.c_str(), !isSelected,
-                          EpdFontFamily::BOLD);
-        renderer.drawText(kSubtitleFontId, rowX + kInteractiveInsetX, subtitleY, subtitle.c_str(), !isSelected,
+        const int subtitleWidth =
+            renderer.getTextWidth(kSubtitleFontId, subtitle.c_str(), EpdFontFamily::REGULAR);
+        const int subtitleX = BidiUtils::startsWithRtl(subtitleRaw.c_str())
+                                  ? rowX + rowWidth - kInteractiveInsetX - subtitleWidth
+                                  : rowX + kInteractiveInsetX;
+        renderer.drawText(kTitleFontId, titleX, titleY, title.c_str(), !isSelected, EpdFontFamily::BOLD);
+        renderer.drawText(kSubtitleFontId, subtitleX, subtitleY, subtitle.c_str(), !isSelected,
                           EpdFontFamily::REGULAR);
       }
     } else {
-      auto title = renderer.truncatedText(kTitleFontId, rowTitle(i).c_str(), textAreaWidth, EpdFontFamily::BOLD);
-      renderer.drawText(kTitleFontId, rowX + kInteractiveInsetX,
+      auto title = renderer.truncatedText(kTitleFontId, titleRaw.c_str(), textAreaWidth, EpdFontFamily::BOLD);
+      const int titleWidth = renderer.getTextWidth(kTitleFontId, title.c_str(), EpdFontFamily::BOLD);
+      const int titleX =
+          rowRtl ? rowX + rowWidth - kInteractiveInsetX - titleWidth : rowX + kInteractiveInsetX;
+      renderer.drawText(kTitleFontId, titleX,
                         rowY + (rowHeight - renderer.getLineHeight(kTitleFontId)) / 2, title.c_str(), !isSelected,
                         EpdFontFamily::BOLD);
     }
@@ -383,51 +387,5 @@ void RoundedRaffTheme::drawList(const GfxRenderer& renderer, Rect rect, int item
 
 void RoundedRaffTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                        const char* btn4) const {
-  const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
-  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  const int sidePadding = 20;
-  const int groupGap = 10;
-  const int bottomMargin = 10;
-  const int hintHeight = RoundedRaffMetrics::values.buttonHintsHeight - 10;  // 30px total guide height
-  const int groupWidth = (pageWidth - sidePadding * 2 - groupGap) / 2;
-  const int hintY = pageHeight - hintHeight - bottomMargin;
-  const int textY = hintY + (hintHeight - renderer.getLineHeight(kGuideFontId)) / 2;
-
-  const bool backDisabled = (btn1 == nullptr || btn1[0] == '\0');
-  const int leftGroupX = sidePadding;
-  const int rightGroupX = leftGroupX + groupWidth + groupGap;
-  const std::string backLabel = backDisabled ? "" : std::string(btn1);
-  // Callers should provide the button labels. If a label is not specified, it should render empty.
-  const std::string selectText = (btn2 && btn2[0] != '\0') ? std::string(btn2) : "";
-  const std::string upText = (btn3 && btn3[0] != '\0') ? std::string(btn3) : "";
-  const std::string downText = (btn4 && btn4[0] != '\0') ? std::string(btn4) : "";
-
-  // Ensure button hints always "win" visually even if other elements accidentally render into this area.
-  renderer.fillRect(leftGroupX, hintY, groupWidth, hintHeight, false);
-  renderer.fillRect(rightGroupX, hintY, groupWidth, hintHeight, false);
-
-  renderer.drawRoundedRect(leftGroupX, hintY, groupWidth, hintHeight, 2, kBottomRadius, true);
-  const int selectWidth = renderer.getTextWidth(kGuideFontId, selectText.c_str(), EpdFontFamily::REGULAR);
-  const int downWidth = renderer.getTextWidth(kGuideFontId, downText.c_str(), EpdFontFamily::REGULAR);
-  constexpr int innerEdgePadding = 16;
-
-  const int backX = leftGroupX + innerEdgePadding;
-  const int selectX = leftGroupX + groupWidth - innerEdgePadding - selectWidth;
-  const int upX = rightGroupX + innerEdgePadding;
-  const int downX = rightGroupX + groupWidth - innerEdgePadding - downWidth;
-
-  if (!backDisabled) {
-    renderer.drawText(kGuideFontId, backX, textY, backLabel.c_str(), true, EpdFontFamily::REGULAR);
-  }
-  renderer.drawText(kGuideFontId, selectX, textY, selectText.c_str(), true, EpdFontFamily::REGULAR);
-
-  renderer.drawRoundedRect(rightGroupX, hintY, groupWidth, hintHeight, 2, kBottomRadius, true);
-
-  renderer.drawText(kGuideFontId, upX, textY, upText.c_str(), true, EpdFontFamily::REGULAR);
-  renderer.drawText(kGuideFontId, downX, textY, downText.c_str(), true, EpdFontFamily::REGULAR);
-
-  renderer.setOrientation(origOrientation);
+  BaseTheme::drawButtonHints(renderer, btn1, btn2, btn3, btn4);
 }

@@ -339,17 +339,19 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
     // Apply option
     if (selectedOption == 0) {
-      renderer.fillRect(screen.x, optionY - 2, screen.width - 1, optionHeight);
+      GUI.drawSelection(renderer, Rect{screen.x + 8, optionY - 2, screen.width - 16, optionHeight});
     }
     renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY, tr(STR_APPLY_REMOTE),
-                      selectedOption != 0);
+                      true, selectedOption == 0 ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
     // Upload option
     if (selectedOption == 1) {
-      renderer.fillRect(screen.x, optionY + optionHeight - 2, screen.width - 1, optionHeight);
+      GUI.drawSelection(renderer,
+                        Rect{screen.x + 8, optionY + optionHeight - 2, screen.width - 16, optionHeight});
     }
     renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY + optionHeight,
-                      tr(STR_UPLOAD_LOCAL), selectedOption != 1);
+                      tr(STR_UPLOAD_LOCAL), true,
+                      selectedOption == 1 ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
     // Bottom button hints
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -398,12 +400,12 @@ void KOReaderSyncActivity::loop() {
 
   if (state == SHOWING_RESULT) {
     // Navigate options
-    if (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Left)) {
       selectedOption = (selectedOption + 1) % 2;  // Wrap around among 2 options
       requestUpdate();
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Down) ||
-               mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+    } else if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+               mappedInput.wasPressed(MappedInputManager::Button::Right)) {
       selectedOption = (selectedOption + 1) % 2;  // Wrap around among 2 options
       requestUpdate();
     }

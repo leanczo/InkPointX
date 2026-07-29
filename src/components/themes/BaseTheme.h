@@ -114,7 +114,17 @@ enum UIIcon {
   Wifi,
   Hotspot,
   Bookmark,
+  Interface,
+  Power,
+  Reading,
+  Controls,
+  Files,
+  NetworkSync,
+  System,
+  Clock,
 };
+
+enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn };
 
 enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };
 
@@ -145,7 +155,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .homeRecentBooksCount = 1,
                                  .homeContinueReadingInMenu = false,
                                  .homeMenuTopOffset = 10,
-                                 .buttonHintsHeight = 40,
+                                 .buttonHintsHeight = 32,
                                  .sideButtonHintsWidth = 30,
                                  .progressBarHeight = 16,
                                  .progressBarMarginTop = 1,
@@ -207,7 +217,8 @@ class BaseTheme {
                         const std::function<std::string(int index)>& rowSubtitle = nullptr,
                         const std::function<UIIcon(int index)>& rowIcon = nullptr,
                         const std::function<std::string(int index)>& rowValue = nullptr, bool highlightValue = false,
-                        const std::function<bool(int index)>& rowDimmed = nullptr) const;
+                        const std::function<bool(int index)>& rowDimmed = nullptr,
+                        const std::function<UIAccessory(int index)>& rowAccessory = nullptr) const;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                           const char* subtitle = nullptr) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
@@ -220,6 +231,10 @@ class BaseTheme {
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                               const std::function<std::string(int index)>& buttonLabel,
                               const std::function<UIIcon(int index)>& rowIcon) const;
+  void drawSelection(const GfxRenderer& renderer, Rect rect) const;
+  virtual void drawHomeBrand(const GfxRenderer& renderer, Rect rect) const;
+  virtual void drawPageDots(const GfxRenderer& renderer, int selectedPage, int pageCount) const;
+  virtual void drawFooterCounter(const GfxRenderer& renderer, int selectedIndex, int itemCount) const;
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,

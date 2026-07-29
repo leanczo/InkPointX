@@ -162,6 +162,7 @@ class CrossPointSettings {
 
   // UI Theme
   enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3 };
+  enum UI_FONT_FAMILY { UI_FIRAGO = 0, UI_FONT_FAMILY_COUNT };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -175,7 +176,7 @@ class CrossPointSettings {
   };
 
   // Sleep screen settings
-  uint8_t sleepScreen = DARK;
+  uint8_t sleepScreen = LIGHT;
   // Sleep screen cover mode settings
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
@@ -228,6 +229,8 @@ class CrossPointSettings {
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
+  // Invert black/white only while rendering book pages.
+  uint8_t readerInvertColors = 0;
 
   // Reader screen margin settings
   uint8_t screenMargin = 5;
@@ -237,6 +240,8 @@ class CrossPointSettings {
   char opdsPassword[64] = "";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
+  // Master battery indicator visibility for system UI and reader status bar.
+  uint8_t showBatteryIndicator = 1;
   // Long-press page turn button behavior
   uint8_t longPressButtonBehavior = OFF;
   // Long-press Confirm function in EPUB reader (cycles through LONG_PRESS_MENU_FUNCTION values).
@@ -244,6 +249,10 @@ class CrossPointSettings {
   uint8_t longPressMenuFunction = LP_MENU_DISABLED;
   // UI Theme
   uint8_t uiTheme = LYRA;
+  // Interface font family. Reader fonts are configured separately.
+  uint8_t uiFontFamily = UI_FIRAGO;
+  // Compact physical-button hints at the edge of UI screens (1 = shown, 0 = hidden).
+  uint8_t showButtonHints = 1;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)

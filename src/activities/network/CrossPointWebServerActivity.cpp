@@ -74,7 +74,15 @@ void CrossPointWebServerActivity::onEnter() {
   lastHandleClientTime = 0;
   requestUpdate();
 
-  // Launch network mode selection subactivity
+  if (initialMode.has_value()) {
+    onNetworkModeSelected(*initialMode);
+  } else {
+    showModeSelection();
+  }
+}
+
+void CrossPointWebServerActivity::showModeSelection() {
+  state = WebServerActivityState::MODE_SELECTION;
   LOG_DBG("WEBACT", "Launching NetworkModeSelectionActivity...");
   startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
@@ -84,6 +92,14 @@ void CrossPointWebServerActivity::onEnter() {
                              onNetworkModeSelected(std::get<NetworkModeResult>(result.data).mode);
                            }
                          });
+}
+
+void CrossPointWebServerActivity::returnToTransferMenu() {
+  if (initialMode.has_value()) {
+    onGoHome(HomeMenuItem::FILE_TRANSFER);
+  } else {
+    showModeSelection();
+  }
 }
 
 void CrossPointWebServerActivity::onExit() {
@@ -123,17 +139,8 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
 
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     startActivityForResult(
-        std::make_unique<CalibreConnectActivity>(renderer, mappedInput), [this](const ActivityResult& result) {
-          state = WebServerActivityState::MODE_SELECTION;
-
-          startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
-                                 [this](const ActivityResult& result) {
-                                   if (result.isCancelled) {
-                                     onGoHome();
-                                   } else {
-                                     onNetworkModeSelected(std::get<NetworkModeResult>(result.data).mode);
-                                   }
-                                 });
+        std::make_unique<CalibreConnectActivity>(renderer, mappedInput), [this](const ActivityResult&) {
+          returnToTransferMenu();
         });
     return;
   }
@@ -175,17 +182,8 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
     // Start the web server
     startWebServer();
   } else {
-    // User cancelled - go back to mode selection
-    state = WebServerActivityState::MODE_SELECTION;
-
-    startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
-                           [this](const ActivityResult& result) {
-                             if (result.isCancelled) {
-                               onGoHome();
-                             } else {
-                               onNetworkModeSelected(std::get<NetworkModeResult>(result.data).mode);
-                             }
-                           });
+    // User cancelled - return to the Transfer subsection on Home.
+    returnToTransferMenu();
   }
 }
 

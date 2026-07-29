@@ -4,14 +4,13 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <memory>
 
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
-#include "components/themes/BaseTheme.h"
-#include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
-#include "components/themes/roundedraff/RoundedRaffTheme.h"
+#include "fontIds.h"
 
 UITheme UITheme::instance;
 
@@ -26,27 +25,13 @@ void UITheme::reload() {
 }
 
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
-  switch (type) {
-    case CrossPointSettings::UI_THEME::CLASSIC:
-      LOG_DBG("UI", "Using Classic theme");
-      currentTheme = std::make_unique<BaseTheme>();
-      currentMetrics = &BaseMetrics::values;
-      break;
-    case CrossPointSettings::UI_THEME::LYRA:
-      LOG_DBG("UI", "Using Lyra theme");
-      currentTheme = std::make_unique<LyraTheme>();
-      currentMetrics = &LyraMetrics::values;
-      break;
-    case CrossPointSettings::UI_THEME::ROUNDEDRAFF:
-      LOG_DBG("UI", "Using RoundedRaff theme");
-      currentTheme = std::make_unique<RoundedRaffTheme>();
-      currentMetrics = &RoundedRaffMetrics::values;
-      break;
-    case CrossPointSettings::UI_THEME::LYRA_3_COVERS:
-      LOG_DBG("UI", "Using Lyra 3 Covers theme");
-      currentTheme = std::make_unique<Lyra3CoversTheme>();
-      currentMetrics = &Lyra3CoversMetrics::values;
-      break;
+  (void)type;
+  LOG_DBG("UI", "Using InkPoint X theme");
+  currentTheme = std::make_unique<LyraTheme>();
+  currentMetrics = LyraMetrics::values;
+  if (!SETTINGS.showButtonHints) {
+    currentMetrics.buttonHintsHeight = 0;
+    currentMetrics.sideButtonHintsWidth = 0;
   }
 }
 
@@ -61,7 +46,7 @@ int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader
   if (hasTabBar) {
     reservedHeight += metrics.tabBarHeight;
   }
-  if (hasButtonHints && orientation != GfxRenderer::Orientation::LandscapeClockwise &&
+  if (hasButtonHints && SETTINGS.showButtonHints && orientation != GfxRenderer::Orientation::LandscapeClockwise &&
       orientation != GfxRenderer::Orientation::LandscapeCounterClockwise) {
     reservedHeight += metrics.verticalSpacing + metrics.buttonHintsHeight;
   }
@@ -78,25 +63,25 @@ Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButton
   Rect safeArea = Rect{0, 0, screenWidth, screenHeight};
   switch (orientation) {
     case GfxRenderer::Orientation::Portrait:
-      if (hasFrontButtonHints) {
-        safeArea.height -= currentMetrics->buttonHintsHeight;
+      if (hasFrontButtonHints && SETTINGS.showButtonHints) {
+        safeArea.height -= currentMetrics.buttonHintsHeight;
       }
       break;
     case GfxRenderer::Orientation::LandscapeClockwise:
-      if (hasFrontButtonHints) {
-        safeArea.x += currentMetrics->buttonHintsHeight;
-        safeArea.width -= currentMetrics->buttonHintsHeight;
+      if (hasFrontButtonHints && SETTINGS.showButtonHints) {
+        safeArea.x += currentMetrics.buttonHintsHeight;
+        safeArea.width -= currentMetrics.buttonHintsHeight;
       }
       break;
     case GfxRenderer::Orientation::PortraitInverted:
-      if (hasFrontButtonHints) {
-        safeArea.y += currentMetrics->buttonHintsHeight;
-        safeArea.height -= currentMetrics->buttonHintsHeight;
+      if (hasFrontButtonHints && SETTINGS.showButtonHints) {
+        safeArea.y += currentMetrics.buttonHintsHeight;
+        safeArea.height -= currentMetrics.buttonHintsHeight;
       }
       break;
     case GfxRenderer::Orientation::LandscapeCounterClockwise:
-      if (hasFrontButtonHints) {
-        safeArea.width -= currentMetrics->buttonHintsHeight;
+      if (hasFrontButtonHints && SETTINGS.showButtonHints) {
+        safeArea.width -= currentMetrics.buttonHintsHeight;
       }
       break;
   }
@@ -122,7 +107,8 @@ UIIcon UITheme::getFileIcon(const std::string& filename) {
   if (FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename)) {
     return Text;
   }
-  if (FsHelpers::hasBmpExtension(filename)) {
+  if (FsHelpers::hasBmpExtension(filename) || FsHelpers::hasJpgExtension(filename) ||
+      FsHelpers::hasPngExtension(filename)) {
     return Image;
   }
   return File;
@@ -134,7 +120,8 @@ int UITheme::getStatusBarHeight() {
   // Add status bar margin
   const bool showStatusBar =
       SETTINGS.statusBarChapterPageCount || SETTINGS.statusBarBookProgressPercentage ||
-      SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE || SETTINGS.statusBarBattery ||
+      SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE ||
+      (SETTINGS.showBatteryIndicator && SETTINGS.statusBarBattery) ||
       SETTINGS.statusBarClock != CrossPointSettings::STATUS_BAR_CLOCK_MODE::STATUS_BAR_CLOCK_HIDE;
   const bool showProgressBar =
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
@@ -147,6 +134,41 @@ int UITheme::getProgressBarHeight() {
   const bool showProgressBar =
       SETTINGS.statusBarProgressBar != CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   return (showProgressBar ? (((SETTINGS.statusBarProgressBarThickness + 1) * 2) + metrics.progressBarMarginTop) : 0);
+}
+
+int UITheme::getSystemBatteryOverlayWidth(const GfxRenderer& renderer) const {
+  if (!SETTINGS.showBatteryIndicator) return 0;
+
+  int width = currentMetrics.batteryWidth;
+  if (SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS) {
+    width += BaseTheme::batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, "100%");
+  }
+  return width;
+}
+
+void UITheme::drawSystemBatteryOverlay(const GfxRenderer& renderer) const {
+  if (!SETTINGS.showBatteryIndicator) return;
+
+  const bool showPercentage =
+      SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
+  const int iconX = renderer.getScreenWidth() - currentMetrics.contentSidePadding - currentMetrics.batteryWidth;
+  const int textY = currentMetrics.topPadding + 14;
+  clearSystemBatteryOverlay(renderer);
+  currentTheme->drawBatteryRight(
+      renderer, Rect{iconX, textY, currentMetrics.batteryWidth, currentMetrics.batteryHeight}, showPercentage);
+}
+
+void UITheme::clearSystemBatteryOverlay(const GfxRenderer& renderer) const {
+  const int iconX = renderer.getScreenWidth() - currentMetrics.contentSidePadding - currentMetrics.batteryWidth;
+  const int textY = currentMetrics.topPadding + 14;
+  const int groupWidth =
+      currentMetrics.batteryWidth + BaseTheme::batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, "100%");
+  const int clearLeft = iconX - (groupWidth - currentMetrics.batteryWidth) - 3;
+  const int clearHeight =
+      std::max(renderer.getLineHeight(SMALL_FONT_ID), currentMetrics.batteryHeight + 6) + 6;
+
+  // Clear the complete group so quick-resume sleep cannot retain the indicator.
+  renderer.fillRect(clearLeft, textY - 3, groupWidth + 6, clearHeight, false);
 }
 
 // Centered text implementation that takes the safe area into account

@@ -11,32 +11,46 @@
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
+#include "DeviceInfoActivity.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectionActivity.h"
+#include "InterfaceFont.h"
+#include "InterfaceFontSelectActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
+#include "OpdsServerStore.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
+#include "SettingsReset.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/SleepImageInstaller.h"
 
-const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
-                                                              StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
+const StrId SettingsActivity::categoryNames[CATEGORY_COUNT] = {
+    StrId::STR_SETTINGS_INTERFACE, StrId::STR_SETTINGS_POWER,  StrId::STR_SETTINGS_READING,
+    StrId::STR_SETTINGS_CONTROLS,  StrId::STR_SETTINGS_LIBRARY, StrId::STR_SETTINGS_NETWORK,
+    StrId::STR_SETTINGS_SYSTEM,
+};
 
 void SettingsActivity::rebuildSettingsLists() {
-  displaySettings.clear();
-  readerSettings.clear();
-  controlsSettings.clear();
-  systemSettings.clear();
+  for (auto& settings : categorySettings) settings.clear();
+
+  auto& interfaceSettings = categorySettings[0];
+  auto& powerSettings = categorySettings[1];
+  auto& readingSettings = categorySettings[2];
+  auto& controlsSettings = categorySettings[3];
+  auto& librarySettings = categorySettings[4];
+  auto& networkSettings = categorySettings[5];
+  auto& systemSettings = categorySettings[6];
 
   // Pick up any fonts uploaded/deleted over the web server since the last
   // reader activity ran — otherwise the font-family picker shows stale list.
@@ -45,9 +59,12 @@ void SettingsActivity::rebuildSettingsLists() {
   for (auto& setting : getSettingsList(&sdFontSystem.registry())) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
     if (setting.category == StrId::STR_CAT_DISPLAY) {
-      displaySettings.push_back(setting);
+      const bool isPowerSetting =
+          setting.nameId == StrId::STR_SLEEP_SCREEN || setting.nameId == StrId::STR_SLEEP_COVER_MODE ||
+          setting.nameId == StrId::STR_SLEEP_COVER_FILTER || setting.nameId == StrId::STR_QUICK_RESUME_TIMEOUT;
+      (isPowerSetting ? powerSettings : interfaceSettings).push_back(setting);
     } else if (setting.category == StrId::STR_CAT_READER) {
-      readerSettings.push_back(setting);
+      readingSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_CONTROLS) {
       if (setting.valuePtr == &CrossPointSettings::pwrBtnFootnoteBack &&
           SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::FOOTNOTES) {
@@ -55,51 +72,64 @@ void SettingsActivity::rebuildSettingsLists() {
       }
       controlsSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_SYSTEM) {
-      systemSettings.push_back(setting);
+      if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
+        powerSettings.push_back(setting);
+      } else if (setting.nameId == StrId::STR_SHOW_HIDDEN_FILES ||
+                 setting.nameId == StrId::STR_REMOVE_READ_FROM_RECENTS ||
+                 setting.nameId == StrId::STR_MOVE_FINISHED_TO_READ) {
+        librarySettings.push_back(setting);
+      }
+      // Interface font uses its dedicated preview selector below.
     }
   }
 
-  // Append device-only ACTION items
-  displaySettings.insert(displaySettings.begin() + 2,
-                         SettingInfo::Action(StrId::STR_LOCK_SCREEN_IMAGE, SettingAction::SelectSleepImage));
+  // Interface
+  interfaceSettings.insert(interfaceSettings.begin(),
+                           SettingInfo::Action(StrId::STR_INTERFACE_FONT, SettingAction::InterfaceFont));
+  interfaceSettings.insert(interfaceSettings.begin(),
+                           SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
+
+  // Screen and power
+  const auto sleepScreen =
+      std::find_if(powerSettings.begin(), powerSettings.end(),
+                   [](const SettingInfo& setting) { return setting.nameId == StrId::STR_SLEEP_SCREEN; });
+  powerSettings.insert(sleepScreen == powerSettings.end() ? powerSettings.begin() : sleepScreen + 1,
+                       SettingInfo::Action(StrId::STR_LOCK_SCREEN_IMAGE, SettingAction::SelectSleepImage));
+
+  // Reading
+  readingSettings.insert(readingSettings.begin() + std::min<size_t>(1, readingSettings.size()),
+                         SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
+  readingSettings.push_back(
+      SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+
+  // Controls
   controlsSettings.insert(controlsSettings.begin(),
                           SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
+
+  // Network, sync and catalogues
+  networkSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
+  networkSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
+  networkSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
+  if (OPDS_STORE.hasServers()) {
+    networkSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_BROWSER, SettingAction::BrowseOPDS));
+  }
+
+  // Maintenance and device information
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
-  systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
-  // Insert "Manage Fonts" right after the font family setting so users discover it naturally
-  readerSettings.insert(readerSettings.begin() + 1,
-                        SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
-  readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_DEVICE_INFO, SettingAction::DeviceInfo));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_RESET_SETTINGS, SettingAction::ResetSettings));
 
-  // Update currentSettings pointer and count for the active category
-  switch (selectedCategoryIndex) {
-    case 0:
-      currentSettings = &displaySettings;
-      break;
-    case 1:
-      currentSettings = &readerSettings;
-      break;
-    case 2:
-      currentSettings = &controlsSettings;
-      break;
-    case 3:
-      currentSettings = &systemSettings;
-      break;
-  }
+  currentSettings = &categorySettings[selectedCategoryIndex];
   settingsCount = static_cast<int>(currentSettings->size());
 }
 
 void SettingsActivity::onEnter() {
   Activity::onEnter();
 
-  // Reset selection to first category
-  selectedCategoryIndex = 0;
-  selectedSettingIndex = 0;
+  selectedCategoryIndex = std::clamp(initialCategoryIndex, 0, CATEGORY_COUNT - 1);
+  selectedSettingIndex = 1;
   preserveQuickResumeTimeoutOn =
       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
   quickResumeTimeoutAutoEnabled = false;
@@ -118,73 +148,51 @@ void SettingsActivity::onExit() {
 }
 
 void SettingsActivity::loop() {
-  bool hasChangedCategory = false;
+  loopSubmenu();
+}
 
-  // Handle actions with early return
+void SettingsActivity::loopSubmenu() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    if (selectedSettingIndex == 0) {
-      selectedCategoryIndex = (selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0;
-      hasChangedCategory = true;
-      requestUpdate();
-    } else {
-      toggleCurrentSetting();
-      requestUpdate();
-      return;
-    }
+    toggleCurrentSetting();
+    requestUpdate();
+    return;
   }
-
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    if (selectedSettingIndex > 0) {
-      selectedSettingIndex = 0;
-      requestUpdate();
+    SETTINGS.saveToFile();
+    if (returnToCaller) {
+      finish();
     } else {
-      SETTINGS.saveToFile();
-      onGoHome();
+      onGoHome(homeMenuItemForCategory());
     }
     return;
   }
 
-  // Handle navigation
-  buttonNavigator.onNextRelease([this] {
-    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
+  const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, 42);
+  buttonNavigator.onNextPress([this] {
+    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex - 1, settingsCount) + 1;
     requestUpdate();
   });
-
-  buttonNavigator.onPreviousRelease([this] {
-    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
+  buttonNavigator.onPreviousPress([this] {
+    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex - 1, settingsCount) + 1;
     requestUpdate();
   });
-
-  buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount);
+  buttonNavigator.onNextContinuous([this, pageItems] {
+    selectedSettingIndex = ButtonNavigator::nextPageIndex(selectedSettingIndex - 1, settingsCount, pageItems) + 1;
     requestUpdate();
   });
-
-  buttonNavigator.onPreviousContinuous([this, &hasChangedCategory] {
-    hasChangedCategory = true;
-    selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
+  buttonNavigator.onPreviousContinuous([this, pageItems] {
+    selectedSettingIndex = ButtonNavigator::previousPageIndex(selectedSettingIndex - 1, settingsCount, pageItems) + 1;
     requestUpdate();
   });
+}
 
-  if (hasChangedCategory) {
-    selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : 1;
-    switch (selectedCategoryIndex) {
-      case 0:
-        currentSettings = &displaySettings;
-        break;
-      case 1:
-        currentSettings = &readerSettings;
-        break;
-      case 2:
-        currentSettings = &controlsSettings;
-        break;
-      case 3:
-        currentSettings = &systemSettings;
-        break;
-    }
-    settingsCount = static_cast<int>(currentSettings->size());
-  }
+HomeMenuItem SettingsActivity::homeMenuItemForCategory() const {
+  constexpr std::array<HomeMenuItem, CATEGORY_COUNT> menuItems = {
+      HomeMenuItem::SETTINGS_MENU,     HomeMenuItem::SETTINGS_POWER,   HomeMenuItem::SETTINGS_READING,
+      HomeMenuItem::SETTINGS_CONTROLS, HomeMenuItem::SETTINGS_LIBRARY, HomeMenuItem::SETTINGS_NETWORK,
+      HomeMenuItem::SETTINGS_SYSTEM,
+  };
+  return menuItems[std::clamp(selectedCategoryIndex, 0, CATEGORY_COUNT - 1)];
 }
 
 void SettingsActivity::toggleCurrentSetting() {
@@ -194,7 +202,7 @@ void SettingsActivity::toggleCurrentSetting() {
   }
 
   const auto& setting = (*currentSettings)[selectedSetting];
-  const bool sleepScreenChanged = setting.valuePtr == &CrossPointSettings::sleepScreen;
+  const bool sleepScreenChanged = setting.nameId == StrId::STR_SLEEP_SCREEN;
   const bool quickResumeTimeoutChanged = setting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
 
   if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
@@ -245,7 +253,11 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::OPDSBrowser:
-        startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput),
+                               [this](const ActivityResult&) {
+                                 OPDS_STORE.loadFromFile();
+                                 rebuildSettingsLists();
+                               });
         break;
       case SettingAction::Network:
         startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, false), resultHandler);
@@ -269,30 +281,51 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::Language:
         startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::InterfaceFont:
+        startActivityForResult(std::make_unique<InterfaceFontSelectActivity>(renderer, mappedInput),
+                               [this](const ActivityResult&) {
+                                 SETTINGS.saveToFile();
+                                 rebuildSettingsLists();
+                               });
+        break;
       case SettingAction::SelectSleepImage:
-        startActivityForResult(
-            std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/", FileBrowserActivity::Mode::PickSleepImage),
-            [this](const ActivityResult& result) {
-              if (result.isCancelled || !std::holds_alternative<FilePathResult>(result.data)) return;
+        startActivityForResult(std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/",
+                                                                     FileBrowserActivity::Mode::PickSleepImage),
+                               [this](const ActivityResult& result) {
+                                 if (result.isCancelled || !std::holds_alternative<FilePathResult>(result.data)) return;
 
-              GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-              renderer.displayBuffer();
+                                 GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+                                 renderer.displayBuffer();
 
-              const auto& path = std::get<FilePathResult>(result.data).path;
-              const bool crop =
-                  SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
-              const bool installed = SleepImageInstaller::install(path, crop);
-              if (installed) {
-                SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM;
-                SETTINGS.saveToFile();
-                GUI.drawPopup(renderer, tr(STR_DONE));
-              } else {
-                GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
-              }
-              renderer.displayBuffer();
-              delay(900);
-              rebuildSettingsLists();
-            });
+                                 const auto& path = std::get<FilePathResult>(result.data).path;
+                                 const bool crop =
+                                     SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
+                                 const bool installed = SleepImageInstaller::install(path, crop);
+                                 if (installed) {
+                                   SETTINGS.sleepScreen = CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM;
+                                   SETTINGS.saveToFile();
+                                   GUI.drawPopup(renderer, tr(STR_DONE));
+                                 } else {
+                                   GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
+                                 }
+                                 renderer.displayBuffer();
+                                 delay(900);
+                                 rebuildSettingsLists();
+                               });
+        break;
+      case SettingAction::BrowseOPDS:
+        activityManager.goToBrowser();
+        break;
+      case SettingAction::DeviceInfo:
+        startActivityForResult(std::make_unique<DeviceInfoActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::ResetSettings:
+        startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_SETTINGS),
+                                                                      tr(STR_RESET_SETTINGS_WARNING)),
+                               [](const ActivityResult& result) {
+                                 if (result.isCancelled) return;
+                                 resetFirmwareConfiguration();
+                               });
         break;
       case SettingAction::None:
         // Do nothing
@@ -303,6 +336,12 @@ void SettingsActivity::toggleCurrentSetting() {
     return;
   }
 
+  if (setting.valuePtr == &CrossPointSettings::uiFontFamily) {
+    applyInterfaceFont();
+  }
+  if (setting.valuePtr == &CrossPointSettings::showButtonHints) {
+    UITheme::getInstance().reload();
+  }
   syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
   SETTINGS.saveToFile();
   rebuildSettingsLists();
@@ -356,32 +395,20 @@ void SettingsActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SETTINGS_TITLE),
-                 CROSSPOINT_VERSION);
-
-  std::vector<TabInfo> tabs;
-  tabs.reserve(categoryCount);
-  for (int i = 0; i < categoryCount; i++) {
-    tabs.push_back({I18N.get(categoryNames[i]), selectedCategoryIndex == i});
-  }
-  GUI.drawTabBar(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight}, tabs,
-                 selectedSettingIndex == 0);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
+                 I18N.get(categoryNames[selectedCategoryIndex]));
 
   const auto& settings = *currentSettings;
+  const int listTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   GUI.drawList(
       renderer,
-      Rect{0, metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.buttonHintsHeight +
-                         metrics.verticalSpacing * 2)},
+      Rect{0, listTop, pageWidth, pageHeight - listTop - metrics.buttonHintsHeight - 42},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {
         const auto& setting = settings[i];
         std::string valueText = "";
-        if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
-          const bool value = SETTINGS.*(setting.valuePtr);
-          valueText = value ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
-        } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
+        if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
           const uint8_t value = SETTINGS.*(setting.valuePtr);
           valueText = I18N.get(setting.enumValues[value]);
         } else if (setting.type == SettingType::ENUM && setting.valueGetter) {
@@ -410,16 +437,24 @@ void SettingsActivity::render(RenderLock&&) {
         }
         return valueText;
       },
-      true);
+      true, nullptr, [&settings](int index) {
+        const auto& setting = settings[index];
+        if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
+          return SETTINGS.*(setting.valuePtr) ? UIAccessory::ToggleOn : UIAccessory::ToggleOff;
+        }
+        const bool opensSubmenu = setting.nameId == StrId::STR_TIME_TO_SLEEP ||
+                                  setting.nameId == StrId::STR_FONT_FAMILY ||
+                                  setting.type == SettingType::ACTION;
+        return opensSubmenu ? UIAccessory::Chevron : UIAccessory::None;
+      });
 
-  // Draw help text
-  const auto confirmLabel = (selectedSettingIndex == 0)
-                                ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])
-                            : (selectedSettingIndex > 0 &&
-                               ((*currentSettings)[selectedSettingIndex - 1].nameId == StrId::STR_TIME_TO_SLEEP ||
-                                (*currentSettings)[selectedSettingIndex - 1].type == SettingType::ACTION))
-                                ? tr(STR_SELECT)
-                                : tr(STR_TOGGLE);
+  GUI.drawFooterCounter(renderer, selectedSettingIndex - 1, settingsCount);
+
+  const auto& selectedSetting = (*currentSettings)[selectedSettingIndex - 1];
+  const bool opensSubmenu = selectedSetting.nameId == StrId::STR_TIME_TO_SLEEP ||
+                            selectedSetting.nameId == StrId::STR_FONT_FAMILY ||
+                            selectedSetting.type == SettingType::ACTION;
+  const auto confirmLabel = opensSubmenu ? tr(STR_SELECT) : tr(STR_TOGGLE);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

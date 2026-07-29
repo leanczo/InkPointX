@@ -2,6 +2,8 @@
 
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "HalDisplay.h"
 #include "components/UITheme.h"
 
@@ -12,40 +14,54 @@ ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputMan
 void ConfirmationActivity::onEnter() {
   Activity::onEnter();
 
-  lineHeight = renderer.getLineHeight(fontId);
-  const int maxWidth = renderer.getScreenWidth() - (margin * 2);
+  headingLineHeight = renderer.getLineHeight(headingFontId);
+  bodyLineHeight = renderer.getLineHeight(bodyFontId);
+  const int maxCardWidth = renderer.getScreenWidth() - (margin * 2);
+  const int maxTextWidth = maxCardWidth - margin * 2;
 
   if (!heading.empty()) {
-    safeHeading = renderer.truncatedText(fontId, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
+    safeHeading = renderer.truncatedText(headingFontId, heading.c_str(), maxTextWidth, EpdFontFamily::BOLD);
   }
   if (!body.empty()) {
-    safeBody = renderer.truncatedText(fontId, body.c_str(), maxWidth, EpdFontFamily::REGULAR);
+    safeBodyLines = renderer.wrappedText(bodyFontId, body.c_str(), maxTextWidth, 5);
   }
 
-  int totalHeight = 0;
-  if (!safeHeading.empty()) totalHeight += lineHeight;
-  if (!safeBody.empty()) totalHeight += lineHeight;
-  if (!safeHeading.empty() && !safeBody.empty()) totalHeight += spacing;
+  int widestText = safeHeading.empty() ? 0 : renderer.getTextWidth(headingFontId, safeHeading.c_str(),
+                                                                   EpdFontFamily::BOLD);
+  for (const auto& line : safeBodyLines) {
+    widestText = std::max(widestText, renderer.getTextWidth(bodyFontId, line.c_str()));
+  }
+  cardWidth = std::min(maxCardWidth, std::max(300, widestText + margin * 2));
+  cardHeight = margin * 2;
+  if (!safeHeading.empty()) cardHeight += headingLineHeight;
+  if (!safeHeading.empty() && !safeBodyLines.empty()) cardHeight += spacing;
+  cardHeight += static_cast<int>(safeBodyLines.size()) * bodyLineHeight;
 
-  startY = (renderer.getScreenHeight() - totalHeight) / 2;
+  cardX = (renderer.getScreenWidth() - cardWidth) / 2;
+  cardY = (renderer.getScreenHeight() - cardHeight) / 2;
 
   requestUpdate(true);
 }
 
 void ConfirmationActivity::render(RenderLock&& lock) {
   renderer.clearScreen();
+  renderer.fillRoundedRect(cardX, cardY, cardWidth, cardHeight, 14, Color::White);
+  renderer.drawRoundedRect(cardX, cardY, cardWidth, cardHeight, 1, 14, true);
 
-  int currentY = startY;
+  int currentY = cardY + margin;
   LOG_DBG("CONF", "currentY: %d", currentY);
-  // Draw Heading
   if (!safeHeading.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeHeading.c_str(), true, EpdFontFamily::BOLD);
-    currentY += lineHeight + spacing;
+    const int headingWidth =
+        renderer.getTextWidth(headingFontId, safeHeading.c_str(), EpdFontFamily::BOLD);
+    renderer.drawText(headingFontId, cardX + (cardWidth - headingWidth) / 2, currentY, safeHeading.c_str(), true,
+                      EpdFontFamily::BOLD);
+    currentY += headingLineHeight + spacing;
   }
 
-  // Draw Body
-  if (!safeBody.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeBody.c_str(), true, EpdFontFamily::REGULAR);
+  for (const auto& line : safeBodyLines) {
+    const int lineWidth = renderer.getTextWidth(bodyFontId, line.c_str());
+    renderer.drawText(bodyFontId, cardX + (cardWidth - lineWidth) / 2, currentY, line.c_str());
+    currentY += bodyLineHeight;
   }
 
   // Draw UI Elements
@@ -56,7 +72,7 @@ void ConfirmationActivity::render(RenderLock&& lock) {
 }
 
 void ConfirmationActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
     ActivityResult res;
     res.isCancelled = false;
     setResult(std::move(res));
@@ -64,7 +80,7 @@ void ConfirmationActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
     ActivityResult res;
     res.isCancelled = true;
     setResult(std::move(res));

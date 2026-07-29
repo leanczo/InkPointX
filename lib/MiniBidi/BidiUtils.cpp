@@ -1,4 +1,5 @@
 #include "BidiUtils.h"
+#include "ArabicShaper.h"
 
 extern "C" {
 #include "minibidi.h"
@@ -72,6 +73,8 @@ bool applyBidiVisual(const char* utf8, std::string& out, int paragraphLevel) {
   if (!utf8 || !*utf8) return false;
 
   static bidi_char line[BIDI_MAX_LINE];
+  static uint32_t logical[BIDI_MAX_LINE];
+  static uint32_t shaped[BIDI_MAX_LINE];
   int count = 0;
   auto* p = reinterpret_cast<const unsigned char*>(utf8);
   while (*p) {
@@ -82,11 +85,24 @@ bool applyBidiVisual(const char* utf8, std::string& out, int paragraphLevel) {
 
     const uint32_t cp = utf8NextCodepoint(&p);
     if (!cp || cp == REPLACEMENT_GLYPH) break;
-    line[count].origwc = line[count].wc = cp;
-    line[count].index = static_cast<uint16_t>(count);
+    logical[count] = cp;
     count++;
   }
   if (!count) return false;
+
+  if (ArabicShaper::containsArabic(logical, count)) {
+    const size_t shapedCount = ArabicShaper::shape(logical, count, shaped, BIDI_MAX_LINE);
+    if (!shapedCount) return false;
+    count = static_cast<int>(shapedCount);
+    for (int i = 0; i < count; ++i) {
+      logical[i] = shaped[i];
+    }
+  }
+
+  for (int i = 0; i < count; ++i) {
+    line[i].origwc = line[i].wc = logical[i];
+    line[i].index = static_cast<uint16_t>(i);
+  }
 
   const bool autodir = (paragraphLevel < 0);
   const int level = autodir ? 0 : (paragraphLevel & 1);

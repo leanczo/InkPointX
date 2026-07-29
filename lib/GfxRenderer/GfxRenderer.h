@@ -27,6 +27,8 @@ enum Color : uint8_t { Clear = 0x00, White = 0x01, LightGray = 0x05, DarkGray = 
 
 class GfxRenderer {
  public:
+  using FrameOverlayHook = void (*)(const GfxRenderer&);
+
   enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
 
   // Logical screen orientation from the perspective of callers
@@ -73,9 +75,14 @@ class GfxRenderer {
   mutable int _stripY0 = 0;
   mutable int _stripRows = 0;
   mutable bool _stripActive = false;
+  FrameOverlayHook frameOverlayHook_ = nullptr;
+  bool frameOverlayEnabled_ = true;
+  mutable bool frameOverlayDrawn_ = false;
+  mutable bool applyingFrameOverlay_ = false;
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
+  void applyFrameOverlay(bool force = false) const;
   void freeBwBufferChunks();
   template <Color color>
   void drawPixelDither(int x, int y) const;
@@ -130,6 +137,13 @@ class GfxRenderer {
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
+  void setFrameOverlayHook(const FrameOverlayHook hook) { frameOverlayHook_ = hook; }
+  void setFrameOverlayEnabled(const bool enabled) { frameOverlayEnabled_ = enabled; }
+  void beginFrame() const { frameOverlayDrawn_ = false; }
+  void markFrameOverlayDrawn() const { frameOverlayDrawn_ = true; }
+  void requestCleanRefresh() { display.requestCleanRefresh(); }
+  void requestFullRefresh() { display.requestFullRefresh(); }
+  void setAutomaticCleanupEnabled(const bool enabled) { display.setAutomaticCleanupEnabled(enabled); }
 
   // Screen ops
   int getScreenWidth() const;
@@ -174,6 +188,8 @@ class GfxRenderer {
   void drawRoundedRect(int x, int y, int width, int height, int lineWidth, int cornerRadius, bool state) const;
   void drawRoundedRect(int x, int y, int width, int height, int lineWidth, int cornerRadius, bool roundTopLeft,
                        bool roundTopRight, bool roundBottomLeft, bool roundBottomRight, bool state) const;
+  void invertRoundedRect(int x, int y, int width, int height, int cornerRadius, bool roundTopLeft,
+                         bool roundTopRight, bool roundBottomLeft, bool roundBottomRight) const;
   void maskRoundedRectOutsideCorners(int x, int y, int width, int height, int radius, Color color = Color::White) const;
   void fillRect(int x, int y, int width, int height, bool state = true) const;
   void fillRectDither(int x, int y, int width, int height, Color color) const;

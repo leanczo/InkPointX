@@ -5,6 +5,8 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <JpegToBmpConverter.h>
+#include <PngToBmpConverter.h>
 
 #include <algorithm>
 
@@ -13,8 +15,16 @@
 #include "fontIds.h"
 #include "util/SleepImageInstaller.h"
 
-BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path)
-    : Activity("BmpViewer", renderer, mappedInput), filePath(std::move(path)) {}
+namespace {
+constexpr const char* PREVIEW_PATH = "/.crosspoint/image-preview.bmp";
+}
+
+BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path,
+                                     const bool returnToCallerValue, const bool browseSiblingsValue)
+    : Activity("BmpViewer", renderer, mappedInput),
+      filePath(std::move(path)),
+      returnToCaller(returnToCallerValue),
+      browseSiblings(browseSiblingsValue) {}
 
 void BmpViewerActivity::loadSiblingImages() {
   siblingImages.clear();
@@ -38,7 +48,8 @@ void BmpViewerActivity::loadSiblingImages() {
       file.getName(name, sizeof(name));
       if (name[0] != '.') {
         std::string fname(name);
-        if (fname.length() >= 4 && fname.substr(fname.length() - 4) == ".bmp") {
+        if (FsHelpers::hasBmpExtension(fname) || FsHelpers::hasJpgExtension(fname) ||
+            FsHelpers::hasPngExtension(fname)) {
           siblingImages.push_back(fname);
         }
       }
@@ -57,10 +68,46 @@ void BmpViewerActivity::loadSiblingImages() {
   }
 }
 
+bool BmpViewerActivity::prepareDisplayImage() {
+  displayPath = filePath;
+  ownsPreviewFile = false;
+  if (FsHelpers::hasBmpExtension(filePath)) return true;
+  if (!FsHelpers::hasJpgExtension(filePath) && !FsHelpers::hasPngExtension(filePath)) return false;
+
+  if (Storage.exists(PREVIEW_PATH)) Storage.remove(PREVIEW_PATH);
+
+  HalFile source;
+  HalFile destination;
+  if (!Storage.openFileForRead("IMGVIEW", filePath, source) ||
+      !Storage.openFileForWrite("IMGVIEW", PREVIEW_PATH, destination)) {
+    if (source) source.close();
+    if (destination) destination.close();
+    Storage.remove(PREVIEW_PATH);
+    return false;
+  }
+
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  const bool converted =
+      FsHelpers::hasJpgExtension(filePath)
+          ? JpegToBmpConverter::jpegFileToBmpStreamWithSize(source, destination, pageWidth, pageHeight)
+          : PngToBmpConverter::pngFileToBmpStreamWithSize(source, destination, pageWidth, pageHeight);
+  source.close();
+  destination.close();
+
+  if (!converted) {
+    Storage.remove(PREVIEW_PATH);
+    return false;
+  }
+  displayPath = PREVIEW_PATH;
+  ownsPreviewFile = true;
+  return true;
+}
+
 void BmpViewerActivity::onEnter() {
   Activity::onEnter();
 
-  if (siblingImages.empty() && !filePath.empty()) {
+  if (browseSiblings && siblingImages.empty() && !filePath.empty()) {
     loadSiblingImages();
   }
 
@@ -70,8 +117,16 @@ void BmpViewerActivity::onEnter() {
   const auto pageHeight = renderer.getScreenHeight();
   Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   GUI.fillPopupProgress(renderer, popupRect, 20);  // Initial 20% progress
+  if (!prepareDisplayImage()) {
+    renderer.clearScreen();
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_IMAGE_PREVIEW_FAILED));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    return;
+  }
   // 1. Open the file
-  if (Storage.openFileForRead("BMP", filePath, file)) {
+  if (Storage.openFileForRead("BMP", displayPath, file)) {
     Bitmap bitmap(file, true);
 
     // 2. Parse headers to get dimensions
@@ -140,6 +195,10 @@ void BmpViewerActivity::onEnter() {
 
 void BmpViewerActivity::onExit() {
   Activity::onExit();
+  if (ownsPreviewFile) {
+    Storage.remove(PREVIEW_PATH);
+    ownsPreviewFile = false;
+  }
   renderer.clearScreen();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
@@ -167,7 +226,11 @@ void BmpViewerActivity::loop() {
   Activity::loop();
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    activityManager.goToFileBrowser(filePath);
+    if (returnToCaller) {
+      finish();
+    } else {
+      activityManager.goToFileBrowser(filePath);
+    }
     return;
   }
 
@@ -176,8 +239,8 @@ void BmpViewerActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Up)) {
     if (siblingImages.size() > 1 && currentImageIndex > 0) {
       currentImageIndex--;
       std::string dirPath = FsHelpers::extractFolderPath(filePath);
@@ -188,8 +251,8 @@ void BmpViewerActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Right) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Down)) {
     if (siblingImages.size() > 1 && currentImageIndex != -1 &&
         currentImageIndex < static_cast<int>(siblingImages.size()) - 1) {
       currentImageIndex++;

@@ -294,6 +294,13 @@ void XtcReaderActivity::renderPage() {
       }
     }
 
+    if (SETTINGS.readerInvertColors) {
+      renderer.invertScreen();
+      ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+      free(pageBuffer);
+      return;
+    }
+
     if (pagesUntilFullRefresh <= 1) {
       // Periodic ghost cleanup: scrub via the normal path, then run the
       // settle flavor of the grayscale base pass (DTM planes are equal after
@@ -382,6 +389,7 @@ void XtcReaderActivity::renderPage() {
     renderStatusBarOverlay(StatusBarOverlayPosition::Bottom);
   }
 
+  if (SETTINGS.readerInvertColors) renderer.invertScreen();
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   LOG_DBG("XTR", "Rendered page %lu/%lu (%u-bit)", currentPage + 1, xtc->getPageCount(), bitDepth);

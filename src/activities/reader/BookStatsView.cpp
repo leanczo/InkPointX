@@ -434,10 +434,10 @@ void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const 
 void drawDateField(const GfxRenderer& renderer, const int x, const int y, const int w, const char* text,
                    const bool selected) {
   const int h = renderer.getLineHeight(UI_12_FONT_ID) + 10;
-  renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
-  renderer.drawRect(x, y, w, h, true);
   if (selected) {
-    renderer.drawRect(x + 1, y + 1, w - 2, h - 2, true);
+    GUI.drawSelection(renderer, Rect{x, y, w, h});
+  } else {
+    renderer.drawRoundedRect(x, y, w, h, 1, 8, true);
   }
   drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, y + 5, text);
 }

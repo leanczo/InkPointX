@@ -172,8 +172,16 @@ def build_family(
     # Resolve all font file paths (downloads as needed)
     try:
         resolved_styles = {}
+        resolved_fallbacks = {}
         for style_name, style_spec in styles.items():
             resolved_styles[style_name] = resolve_font_path(style_spec, name, style_name)
+            fallback_spec = style_spec.get("fallback")
+            if fallback_spec:
+                resolved_fallbacks[style_name] = resolve_font_path(
+                    fallback_spec, name, f"{style_name}_fallback"
+                )
+            else:
+                resolved_fallbacks[style_name] = DEFAULT_FALLBACK_FONT
     except (FileNotFoundError, RuntimeError) as e:
         return name, False, str(e)
 
@@ -187,14 +195,14 @@ def build_family(
         # Multi-style mode
         for style_name, font_path in resolved_styles.items():
             cmd.extend([f"--{style_name}", str(font_path)])
-            cmd.extend([f"--fallback-{style_name}", str(DEFAULT_FALLBACK_FONT)])
+            cmd.extend([f"--fallback-{style_name}", str(resolved_fallbacks[style_name])])
     else:
         # Single-style mode
         style_name = next(iter(resolved_styles))
         font_path = resolved_styles[style_name]
         cmd.append(str(font_path))
         cmd.extend(["--style", style_name])
-        cmd.extend([f"--fallback-{style_name}", str(DEFAULT_FALLBACK_FONT)])
+        cmd.extend([f"--fallback-{style_name}", str(resolved_fallbacks[style_name])])
 
     cmd.extend(["--intervals", intervals])
     cmd.extend(["--sizes", sizes])
@@ -203,6 +211,8 @@ def build_family(
 
     if family.get("force_autohint", False):
         cmd.append("--force-autohint")
+    if family.get("monochrome", False):
+        cmd.extend(["--1bit", "--mono-threshold", str(family.get("mono_threshold", 6))])
 
     # Run fontconvert_sdcard.py
     start = time.monotonic()
@@ -368,6 +378,13 @@ def main():
             if "url" in style_spec:
                 try:
                     resolve_font_path(style_spec, family["name"], style_name)
+                except Exception as e:
+                    print(f"ERROR: {e}", file=sys.stderr)
+                    sys.exit(1)
+            fallback_spec = style_spec.get("fallback")
+            if fallback_spec:
+                try:
+                    resolve_font_path(fallback_spec, family["name"], f"{style_name}_fallback")
                 except Exception as e:
                     print(f"ERROR: {e}", file=sys.stderr)
                     sys.exit(1)

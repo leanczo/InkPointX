@@ -3,94 +3,19 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
-#include <HalClock.h>
 #include <HalStorage.h>
-#include <I18n.h>
 #include <Logging.h>
 #include <Txt.h>
-#include <WiFi.h>
 #include <Xtc.h>
 
-#include <cstdio>
 #include <string>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "WifiCredentialStore.h"
 #include "activities/reader/ReaderUtils.h"
+#include "components/BrandScreen.h"
 #include "components/UITheme.h"
-#include "fontIds.h"
-#include "images/Logo120.h"
 #include "images/MoonIcon.h"
-
-namespace {
-constexpr uint8_t UTC_OFFSET_BIAS = 48;
-constexpr uint8_t KYIV_STANDARD_OFFSET_Q = UTC_OFFSET_BIAS + 8;  // UTC+2
-constexpr uint8_t KYIV_SUMMER_OFFSET_Q = UTC_OFFSET_BIAS + 12;   // UTC+3
-
-int weekdayForDate(int year, int month, int day) {
-  // Sakamoto's Gregorian algorithm: 0 = Sunday.
-  static constexpr int monthOffsets[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
-  if (month < 3) --year;
-  return (year + year / 4 - year / 100 + year / 400 + monthOffsets[month - 1] + day) % 7;
-}
-
-int lastSundayOfMonth(const int year, const int month, const int lastDay) {
-  return lastDay - weekdayForDate(year, month, lastDay);
-}
-
-uint8_t kyivOffsetForUtc(const struct tm& utc) {
-  // Europe/Kyiv follows the European transition rule: daylight time begins
-  // at 01:00 UTC on the last Sunday in March and ends at 01:00 UTC on the
-  // last Sunday in October.
-  const int year = utc.tm_year + 1900;
-  const int month = utc.tm_mon + 1;
-  if (month < 3 || month > 10) return KYIV_STANDARD_OFFSET_Q;
-  if (month > 3 && month < 10) return KYIV_SUMMER_OFFSET_Q;
-
-  const int transitionDay = lastSundayOfMonth(year, month, 31);
-  if (month == 3) {
-    return (utc.tm_mday > transitionDay || (utc.tm_mday == transitionDay && utc.tm_hour >= 1))
-               ? KYIV_SUMMER_OFFSET_Q
-               : KYIV_STANDARD_OFFSET_Q;
-  }
-  return (utc.tm_mday < transitionDay || (utc.tm_mday == transitionDay && utc.tm_hour < 1))
-             ? KYIV_SUMMER_OFFSET_Q
-             : KYIV_STANDARD_OFFSET_Q;
-}
-
-void formatLockDate(const struct tm& local, char* output, const size_t outputSize) {
-  static constexpr const char* WEEKDAYS_RU[] = {"Воскресенье", "Понедельник", "Вторник", "Среда",
-                                                 "Четверг",     "Пятница",     "Суббота"};
-  static constexpr const char* MONTHS_RU[] = {"января",   "февраля", "марта",   "апреля",
-                                               "мая",      "июня",    "июля",    "августа",
-                                               "сентября", "октября", "ноября",  "декабря"};
-  static constexpr const char* WEEKDAYS_UK[] = {"Неділя", "Понеділок", "Вівторок", "Середа",
-                                                 "Четвер", "П'ятниця",  "Субота"};
-  static constexpr const char* MONTHS_UK[] = {"січня",   "лютого",  "березня", "квітня",
-                                               "травня",  "червня", "липня",   "серпня",
-                                               "вересня", "жовтня", "листопада", "грудня"};
-  static constexpr const char* WEEKDAYS_EN[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
-                                                 "Thursday", "Friday", "Saturday"};
-  static constexpr const char* MONTHS_EN[] = {"January", "February", "March",     "April",
-                                               "May",     "June",     "July",      "August",
-                                               "September", "October", "November", "December"};
-
-  const int weekday = (local.tm_wday >= 0 && local.tm_wday < 7) ? local.tm_wday : 0;
-  const int month = (local.tm_mon >= 0 && local.tm_mon < 12) ? local.tm_mon : 0;
-  switch (I18N.getLanguage()) {
-    case Language::RU:
-      snprintf(output, outputSize, "%s, %d %s", WEEKDAYS_RU[weekday], local.tm_mday, MONTHS_RU[month]);
-      break;
-    case Language::UK:
-      snprintf(output, outputSize, "%s, %d %s", WEEKDAYS_UK[weekday], local.tm_mday, MONTHS_UK[month]);
-      break;
-    default:
-      snprintf(output, outputSize, "%s, %s %d", WEEKDAYS_EN[weekday], MONTHS_EN[month], local.tm_mday);
-      break;
-  }
-}
-}  // namespace
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
@@ -115,8 +40,9 @@ void SleepActivity::onEnter() {
 
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::DARK):
-      syncClockForSleep();
-      return renderLockScreen();
+      // DARK was the removed iPhone-style clock mode. Treat legacy persisted
+      // values as the clean light brand screen.
+      return renderDefaultSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
@@ -132,93 +58,6 @@ void SleepActivity::onEnter() {
     default:
       return renderDefaultSleepScreen();
   }
-}
-
-void SleepActivity::syncClockForSleep() const {
-  if (!halClock.needsNetworkSync()) return;
-
-  bool startedWifi = false;
-  if (WiFi.status() != WL_CONNECTED) {
-    if (!WIFI_STORE.loadFromFile()) {
-      LOG_INF("SLP", "No saved WiFi credentials for sleep-clock sync");
-      return;
-    }
-
-    const std::string& ssid = WIFI_STORE.getLastConnectedSsid();
-    const WifiCredential* credential = ssid.empty() ? nullptr : WIFI_STORE.findCredential(ssid);
-    if (!credential) {
-      LOG_INF("SLP", "No last-connected WiFi network for sleep-clock sync");
-      return;
-    }
-
-    LOG_INF("SLP", "Connecting to saved WiFi for sleep-clock sync");
-    WiFi.persistent(false);
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
-    delay(50);
-    if (credential->password.empty()) {
-      WiFi.begin(credential->ssid.c_str());
-    } else {
-      WiFi.begin(credential->ssid.c_str(), credential->password.c_str());
-    }
-    startedWifi = true;
-
-    const unsigned long startedAt = millis();
-    constexpr unsigned long CONNECT_TIMEOUT_MS = 5000;
-    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < CONNECT_TIMEOUT_MS) {
-      delay(100);
-    }
-  }
-
-  if (WiFi.status() == WL_CONNECTED && halClock.syncFromNTP()) {
-    SETTINGS.clockHasBeenSynced = 1;
-    SETTINGS.saveToFile();
-  } else {
-    LOG_INF("SLP", "Using saved/build time for sleep screen");
-  }
-
-  if (startedWifi) {
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-  }
-}
-
-void SleepActivity::renderLockScreen() const {
-  const int pageWidth = renderer.getScreenWidth();
-  char timeText[8] = "--:--";
-  char dateText[80] = "Time not set";
-  if (I18N.getLanguage() == Language::RU) {
-    snprintf(dateText, sizeof(dateText), "Время не задано");
-  } else if (I18N.getLanguage() == Language::UK) {
-    snprintf(dateText, sizeof(dateText), "Час не встановлено");
-  }
-
-  struct tm utc = {};
-  struct tm local = {};
-  if (halClock.getDateTime(utc, UTC_OFFSET_BIAS) && halClock.getDateTime(local, kyivOffsetForUtc(utc))) {
-    snprintf(timeText, sizeof(timeText), "%02d:%02d", local.tm_hour, local.tm_min);
-    formatLockDate(local, dateText, sizeof(dateText));
-  }
-
-  renderer.clearScreen();
-
-  // iPhone Lock Screen proportions adapted to the X4's 480x800 portrait panel.
-  const int centerX = pageWidth / 2;
-  constexpr int lockCenterY = 75;
-  constexpr int lockRadius = 7;
-  renderer.drawArc(lockRadius, centerX, lockCenterY, -1, -1, 2, true);
-  renderer.drawArc(lockRadius, centerX, lockCenterY, 1, -1, 2, true);
-  renderer.drawLine(centerX - lockRadius, lockCenterY, centerX - lockRadius, lockCenterY + 7, 2, true);
-  renderer.drawLine(centerX + lockRadius, lockCenterY, centerX + lockRadius, lockCenterY + 7, 2, true);
-  renderer.drawRoundedRect(centerX - 10, lockCenterY + 5, 21, 18, 2, 4, true);
-
-  renderer.drawCenteredText(LOCKSCREEN_DATE_FONT_ID, 130, dateText);
-  renderer.drawCenteredText(LOCKSCREEN_CLOCK_FONT_ID, 154, timeText);
-
-  // Draw black-on-white for the normal text pipeline, then invert once so the
-  // retained e-ink frame has the same dark appearance as iPhone Always-On.
-  renderer.invertScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
@@ -316,19 +155,12 @@ void SleepActivity::renderCustomSleepScreen() const {
 }
 
 void SleepActivity::renderDefaultSleepScreen() const {
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-
   renderer.clearScreen();
-  renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSPOINT), true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_SLEEPING));
+  BrandScreen::draw(renderer);
+  renderer.markFrameOverlayDrawn();
 
-  // Make sleep screen dark unless light is selected in settings
-  if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT) {
-    renderer.invertScreen();
-  }
-
+  // The stock single-pass clean rewrites both planes before power-off and
+  // avoids the multi-phase FULL flash.
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
@@ -383,6 +215,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
     renderer.invertScreen();
   }
+  renderer.markFrameOverlayDrawn();
 
   if (hasGreyscale) {
     // OEM grayscale pipeline base: on X3 this displays the frame with the
@@ -391,6 +224,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     // plain HALF refresh (previous behavior).
     renderer.displayGrayscaleBase(HalDisplay::HALF_REFRESH);
   } else {
+    // Use the same non-blinking single-pass clean for binary sleep images.
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   }
 
@@ -399,12 +233,14 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    renderer.markFrameOverlayDrawn();
     renderer.copyGrayscaleLsbBuffers();
 
     bitmap.rewindToData();
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
+    renderer.markFrameOverlayDrawn();
     renderer.copyGrayscaleMsbBuffers();
 
     renderer.displayGrayBuffer();
@@ -496,10 +332,14 @@ void SleepActivity::renderCoverSleepScreen() const {
 void SleepActivity::renderLastScreenSleepScreen() const {
   const auto pageHeight = renderer.getScreenHeight();
   renderer.drawImage(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
+  UITheme::getInstance().clearSystemBatteryOverlay(renderer);
+  renderer.markFrameOverlayDrawn();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
+  // Preserve the explicit semantics of the Blank option.
+  renderer.markFrameOverlayDrawn();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }

@@ -16,10 +16,13 @@
 #include <WiFi.h>
 #include <builtinFonts/all.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "FavoriteBooksStore.h"
+#include "InterfaceFont.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -101,22 +104,32 @@ EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, 
 
 #endif  // OMIT_FONTS
 
-EpdFont smallFont(&notosans_8_regular);
-EpdFontFamily smallFontFamily(&smallFont);
+// FiraGO's Medium and SemiBold weights are rasterized directly to compact
+// 1-bit translation subsets. Medium keeps body labels open on the X4 panel;
+// SemiBold supplies headings and selected/emphasized states.
+EpdFont firaGo8MediumFont(&firago_8_medium);
+EpdFont firaGo8SemiBoldFont(&firago_8_semibold);
+EpdFontFamily firaGo8FontFamily(&firaGo8MediumFont, &firaGo8SemiBoldFont);
 
-EpdFont ui10RegularFont(&ubuntu_10_regular);
-EpdFont ui10BoldFont(&ubuntu_10_bold);
-EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
+EpdFont firaGo12MediumFont(&firago_12_medium);
+EpdFont firaGo12SemiBoldFont(&firago_12_semibold);
+EpdFontFamily firaGo12FontFamily(&firaGo12MediumFont, &firaGo12SemiBoldFont);
 
-EpdFont ui12RegularFont(&ubuntu_12_regular);
-EpdFont ui12BoldFont(&ubuntu_12_bold);
-EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+EpdFont firaGo14MediumFont(&firago_14_medium);
+EpdFont firaGo14SemiBoldFont(&firago_14_semibold);
+EpdFontFamily firaGo14FontFamily(&firaGo14MediumFont, &firaGo14SemiBoldFont);
 
-// Compact OFL-licensed Inter subsets used exclusively by the sleep lock screen.
-EpdFont lockScreenClockFont(&locksans_clock_72_light);
-EpdFontFamily lockScreenClockFontFamily(&lockScreenClockFont);
-EpdFont lockScreenDateFont(&locksans_date_11_medium);
-EpdFontFamily lockScreenDateFontFamily(&lockScreenDateFont);
+EpdFont firaGo16MediumFont(&firago_16_medium);
+EpdFont firaGo16SemiBoldFont(&firago_16_semibold);
+EpdFontFamily firaGo16FontFamily(&firaGo16MediumFont, &firaGo16SemiBoldFont);
+EpdFontFamily firaGoHeaderFontFamily(&firaGo16SemiBoldFont);
+
+EpdFont firaGo18MediumFont(&firago_18_medium);
+EpdFont firaGo18SemiBoldFont(&firago_18_semibold);
+EpdFontFamily firaGo18FontFamily(&firaGo18MediumFont, &firaGo18SemiBoldFont);
+
+EpdFont firaGoWordmarkFont(&firago_wordmark_36_semibold);
+EpdFontFamily firaGoWordmarkFontFamily(&firaGoWordmarkFont, &firaGoWordmarkFont);
 
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
@@ -145,6 +158,27 @@ enum class BootResume : uint8_t {
 // device back up against the user's sleep gesture. Never cleared:
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
+
+void drawSystemFrameOverlay(const GfxRenderer& target) {
+  UITheme::getInstance().drawSystemBatteryOverlay(target);
+}
+
+void applyInterfaceFont() {
+  renderer.removeFont(SMALL_FONT_ID);
+  renderer.removeFont(UI_10_FONT_ID);
+  renderer.removeFont(UI_12_FONT_ID);
+  renderer.removeFont(UI_14_FONT_ID);
+  renderer.removeFont(UI_16_FONT_ID);
+  renderer.removeFont(UI_18_FONT_ID);
+  if (renderer.getFontCacheManager()) renderer.getFontCacheManager()->clearCache();
+
+  renderer.insertFont(SMALL_FONT_ID, firaGo8FontFamily);
+  renderer.insertFont(UI_10_FONT_ID, firaGo12FontFamily);
+  renderer.insertFont(UI_12_FONT_ID, firaGo14FontFamily);
+  renderer.insertFont(UI_14_FONT_ID, firaGo14FontFamily);
+  renderer.insertFont(UI_16_FONT_ID, firaGo16FontFamily);
+  renderer.insertFont(UI_18_FONT_ID, firaGo18FontFamily);
+}
 
 void silentRestart() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
@@ -287,6 +321,7 @@ void enterDeepSleep(bool fromTimeout = false) {
 void setupDisplayAndFonts(bool seamless = false) {
   display.begin(seamless);
   renderer.begin();
+  renderer.setFrameOverlayHook(drawSystemFrameOverlay);
   activityManager.begin();
   LOG_DBG("MAIN", "Display initialized");
 
@@ -307,11 +342,9 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
 #endif  // OMIT_FONTS
-  renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
-  renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
-  renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
-  renderer.insertFont(LOCKSCREEN_CLOCK_FONT_ID, lockScreenClockFontFamily);
-  renderer.insertFont(LOCKSCREEN_DATE_FONT_ID, lockScreenDateFontFamily);
+  applyInterfaceFont();
+  renderer.insertFont(HEADER_FONT_ID, firaGoHeaderFontFamily);
+  renderer.insertFont(WORDMARK_FONT_ID, firaGoWordmarkFontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);
@@ -365,6 +398,7 @@ void setup() {
   halClock.restoreFromStorage();
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
+  FAVORITE_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
@@ -412,10 +446,9 @@ void setup() {
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
   LOG_DBG("MAIN", "Starting InkPoint X version " CROSSPOINT_VERSION);
 
-  // Resolve the single boot-presentation decision. Skipping the splash also
-  // skips the panel-clearing pass and the X3 initial-full-sync arming (see
-  // HalDisplay::begin), so the first paint is FAST_REFRESH (~500ms) over the
-  // retained frame and input dispatches against a visible UI.
+  // Resolve the single boot-presentation decision. Seamless paths skip the
+  // splash but still run one controller-safe fast-full update: begin() resets
+  // controller RAM while the physical e-ink panel retains its old frame.
   const BootResume resume = isSilentReboot              ? BootResume::Silent
                             : !APP_STATE.showBootScreen ? BootResume::QuickResume
                                                         : BootResume::Splash;
@@ -484,12 +517,12 @@ void setup() {
     // selectorIndex=0 opens the most-recent book.
     activityManager.requestUpdateAndWait();
     // Absorb any button held at this point into currentState as a non-edge:
-    // two gpio.update() calls separated by > InputManager's 5ms debounce
+    // two gpio.update() calls separated by > InputManager's 20ms debounce
     // transition the held bit through lastDebounceTime into currentState
     // without setting pressedEvents, so the first loop()'s own gpio.update()
     // sees state == currentState and emits nothing.
     gpio.update();
-    delay(10);
+    delay(25);
     gpio.update();
   }
 
@@ -522,11 +555,58 @@ void loop() {
       String cmd = line.substring(4);
       cmd.trim();
       if (cmd == "SCREENSHOT") {
+        // Snapshot the framebuffer under the same lock used by the render task.
+        // Without this, an activity redraw can replace the buffer while the
+        // relatively slow USB transfer is in progress, producing a torn image
+        // containing parts of two different screens.
+        RenderLock renderLock;
         const uint32_t bufferSize = display.getBufferSize();
+        logSerial.setTxTimeoutMs(1000);
         logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
         uint8_t* buf = display.getFrameBuffer();
-        logSerial.write(buf, bufferSize);
+        uint32_t bytesSent = 0;
+        while (bytesSent < bufferSize) {
+          const size_t chunkSize = std::min<uint32_t>(64, bufferSize - bytesSent);
+          const size_t written = logSerial.write(buf + bytesSent, chunkSize);
+          if (written == 0) {
+            delay(1);
+            continue;
+          }
+          bytesSent += written;
+          delay(1);
+        }
+        logSerial.flush();
         logSerial.printf("SCREENSHOT_END\n");
+        logSerial.flush();
+        logSerial.setTxTimeoutMs(1);
+#if LOG_LEVEL >= 2
+      } else if (cmd == "PROFILE_REDRAW") {
+        // Development-only latency probe. It exercises the exact active
+        // activity render path without changing UI state.
+        activityManager.requestUpdate();
+        LOG_DBG("MAIN", "Profile redraw requested");
+      } else if (cmd == "PROFILE_LIBRARY") {
+        activityManager.goHome(HomeMenuItem::LIBRARY);
+        LOG_DBG("MAIN", "Profile route: Library");
+      } else if (cmd == "PROFILE_BOOKS") {
+        activityManager.goToLibrary();
+        LOG_DBG("MAIN", "Profile route: Books");
+      } else if (cmd == "PROFILE_FILES") {
+        activityManager.goToFileBrowser();
+        LOG_DBG("MAIN", "Profile route: Files");
+      } else if (cmd == "PROFILE_GALLERY") {
+        activityManager.goToGallery();
+        LOG_DBG("MAIN", "Profile route: Gallery");
+      } else if (cmd == "PROFILE_HOME_SETTINGS") {
+        activityManager.goHome(HomeMenuItem::SETTINGS_MENU);
+        LOG_DBG("MAIN", "Profile route: Settings hub");
+      } else if (cmd == "PROFILE_HOME") {
+        activityManager.goHome();
+        LOG_DBG("MAIN", "Profile route: Home");
+      } else if (cmd == "PROFILE_SETTINGS") {
+        activityManager.goToSettings();
+        LOG_DBG("MAIN", "Profile route: Settings");
+#endif
       }
     }
   }
@@ -587,12 +667,27 @@ void loop() {
       mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     LOG_DBG("MAIN", "Manual screen refresh triggered");
     RenderLock lock;
+    // The X4's single-pass D7 clean removes accumulated differential residue
+    // without the conspicuous multi-phase black flash of FULL (F7).
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   }
 
   // Refresh the battery icon when USB is plugged or unplugged.
   // Placed after sleep guards so we never queue a render that won't be processed.
   if (gpio.wasUsbStateChanged()) {
+    activityManager.requestUpdate();
+  }
+
+  // A button can still be physically held while the action-triggered frame is
+  // painted, so its on-screen section is rendered black. The release edge does
+  // not always change activity state and therefore used to leave that frame
+  // latched on e-ink indefinitely. Queue one visual-only redraw after release.
+  // It is deliberately deferred and coalesced with the activity's own update:
+  // no extra gpio.update(), no replayed input event, and no duplicate action.
+  const bool frontButtonReleased =
+      gpio.wasReleased(HalGPIO::BTN_BACK) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
+      gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_RIGHT);
+  if (frontButtonReleased && SETTINGS.showButtonHints && UITheme::getInstance().hasVisibleButtonHints()) {
     activityManager.requestUpdate();
   }
 

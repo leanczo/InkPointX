@@ -10,9 +10,9 @@
 EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool hasFootnotes, const bool hasBookmarks)
+                                               const bool hasFootnotes, const bool hasBookmarks, const bool isFavorite)
     : Activity("EpubReaderMenu", renderer, mappedInput),
-      menuItems(buildMenuItems(hasFootnotes, hasBookmarks)),
+      menuItems(buildMenuItems(hasFootnotes, hasBookmarks, isFavorite)),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
@@ -20,16 +20,22 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
       bookProgressPercent(bookProgressPercent) {}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes,
-                                                                                     bool hasBookmarks) {
+                                                                                     bool hasBookmarks,
+                                                                                     bool isFavorite) {
+  (void)hasBookmarks;
   std::vector<MenuItem> items;
-  items.reserve(12);
+  items.reserve(18);
+  items.push_back({MenuAction::GO_TO_PAGE, StrId::STR_GO_TO_PAGE});
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }
-  if (hasBookmarks) {
-    items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
-  }
+  items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
+  items.push_back({MenuAction::READING_SETTINGS, StrId::STR_READING_SETTINGS});
+  items.push_back({MenuAction::BOOK_INFO, StrId::STR_BOOK_INFO});
+  items.push_back({MenuAction::OPEN_FROM_FILE, StrId::STR_OPEN_FROM_FILE});
+  items.push_back(
+      {MenuAction::TOGGLE_FAVORITE, isFavorite ? StrId::STR_REMOVE_FROM_FAVORITES : StrId::STR_ADD_TO_FAVORITES});
   items.push_back({MenuAction::TOGGLE_BOOKMARK, StrId::STR_TOGGLE_BOOKMARK});
   items.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});

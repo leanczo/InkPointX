@@ -107,12 +107,12 @@ void FontSelectionActivity::loop() {
   const int pageItems =
       UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, previewHeight + metrics_.verticalSpacing);
 
-  buttonNavigator_.onNextRelease([this, listSize] {
+  buttonNavigator_.onNextPress([this, listSize] {
     selectedIndex_ = ButtonNavigator::nextIndex(selectedIndex_, listSize);
     requestUpdate();
   });
 
-  buttonNavigator_.onPreviousRelease([this, listSize] {
+  buttonNavigator_.onPreviousPress([this, listSize] {
     selectedIndex_ = ButtonNavigator::previousIndex(selectedIndex_, listSize);
     requestUpdate();
   });
@@ -211,10 +211,11 @@ void FontSelectionActivity::render(RenderLock&&) {
       [this](int index) { return fonts_[index].name; }, nullptr, nullptr,
       [this, currentFontIndex](int index) -> std::string {
         if (index == previewFontIndex_ && index != currentFontIndex) return tr(STR_PREVIEW);
-        if (index == currentFontIndex) return tr(STR_SELECTED);
         return "";
       },
-      true);
+      true, nullptr, [currentFontIndex](int index) {
+        return index == currentFontIndex ? UIAccessory::Check : UIAccessory::None;
+      });
 
   const bool onPreviewed = selectedIndex_ == previewFontIndex_;
   const char* confirmLabel = onPreviewed ? tr(STR_SELECT) : tr(STR_PREVIEW);

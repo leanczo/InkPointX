@@ -138,12 +138,19 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   }
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
+  // Sleep screen uses a dynamic UI mapping so the removed legacy DARK value
+  // does not shift the remaining persisted enum values.
+  doc["sleepScreen"] = s.sleepScreen;
   doc["frontButtonBack"] = s.frontButtonBack;
   doc["frontButtonConfirm"] = s.frontButtonConfirm;
   doc["frontButtonLeft"] = s.frontButtonLeft;
   doc["frontButtonRight"] = s.frontButtonRight;
   // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
   doc["fontFamily"] = s.fontFamily;
+  // Revision 1 changes the untouched legacy Noto Sans UI default to Ink Sans.
+  // Keep this separate from the numeric family value so future enum additions
+  // can be migrated without reinterpreting a user's explicit selection.
+  doc["uiFontRevision"] = 2;
   // SD card font family name — not in SettingsList, save manually
   if (s.sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = s.sdFontFamilyName;
@@ -222,6 +229,25 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       }
       s.*(info.valuePtr) = v;
     }
+  }
+
+  // Dynamic sleep-screen mapping is persisted manually. Migrate the removed
+  // iPhone-style DARK clock mode to the clean light brand screen.
+  const uint8_t storedSleepScreen =
+      clamp(doc["sleepScreen"] | static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT),
+            CrossPointSettings::SLEEP_SCREEN_MODE_COUNT,
+            static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT));
+  s.sleepScreen = storedSleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK
+                      ? CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT
+                      : storedSleepScreen;
+  if (storedSleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK && needsResave) {
+    *needsResave = true;
+  }
+
+  const uint8_t uiFontRevision = doc["uiFontRevision"] | static_cast<uint8_t>(0);
+  if (uiFontRevision < 2 || s.uiFontFamily != CrossPointSettings::UI_FIRAGO) {
+    s.uiFontFamily = CrossPointSettings::UI_FIRAGO;
+    if (needsResave) *needsResave = true;
   }
 
   if (doc["sleepTimeoutMinutes"].isNull() && !doc["sleepTimeout"].isNull()) {

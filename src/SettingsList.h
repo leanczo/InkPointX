@@ -90,6 +90,36 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   return s;
 }
 
+// Keep the historic on-disk enum values stable while hiding the removed
+// iPhone-style clock mode from both the device and web settings UI.
+inline uint8_t getVisibleSleepScreenMode() {
+  switch (SETTINGS.sleepScreen) {
+    case CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM:
+      return 1;
+    case CrossPointSettings::SLEEP_SCREEN_MODE::COVER:
+      return 2;
+    case CrossPointSettings::SLEEP_SCREEN_MODE::BLANK:
+      return 3;
+    case CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM:
+      return 4;
+    case CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME:
+      return 5;
+    case CrossPointSettings::SLEEP_SCREEN_MODE::DARK:
+    case CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT:
+    default:
+      return 0;
+  }
+}
+
+inline void setVisibleSleepScreenMode(const uint8_t visibleMode) {
+  static constexpr uint8_t MODES[] = {
+      CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT,        CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM,
+      CrossPointSettings::SLEEP_SCREEN_MODE::COVER,        CrossPointSettings::SLEEP_SCREEN_MODE::BLANK,
+      CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM, CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME,
+  };
+  SETTINGS.sleepScreen = visibleMode < sizeof(MODES) ? MODES[visibleMode] : MODES[0];
+}
+
 // Shared settings list used by both the device settings UI and the web settings API.
 // Each entry has a key (for JSON API) and category (for grouping).
 // ACTION-type entries and entries without a key are device-only.
@@ -103,10 +133,11 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v = {
         // --- Display ---
-        SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
-                          {StrId::STR_LOCK_SCREEN_CLOCK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER,
-                           StrId::STR_NONE_OPT, StrId::STR_COVER_CUSTOM, StrId::STR_QUICK_RESUME},
-                          "sleepScreen", StrId::STR_CAT_DISPLAY),
+        SettingInfo::DynamicEnum(
+            StrId::STR_SLEEP_SCREEN,
+            {StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
+             StrId::STR_COVER_CUSTOM, StrId::STR_QUICK_RESUME},
+            getVisibleSleepScreenMode, setVisibleSleepScreenMode, "sleepScreen", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
                           {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
@@ -115,17 +146,17 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         SettingInfo::Enum(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
                           {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, "quickResumeSleepScreen",
                           StrId::STR_CAT_DISPLAY),
+        SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::showBatteryIndicator,
+                            "showBatteryIndicator", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
                           {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
                           StrId::STR_CAT_DISPLAY),
+        SettingInfo::Toggle(StrId::STR_BUTTON_HINTS, &CrossPointSettings::showButtonHints, "showButtonHints",
+                            StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(
             StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
             {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30},
             "refreshFrequency", StrId::STR_CAT_DISPLAY),
-        SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
-                          {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
-                           StrId::STR_THEME_ROUNDEDRAFF},
-                          "uiTheme", StrId::STR_CAT_DISPLAY),
         SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                             StrId::STR_CAT_DISPLAY),
 
@@ -150,6 +181,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
         SettingInfo::Toggle(StrId::STR_FOCUS_READING, &CrossPointSettings::focusReadingEnabled, "focusReadingEnabled",
                             StrId::STR_CAT_READER),
         SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
+                            StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_READER_INVERSION, &CrossPointSettings::readerInvertColors, "readerInvertColors",
                             StrId::STR_CAT_READER),
         SettingInfo::Enum(
             StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
@@ -193,6 +226,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "removeReadBooksFromRecents", StrId::STR_CAT_SYSTEM),
         SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
                             "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM),
+        SettingInfo::Enum(StrId::STR_INTERFACE_FONT, &CrossPointSettings::uiFontFamily,
+                          {StrId::STR_INK_SANS}, "uiFontFamily", StrId::STR_CAT_SYSTEM),
 
         // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
         SettingInfo::DynamicString(

@@ -45,6 +45,23 @@ void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
   }
 }
 
+void FontCacheManager::warmGlyphCache(const int fontId, const char* utf8Text, const uint8_t styleMask) {
+  if (!fontDecompressor_ || !utf8Text || *utf8Text == '\0') return;
+  const auto font = fontMap_.find(fontId);
+  if (font == fontMap_.end()) return;
+
+  for (uint8_t styleIndex = 0; styleIndex < 4; ++styleIndex) {
+    if (!(styleMask & (1U << styleIndex))) continue;
+    const auto style = static_cast<EpdFontFamily::Style>(styleIndex);
+    const EpdFontData* data = font->second.getData(style);
+    if (!data || !data->groups) continue;
+    const int missed = fontDecompressor_->warmGlyphCache(data, utf8Text);
+    if (missed > 0) {
+      LOG_DBG("FCM", "warmGlyphCache: %d glyph(s) not cached for style %u", missed, styleIndex);
+    }
+  }
+}
+
 void FontCacheManager::logStats(const char* label) {
   if (fontDecompressor_) fontDecompressor_->logStats(label);
   for (auto& [id, font] : sdCardFonts_) {

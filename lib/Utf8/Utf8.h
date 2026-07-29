@@ -47,6 +47,13 @@ inline bool utf8IsCjkBreakable(const uint32_t cp) {
 // Returns true for Unicode combining diacritical marks that should not advance the cursor.
 inline bool utf8IsCombiningMark(const uint32_t cp) {
   return (cp >= 0x0300 && cp <= 0x036F)      // Combining Diacritical Marks
+         || (cp >= 0x0591 && cp <= 0x05BD)   // Hebrew cantillation / niqqud
+         || cp == 0x05BF || (cp >= 0x05C1 && cp <= 0x05C2) ||
+         (cp >= 0x05C4 && cp <= 0x05C5) || cp == 0x05C7
+         || (cp >= 0x0610 && cp <= 0x061A)   // Arabic signs
+         || (cp >= 0x064B && cp <= 0x065F)   // Arabic harakat
+         || cp == 0x0670 || (cp >= 0x06D6 && cp <= 0x06ED)
+         || (cp >= 0x0898 && cp <= 0x089F) || (cp >= 0x08CA && cp <= 0x08FF)
          || (cp >= 0x1DC0 && cp <= 0x1DFF)   // Combining Diacritical Marks Supplement
          || (cp >= 0x20D0 && cp <= 0x20FF)   // Combining Diacritical Marks for Symbols
          || (cp >= 0xFE20 && cp <= 0xFE2F);  // Combining Half Marks

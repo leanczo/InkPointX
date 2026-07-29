@@ -423,6 +423,12 @@ void TxtReaderActivity::renderPage() {
   renderLines();
   renderStatusBar();
 
+  if (SETTINGS.readerInvertColors) {
+    renderer.invertScreen();
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    return;
+  }
+
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   if (SETTINGS.textAntiAliasing) {
@@ -608,9 +614,8 @@ ScreenshotInfo TxtReaderActivity::getScreenshotInfo() const {
   }
   info.currentPage = currentPage + 1;
   info.totalPages = totalPages;
-  info.progressPercent = txt && txt->getFileSize() > 0
-                             ? static_cast<int>(currentPageEndOffset * 100.0f / txt->getFileSize() + 0.5f)
-                             : 0;
+  info.progressPercent =
+      txt && txt->getFileSize() > 0 ? static_cast<int>(currentPageEndOffset * 100.0f / txt->getFileSize() + 0.5f) : 0;
   if (info.progressPercent > 100) info.progressPercent = 100;
   return info;
 }

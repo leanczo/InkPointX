@@ -17,15 +17,17 @@
 #include <iterator>
 #include <limits>
 
+#include "BookInfoActivity.h"
+#include "BookStatsActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
-#include "BookStatsActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
+#include "FavoriteBooksStore.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
@@ -33,6 +35,9 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "activities/home/FileBrowserActivity.h"
+#include "activities/settings/SettingsActivity.h"
+#include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookmarkUtil.h"
@@ -235,7 +240,8 @@ void EpubReaderActivity::onExit() {
       stats.recordReadingSpan(sessionStartLocalDateTime, sessionReadingSeconds);
       globalStats.recordReadingSpan(sessionStartLocalDateTime, sessionReadingSeconds);
     }
-    if (!stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime && sessionReadingSeconds >= 120) {
+    if (!stats.startDateManual && !stats.startDate.isValid() && hasSessionStartLocalDateTime &&
+        sessionReadingSeconds >= 120) {
       stats.startDate = sessionStartLocalDateTime.date;
     }
   }
@@ -358,11 +364,12 @@ void EpubReaderActivity::loop() {
         const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(section->pageCount);
         bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
       }
-    const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
-    recordCurrentPageReadingTime("reader_menu");
-    startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
+      const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
+      recordCurrentPageReadingTime("reader_menu");
+      startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                  renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                                 SETTINGS.orientation, !currentPageFootnotes.empty(), !cachedBookmarks.empty()),
+                                 SETTINGS.orientation, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
+                                 FAVORITE_BOOKS.contains(epub->getPath())),
                              [this](const ActivityResult& result) {
                                // Always apply orientation change even if the menu was cancelled
                                const auto& menu = std::get<MenuResult>(result.data);
@@ -594,6 +601,22 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
   };
 
   switch (action) {
+    case EpubReaderMenuActivity::MenuAction::GO_TO_PAGE: {
+      if (!section || section->pageCount == 0) break;
+      const int initialPage = section->currentPage + 1;
+      const int maximumPage = section->pageCount;
+      startActivityForResult(
+          std::make_unique<IntervalSelectionActivity>(renderer, mappedInput, "PageSelection", StrId::STR_GO_TO_PAGE,
+                                                      StrId::STR_PAGE_STEP_HINT, initialPage, 1, maximumPage, 1, 10,
+                                                      StrId::STR_PAGE_VALUE_FORMAT, true),
+          [this](const ActivityResult& result) {
+            if (result.isCancelled || !section) return;
+            const auto selected = static_cast<int>(std::get<IntervalResult>(result.data).value);
+            section->currentPage = std::clamp(selected - 1, 0, section->pageCount - 1);
+            requestUpdate();
+          });
+      break;
+    }
     case EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER: {
       const int spineIdx = currentSpineIndex;
       const std::string path = epub->getPath();
@@ -717,11 +740,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       const bool showAllDeviceStats = GlobalReadingStats::hasSyncedStats();
       if (showAllDeviceStats) {
         startActivityForResult(
-            std::make_unique<BookStatsActivity>(renderer, mappedInput,
-                                               epub ? epub->getTitle() : std::string{"Unknown"},
-                                               epub ? epub->getCachePath() : std::string{}, stats,
-                                               currentProgress, hasSessionEstimate, liveEstimatedTimeLeftSeconds,
-                                               globalStats, GlobalReadingStats::loadAggregated(globalStats), false),
+            std::make_unique<BookStatsActivity>(renderer, mappedInput, epub ? epub->getTitle() : std::string{"Unknown"},
+                                                epub ? epub->getCachePath() : std::string{}, stats, currentProgress,
+                                                hasSessionEstimate, liveEstimatedTimeLeftSeconds, globalStats,
+                                                GlobalReadingStats::loadAggregated(globalStats), false),
             [this](const ActivityResult& result) {
               if (!result.isCancelled && epub) {
                 const auto* maybeUpdated = std::get_if<ReadingStatsResult>(&result.data);
@@ -733,10 +755,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
             });
       } else {
         startActivityForResult(
-            std::make_unique<BookStatsActivity>(renderer, mappedInput,
-                                               epub ? epub->getTitle() : std::string{"Unknown"},
-                                               epub ? epub->getCachePath() : std::string{}, stats, currentProgress,
-                                               hasSessionEstimate, liveEstimatedTimeLeftSeconds, globalStats, false),
+            std::make_unique<BookStatsActivity>(renderer, mappedInput, epub ? epub->getTitle() : std::string{"Unknown"},
+                                                epub ? epub->getCachePath() : std::string{}, stats, currentProgress,
+                                                hasSessionEstimate, liveEstimatedTimeLeftSeconds, globalStats, false),
             [this](const ActivityResult& result) {
               if (!result.isCancelled && epub) {
                 const auto* maybeUpdated = std::get_if<ReadingStatsResult>(&result.data);
@@ -747,6 +768,44 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
               }
             });
       }
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::READING_SETTINGS: {
+      startActivityForResult(std::make_unique<SettingsActivity>(renderer, mappedInput, 2, true),
+                             [this](const ActivityResult&) {
+                               RenderLock lock(*this);
+                               if (section) {
+                                 cachedSpineIndex = currentSpineIndex;
+                                 cachedChapterTotalPageCount = section->pageCount;
+                                 nextPageNumber = section->currentPage;
+                                 section.reset();
+                               }
+                               requestUpdate();
+                             });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::BOOK_INFO: {
+      const int page = section ? section->currentPage + 1 : 0;
+      const int pages = section ? section->pageCount : 0;
+      startActivityForResult(
+          std::make_unique<BookInfoActivity>(renderer, mappedInput, epub->getTitle(), epub->getAuthor(),
+                                             epub->getLanguage(), epub->getPath(), page, pages,
+                                             clampPercent(static_cast<int>(getCurrentBookProgressPercent() + 0.5f))),
+          [this](const ActivityResult&) { requestUpdate(); });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::OPEN_FROM_FILE: {
+      startActivityForResult(std::make_unique<FileBrowserActivity>(renderer, mappedInput, epub->getPath(),
+                                                                   FileBrowserActivity::Mode::PickBook),
+                             [](const ActivityResult& result) {
+                               if (result.isCancelled || !std::holds_alternative<FilePathResult>(result.data)) return;
+                               activityManager.goToReader(std::get<FilePathResult>(result.data).path);
+                             });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::TOGGLE_FAVORITE: {
+      FAVORITE_BOOKS.toggle(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
+      requestUpdate();
       break;
     }
   }
@@ -1234,6 +1293,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   const auto tBwRender = millis();
+
+  if (SETTINGS.readerInvertColors) {
+    // Night mode is intentionally monochrome on X4. Skipping the grayscale
+    // passes avoids a second 8 KB scratch allocation and keeps controller RAM
+    // in sync with the inverted framebuffer used for differential refresh.
+    renderer.invertScreen();
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    const auto tEnd = millis();
+    LOG_DBG("ERS", "Page render (inverted): prewarm=%lums render=%lums display=%lums total=%lums", tPrewarm - t0,
+            tBwRender - tPrewarm, tEnd - tBwRender, tEnd - t0);
+    return;
+  }
 
   if (pageHasImages) {
     // Double FAST_REFRESH with selective image blanking (pablohc's technique):
