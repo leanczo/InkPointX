@@ -86,7 +86,12 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
   GUI.drawList(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, totalItems, selectorIndex,
                [this](int index) {
                  auto item = epub->getTocItem(index);
-                 std::string indent((item.level - 1) * 2, ' ');
+                 // level is uint8_t and 0 is its default — returned for an
+                 // out-of-range index, an unloaded cache, or an <a> outside any
+                 // <ol>. Unguarded, 0 - 1 promotes to a huge size_t and the
+                 // std::string constructor aborts the firmware.
+                 const int indentWidth = item.level > 1 ? (item.level - 1) * 2 : 0;
+                 std::string indent(static_cast<size_t>(indentWidth), ' ');
                  return indent + item.title;
                });
 

@@ -178,10 +178,10 @@ void OpdsSettingsActivity::render(RenderLock&&) {
   // New server creation uses STR_ADD_SERVER.
   const char* header = isNewServer ? tr(STR_ADD_SERVER) : tr(STR_OPDS_BROWSER);
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, header);
-  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                     tr(STR_CALIBRE_URL_HINT));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + metrics.tabBarHeight;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + metrics.subHeaderHeight;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
   const int menuItems = getMenuItemCount();
 

@@ -488,7 +488,7 @@ void WifiSelectionActivity::render(RenderLock&&) {
                  tr(STR_WIFI_NETWORKS), countStr);
   GUI.drawSubHeader(
       renderer,
-      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
+      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.subHeaderHeight},
       cachedMacAddress.c_str());
 
   switch (state) {
@@ -530,7 +530,7 @@ void WifiSelectionActivity::renderNetworkList(const Rect* screen, const ThemeMet
     UITheme::drawCenteredText(renderer, *screen, SMALL_FONT_ID, top + height + 10, tr(STR_PRESS_OK_SCAN));
   } else {
     int contentTop =
-        screen->y + metrics->topPadding + metrics->headerHeight + metrics->tabBarHeight + metrics->verticalSpacing;
+        screen->y + metrics->topPadding + metrics->headerHeight + metrics->subHeaderHeight + metrics->verticalSpacing;
     int contentHeight = screen->height - contentTop - metrics->verticalSpacing * 2;
     GUI.drawList(
         renderer, Rect{screen->x, contentTop, screen->width, contentHeight}, static_cast<int>(networks.size()),

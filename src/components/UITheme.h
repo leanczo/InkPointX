@@ -25,8 +25,13 @@ class UITheme {
                                bool black = true, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void reload();
   void setTheme(CrossPointSettings::UI_THEME type);
-  static int getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
+  static int getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasSubHeader, bool hasButtonHints,
                                      bool hasSubtitle, int extraReservedHeight = 0);
+  // Bottom Y available to list content above the button legend. Screens that
+  // show the "n / m" footer counter must pass true so the last row is not drawn
+  // underneath it; each list screen previously reserved its own value (8, 42 or
+  // 54 px), and the shortest of those overlapped.
+  static int getListContentBottom(const GfxRenderer& renderer, bool hasFooterCounter);
   static std::string getCoverThumbPath(std::string coverBmpPath, int coverHeight);
   static UIIcon getFileIcon(const std::string& filename);
   static int getStatusBarHeight();

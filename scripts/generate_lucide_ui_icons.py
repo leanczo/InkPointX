@@ -36,6 +36,7 @@ ICONS = (
     ("LucideChevronLeft16", "chevron-left", 16),
     ("LucideChevronRight16", "chevron-right", 16),
     ("LucideCheck16", "check", 16),
+    ("LucideStar16", "star", 16),
 )
 
 

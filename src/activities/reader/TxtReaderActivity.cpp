@@ -332,12 +332,20 @@ void TxtReaderActivity::render(RenderLock&&) {
   if (currentPage < 0) currentPage = 0;
   if (currentPage >= static_cast<int>(pageOffsets.size())) currentPage = pageOffsets.size() - 1;
 
-  // Load current page content
+  // Load current page content. loadPageAtOffset has early-return paths that
+  // never touch nextOffset, so seed it and honour the result: an SD read hiccup
+  // used to push an uninitialised value into the persisted page index, which
+  // then reopened the book at a garbage offset.
   size_t offset = pageOffsets[currentPage];
-  size_t nextOffset;
+  size_t nextOffset = offset;
   currentPageLines.clear();
-  loadPageAtOffset(offset, currentPageLines, nextOffset);
+  const bool pageLoaded = loadPageAtOffset(offset, currentPageLines, nextOffset);
   currentPageEndOffset = nextOffset;
+  if (!pageLoaded) {
+    renderer.clearScreen();
+    renderPage();
+    return;
+  }
 
   bool indexChanged = false;
   if (nextOffset > offset && currentPage + 1 == static_cast<int>(pageOffsets.size())) {
@@ -559,13 +567,25 @@ bool TxtReaderActivity::loadPageIndexCache() {
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
+  // numPages comes straight off the card. A page cannot be shorter than one
+  // byte, so the file size is a hard ceiling; without it a corrupt header
+  // (0xFFFFFFFF) asks for a multi-gigabyte reserve and aborts the firmware.
+  if (numPages == 0 || numPages > txt->getFileSize()) {
+    LOG_DBG("TRS", "Cache page count %u implausible, rebuilding", static_cast<unsigned>(numPages));
+    return false;
+  }
+
   // Read page offsets
   pageOffsets.clear();
   pageOffsets.reserve(numPages);
 
   for (uint32_t i = 0; i < numPages; i++) {
     uint32_t offset;
-    serialization::readPod(f, offset);
+    if (!serialization::readPod(f, offset)) {
+      LOG_DBG("TRS", "Cache truncated at page %u, rebuilding", static_cast<unsigned>(i));
+      pageOffsets.clear();
+      return false;
+    }
     pageOffsets.push_back(offset);
   }
 

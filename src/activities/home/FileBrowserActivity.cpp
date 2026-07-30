@@ -690,6 +690,10 @@ std::string getFileName(std::string filename) {
     return filename;
   }
   const auto pos = filename.rfind('.');
+  // A leading dot is part of the name, not an extension separator: splitting on
+  // it left ".nomedia" with an empty title, so the row rendered blank yet stayed
+  // selectable and deletable.
+  if (pos == 0 || pos == std::string::npos) return filename;
   return filename.substr(0, pos);
 }
 
@@ -698,7 +702,9 @@ std::string getFileExtension(std::string filename) {
     return "";
   }
   const auto pos = filename.rfind('.');
-  if (pos == std::string::npos) return "";
+  // Keep the two halves consistent: a dotfile's whole name is the title, so it
+  // must not also be reported as the extension.
+  if (pos == 0 || pos == std::string::npos) return "";
   return filename.substr(pos);
 }
 
@@ -741,7 +747,9 @@ void FileBrowserActivity::render(RenderLock&&) {
   {
     const int pathY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - pathLineHeight;
     const int separatorY = pathY - metrics.verticalSpacing / 2;
-    renderer.drawLine(0, separatorY, pageWidth - 1, separatorY, 3, true);
+    // A 3 px edge-to-edge rule was the heaviest element on the screen and read
+    // as a hardware artifact; use the shared inset hairline instead.
+    GUI.drawDivider(renderer, metrics.contentSidePadding, pageWidth - metrics.contentSidePadding - 1, separatorY);
     const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
     // Left-truncate so the deepest directory is always visible
     const char* pathStr = basepath.c_str();

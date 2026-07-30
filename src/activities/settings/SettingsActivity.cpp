@@ -210,6 +210,19 @@ void SettingsActivity::toggleCurrentSetting() {
     return;
   }
 
+  // Route the reader font to its picker before any ENUM branch. The registry-aware
+  // entry is only substituted when SD fonts exist, so on a stock device this fell
+  // through to the cycle-in-place branch below — while render() still drew a
+  // chevron and labelled Confirm "Select", promising a submenu that never opened.
+  if (setting.nameId == StrId::STR_FONT_FAMILY) {
+    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+                           [this](const ActivityResult&) {
+                             SETTINGS.saveToFile();
+                             rebuildSettingsLists();
+                           });
+    return;
+  }
+
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     // Toggle the boolean value using the member pointer
     const bool currentValue = SETTINGS.*(setting.valuePtr);
@@ -218,22 +231,14 @@ void SettingsActivity::toggleCurrentSetting() {
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
     SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
   } else if (setting.type == SettingType::ENUM && setting.valueGetter && setting.valueSetter) {
-    if (setting.nameId == StrId::STR_FONT_FAMILY) {
-      // Launch font selection submenu instead of cycling
-      startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
-                             [this](const ActivityResult&) {
-                               SETTINGS.saveToFile();
-                               rebuildSettingsLists();
-                             });
-      return;
-    }
     const uint8_t totalValues = setting.enumStringValues.empty()
                                     ? static_cast<uint8_t>(setting.enumValues.size())
                                     : static_cast<uint8_t>(setting.enumStringValues.size());
     const uint8_t cur = setting.valueGetter();
     setting.valueSetter((cur + 1) % totalValues);
   } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-    const int8_t currentValue = SETTINGS.*(setting.valuePtr);
+    // int, not int8_t: the field is uint8_t and a range above 127 would wrap.
+    const int currentValue = SETTINGS.*(setting.valuePtr);
     if (currentValue + setting.valueRange.step > setting.valueRange.max) {
       SETTINGS.*(setting.valuePtr) = setting.valueRange.min;
     } else {
@@ -402,7 +407,7 @@ void SettingsActivity::render(RenderLock&&) {
   const int listTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   GUI.drawList(
       renderer,
-      Rect{0, listTop, pageWidth, pageHeight - listTop - metrics.buttonHintsHeight - 42},
+      Rect{0, listTop, pageWidth, std::max(0, UITheme::getListContentBottom(renderer, true) - listTop)},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {
@@ -450,10 +455,16 @@ void SettingsActivity::render(RenderLock&&) {
 
   GUI.drawFooterCounter(renderer, selectedSettingIndex - 1, settingsCount);
 
-  const auto& selectedSetting = (*currentSettings)[selectedSettingIndex - 1];
-  const bool opensSubmenu = selectedSetting.nameId == StrId::STR_TIME_TO_SLEEP ||
-                            selectedSetting.nameId == StrId::STR_FONT_FAMILY ||
-                            selectedSetting.type == SettingType::ACTION;
+  // Guard the index: an empty category, or a selection that has not yet been
+  // clamped after the lists were rebuilt, would otherwise read out of range.
+  const int selectedRow = selectedSettingIndex - 1;
+  bool opensSubmenu = false;
+  if (selectedRow >= 0 && selectedRow < static_cast<int>(currentSettings->size())) {
+    const auto& selectedSetting = (*currentSettings)[selectedRow];
+    opensSubmenu = selectedSetting.nameId == StrId::STR_TIME_TO_SLEEP ||
+                   selectedSetting.nameId == StrId::STR_FONT_FAMILY ||
+                   selectedSetting.type == SettingType::ACTION;
+  }
   const auto confirmLabel = opensSubmenu ? tr(STR_SELECT) : tr(STR_TOGGLE);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

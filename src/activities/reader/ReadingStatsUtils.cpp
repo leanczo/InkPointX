@@ -241,27 +241,15 @@ bool getCurrentLocalReadingStatsDateTime(ReadingStatsDateTime& outDateTime) {
   outDateTime.hour = static_cast<uint8_t>(now.tm_hour);
   outDateTime.minute = static_cast<uint8_t>(now.tm_min);
   outDateTime.second = 0;
+  // getDateTime() has already applied clockUtcOffsetQ, so this value is local
+  // wall-clock time. Shifting by the offset a second time here filed every
+  // session into the wrong time-of-day bucket, day of week and streak day —
+  // correct only at UTC+0.
   if (!outDateTime.isValid()) {
     outDateTime = {};
     return false;
   }
-
-  const int offsetQuarterHours = static_cast<int>(SETTINGS.clockUtcOffsetQ) - 48;
-  const int offsetMinutes = offsetQuarterHours * 15;
-  int totalMinutes = static_cast<int>(outDateTime.hour) * 60 + static_cast<int>(outDateTime.minute) + offsetMinutes;
-
-  while (totalMinutes < 0) {
-    addDaysToReadingStatsDate(outDateTime.date, -1);
-    totalMinutes += 24 * 60;
-  }
-  while (totalMinutes >= 24 * 60) {
-    addDaysToReadingStatsDate(outDateTime.date, 1);
-    totalMinutes -= 24 * 60;
-  }
-
-  outDateTime.hour = static_cast<uint8_t>(totalMinutes / 60);
-  outDateTime.minute = static_cast<uint8_t>(totalMinutes % 60);
-  return outDateTime.isValid();
+  return true;
 }
 
 uint16_t readingSpanDaysInclusive(const ReadingStatsDate& start, const ReadingStatsDate& end) {

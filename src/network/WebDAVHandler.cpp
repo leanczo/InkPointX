@@ -176,6 +176,14 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
 
   LOG_DBG("DAV", "PROPFIND %s depth=%d", path.c_str(), depth);
 
+  // Children are filtered further down, but the requested resource itself was
+  // not checked — so PROPFIND /.crosspoint enumerated the credential files that
+  // GET/PUT/DELETE/MKCOL all refuse to touch.
+  if (isProtectedPath(path)) {
+    s.send(403, "text/plain", "Forbidden");
+    return;
+  }
+
   // Check if path exists
   if (!Storage.exists(path.c_str()) && path != "/") {
     s.send(404, "text/plain", "Not Found");

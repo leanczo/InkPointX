@@ -456,18 +456,26 @@ BookMetadataCache::TocEntry BookMetadataCache::getTocEntry(const int index) {
 
 BookMetadataCache::SpineEntry BookMetadataCache::readSpineEntry(HalFile& file) const {
   SpineEntry entry;
-  serialization::readString(file, entry.href);
-  serialization::readPod(file, entry.cumulativeSize);
-  serialization::readPod(file, entry.tocIndex);
+  if (!serialization::readString(file, entry.href) || !serialization::readPod(file, entry.cumulativeSize) ||
+      !serialization::readPod(file, entry.tocIndex)) {
+    LOG_ERR("BMC", "Truncated spine entry in metadata cache");
+    return SpineEntry{};
+  }
   return entry;
 }
 
 BookMetadataCache::TocEntry BookMetadataCache::readTocEntry(HalFile& file) const {
   TocEntry entry;
-  serialization::readString(file, entry.title);
-  serialization::readString(file, entry.href);
-  serialization::readString(file, entry.anchor);
-  serialization::readPod(file, entry.level);
-  serialization::readPod(file, entry.spineIndex);
+  if (!serialization::readString(file, entry.title) || !serialization::readString(file, entry.href) ||
+      !serialization::readString(file, entry.anchor) || !serialization::readPod(file, entry.level) ||
+      !serialization::readPod(file, entry.spineIndex)) {
+    LOG_ERR("BMC", "Truncated TOC entry in metadata cache");
+    return TocEntry{};
+  }
+  // level is 1-based in the on-disk format and indexes indentation arithmetic in
+  // the chapter list. A corrupt 0 would underflow that calculation.
+  if (entry.level == 0) {
+    entry.level = 1;
+  }
   return entry;
 }

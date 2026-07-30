@@ -111,10 +111,10 @@ void ButtonRemapActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_REMAP_FRONT_BUTTONS));
-  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                     tr(STR_REMAP_PROMPT));
 
-  int topOffset = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+  int topOffset = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing;
   int contentHeight = pageHeight - topOffset - metrics.buttonHintsHeight - metrics.verticalSpacing;
   GUI.drawList(
       renderer, Rect{0, topOffset, pageWidth, contentHeight}, kRoleCount, currentStep,

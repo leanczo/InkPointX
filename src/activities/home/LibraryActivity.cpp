@@ -258,8 +258,7 @@ void LibraryActivity::render(RenderLock&&) {
                  sortValue.empty() ? nullptr : sortValue.c_str());
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentBottom = pageHeight - 54;
-  const int contentHeight = std::max(0, contentBottom - contentTop);
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, !books.empty()) - contentTop);
   if (books.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20,
                       mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND));
@@ -269,10 +268,12 @@ void LibraryActivity::render(RenderLock&&) {
         static_cast<int>(selectedIndex), [this](int index) { return books[index].title; },
         [this](int index) { return books[index].author; },
         [this](int index) { return UITheme::getFileIcon(books[index].path); },
-        [this](int index) {
-          return books[index].favorite ? books[index].format + "  \xe2\x98\x85" : books[index].format;
-        },
-        false);
+        [this](int index) { return books[index].format; }, false, nullptr,
+        // The favourite marker is a real 16 px accessory. It used to be a U+2605
+        // star appended to the format string, but FiraGO has no glyph for it, so
+        // nothing was drawn at all and the two padding spaces left favourited
+        // rows with a ragged right edge.
+        [this](int index) { return books[index].favorite ? UIAccessory::Favorite : UIAccessory::None; });
     GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), static_cast<int>(books.size()));
   }
 

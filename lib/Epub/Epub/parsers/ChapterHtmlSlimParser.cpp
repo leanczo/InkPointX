@@ -747,6 +747,15 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       // TODO: Parse data-* attributes to extract actual href
     }
 
+    // An href longer than the fixed buffer used to be silently truncated, so the
+    // stored target pointed at nothing (or at the wrong anchor) with no trace.
+    // Calibre-style hrefs routinely exceed it. Treat it as ordinary text instead
+    // of registering a link that cannot resolve.
+    if (isInternalLink && strlen(href) >= sizeof(self->currentFootnote.href)) {
+      LOG_DBG("EHP", "Footnote href too long (%u bytes), not linking", static_cast<unsigned>(strlen(href)));
+      isInternalLink = false;
+    }
+
     if (isInternalLink) {
       // Flush buffer before style change
       if (self->partWordBufferIndex > 0) {

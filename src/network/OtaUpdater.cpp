@@ -46,7 +46,9 @@ OtaUpdater::OtaUpdaterError performDirectHttpOta(const std::string& otaUrl, OtaU
       .timeout_ms = 60000,
       .buffer_size = 4096,
       .buffer_size_tx = 1024,
-      .skip_cert_common_name_check = true,
+      // The CN/SAN check stays on: this stream is written straight to the OTA
+      // partition with no image signature to fall back on, so accepting any
+      // publicly-trusted certificate would let a spoofed host flash the device.
       .crt_bundle_attach = esp_crt_bundle_attach,
       .keep_alive_enable = true,
   };

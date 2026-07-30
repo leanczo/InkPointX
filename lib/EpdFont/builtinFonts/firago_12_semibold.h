@@ -3,7 +3,7 @@
  * name: firago_12_semibold
  * size: 12
  * mode: 1-bit
- * Command used: /Users/vans/Documents/xteink x4/lib/EpdFont/scripts/fontconvert.py firago_12_semibold 12 /Users/vans/Documents/xteink x4/lib/EpdFont/scripts/downloaded_fonts/FiraGO/FiraGO-SemiBold.ttf --codepoints-file /Users/vans/Documents/xteink x4/build/ui-fonts/firago-ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
+ * Command used: /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/fontconvert.py firago_12_semibold 12 /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/downloaded_fonts/FiraGO/FiraGO-SemiBold.ttf --codepoints-file /Users/vans/InkPoint X/InkPointX-dev/build/ui-fonts/firago-ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
  */
 #pragma once
 #include "EpdFontData.h"

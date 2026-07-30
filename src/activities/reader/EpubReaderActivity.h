@@ -41,6 +41,11 @@ class EpubReaderActivity final : public Activity {
   bool pendingSyncSaveError = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+  // Retained so the reader menu can open showing the rate that is actually
+  // running. The menu returns its picker value on cancel too, so without this
+  // every visit to the menu handed back a fresh 0 and silently stopped
+  // automatic page turning.
+  uint8_t currentPageTurnOption = 0;
   bool showBookmarkMessage = false;
   bool ignoreNextConfirmRelease = false;
   bool currentPageBookmarked = false;
@@ -99,6 +104,10 @@ class EpubReaderActivity final : public Activity {
   void loop() override;
   void render(RenderLock&& lock) override;
   bool isReaderActivity() const override { return true; }
+  // Automatic page turning is hands-free reading, so there are no button events
+  // to keep the inactivity timer alive. Without this the device deep-sleeps
+  // mid-session while it is still turning pages.
+  bool preventAutoSleep() override { return automaticPageTurnActive; }
   ScreenshotInfo getScreenshotInfo() const override;
   CrossPointPosition getCurrentPosition() const;
 };

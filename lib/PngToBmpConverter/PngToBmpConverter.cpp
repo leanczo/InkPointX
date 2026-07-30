@@ -624,13 +624,24 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
   FloydSteinbergDitherer* fsDitherer = nullptr;
   Atkinson1BitDitherer* atkinson1BitDitherer = nullptr;
 
+  // Drop a ditherer that could not allocate its error rows: the pixel loops
+  // dereference these pointers, and plain quantization is the correct fallback.
+  const auto dropIfInvalid = [](auto*& ditherer) {
+    if (ditherer && !ditherer->isValid()) {
+      delete ditherer;
+      ditherer = nullptr;
+    }
+  };
   if (oneBit) {
-    atkinson1BitDitherer = new Atkinson1BitDitherer(outWidth);
+    atkinson1BitDitherer = new (std::nothrow) Atkinson1BitDitherer(outWidth);
+    dropIfInvalid(atkinson1BitDitherer);
   } else if (!USE_8BIT_OUTPUT) {
     if (USE_ATKINSON) {
-      atkinsonDitherer = new AtkinsonDitherer(outWidth);
+      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(outWidth);
+      dropIfInvalid(atkinsonDitherer);
     } else if (USE_FLOYD_STEINBERG) {
-      fsDitherer = new FloydSteinbergDitherer(outWidth);
+      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(outWidth);
+      dropIfInvalid(fsDitherer);
     }
   }
 

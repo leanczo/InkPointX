@@ -19,8 +19,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 16,
                                  .listWithSubtitleRowHeight = 76,
                                  .menuRowHeight = 58,
                                  .menuSpacing = 4,
-                                 .tabSpacing = 8,
-                                 .tabBarHeight = 42,
+                                 .subHeaderHeight = 42,
                                  .scrollBarWidth = 3,
                                  .scrollBarRightOffset = 8,
                                  .homeTopPadding = 58,
@@ -78,8 +77,6 @@ class LyraTheme : public BaseTheme {
   void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const override;
   void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
                      const char* rightLabel = nullptr) const override;
-  void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                  bool selected) const override;
   int getListPageItems(int contentHeight, bool hasSubtitle) const override;
   void drawList(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
                 const std::function<std::string(int index)>& rowTitle,
@@ -90,12 +87,9 @@ class LyraTheme : public BaseTheme {
   void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                        const char* btn4) const override;
   void drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const override;
+  void drawDivider(const GfxRenderer& renderer, int x1, int x2, int y) const override;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<std::string(int index)>& buttonLabel,
                       const std::function<UIIcon(int index)>& rowIcon) const override;
-  void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                           const int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
-                           std::function<bool()> storeCoverBuffer) const override;
-  void drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) const;
   bool showsFileIcons() const override { return true; }
 };

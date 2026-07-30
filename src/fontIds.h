@@ -9,14 +9,14 @@
 #define NOTOSANS_14_FONT_ID (1922852609)
 #define NOTOSANS_16_FONT_ID (-1573714306)
 #define NOTOSANS_18_FONT_ID (-561755375)
-#define UI_10_FONT_ID (-156493209)
-#define UI_12_FONT_ID (-1449151591)
-#define UI_14_FONT_ID (732006220)
-#define UI_16_FONT_ID (1099478450)
-#define UI_18_FONT_ID (1398116640)
-#define HEADER_FONT_ID (1239272157)
-#define SMALL_FONT_ID (-1667901916)
-#define WORDMARK_FONT_ID (1097072754)
+#define UI_10_FONT_ID (1896739128)
+#define UI_12_FONT_ID (-1780942145)
+#define UI_14_FONT_ID (400215666)
+#define UI_16_FONT_ID (-242117718)
+#define UI_18_FONT_ID (1190432096)
+#define HEADER_FONT_ID (-464922573)
+#define SMALL_FONT_ID (-493739722)
+#define WORDMARK_FONT_ID (-1718712086)
 
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.

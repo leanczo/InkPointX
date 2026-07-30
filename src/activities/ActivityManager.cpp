@@ -309,7 +309,14 @@ void ActivityManager::popActivity() {
   pendingAction = PendingAction::Pop;
 }
 
-bool ActivityManager::preventAutoSleep() const { return currentActivity && currentActivity->preventAutoSleep(); }
+bool ActivityManager::preventAutoSleep() const {
+  // Consider the whole stack, like isReaderActivity below: an activity that must
+  // not be slept through (a transfer, an update, hands-free page turning) keeps
+  // that requirement while one of its own dialogs is on top.
+  return std::any_of(stackActivities.begin(), stackActivities.end(),
+                     [](const auto& activity) { return activity->preventAutoSleep(); }) ||
+         (currentActivity && currentActivity->preventAutoSleep());
+}
 
 bool ActivityManager::isReaderActivity() const {
   return std::any_of(stackActivities.begin(), stackActivities.end(),

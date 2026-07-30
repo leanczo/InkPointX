@@ -214,13 +214,18 @@ void XtcReaderActivity::renderPage() {
   // XTH (2-bit): Two bit planes, column-major, ((width * height + 7) / 8) * 2 bytes
   size_t pageBufferSize;
   if (bitDepth == 2) {
-    pageBufferSize = ((static_cast<size_t>(pageWidth) * pageHeight + 7) / 8) * 2;
+    // Size each plane the way getPixelValue() addresses it: column-major with
+    // whole bytes per column. Deriving it from (width*height+7)/8 instead
+    // under-allocates whenever the height is not a multiple of 8 — at 480x799
+    // by 60 bytes per plane — so the reader read past the buffer and placed
+    // plane2 inside plane1's data.
+    pageBufferSize = static_cast<size_t>(pageWidth) * ((pageHeight + 7) / 8) * 2;
   } else {
     pageBufferSize = ((pageWidth + 7) / 8) * pageHeight;
   }
 
-  // Allocate page buffer
-  uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(pageBufferSize));
+  // Zeroed: a short read must not render uninitialised heap as pixels.
+  uint8_t* pageBuffer = static_cast<uint8_t*>(calloc(pageBufferSize, 1));
   if (!pageBuffer) {
     LOG_ERR("XTR", "Failed to allocate page buffer (%lu bytes)", pageBufferSize);
     renderer.clearScreen();
@@ -256,10 +261,11 @@ void XtcReaderActivity::renderPage() {
     // - Pixel value = (bit1 << 1) | bit2
     // - Grayscale: 0=White, 1=Dark Grey, 2=Light Grey, 3=Black
 
-    const size_t planeSize = (static_cast<size_t>(pageWidth) * pageHeight + 7) / 8;
+    const size_t colBytes = (pageHeight + 7) / 8;  // Bytes per column (100 for 800 height)
+    // Must match the allocation above and the column-major addressing below.
+    const size_t planeSize = static_cast<size_t>(pageWidth) * colBytes;
     const uint8_t* plane1 = pageBuffer;              // Bit1 plane
     const uint8_t* plane2 = pageBuffer + planeSize;  // Bit2 plane
-    const size_t colBytes = (pageHeight + 7) / 8;    // Bytes per column (100 for 800 height)
 
     // Lambda to get pixel value at (x, y)
     auto getPixelValue = [&](uint16_t x, uint16_t y) -> uint8_t {
@@ -275,7 +281,10 @@ void XtcReaderActivity::renderPage() {
     // Optimized grayscale rendering without storeBwBuffer (saves 48KB peak memory)
     // Flow: BW display → LSB/MSB passes → grayscale display → re-render BW for next frame
 
-    // Count pixel distribution for debugging
+#if LOG_LEVEL >= 2
+    // Debug-only: this is a 384,000-iteration pass with a div/mod per pixel that
+    // exists solely to feed the log line below. LOG_DBG compiles out in release
+    // builds but the loop did not, adding latency to every grayscale page turn.
     uint32_t pixelCounts[4] = {0, 0, 0, 0};
     for (uint16_t y = 0; y < pageHeight; y++) {
       for (uint16_t x = 0; x < pageWidth; x++) {
@@ -284,6 +293,18 @@ void XtcReaderActivity::renderPage() {
     }
     LOG_DBG("XTR", "Pixel distribution: White=%lu, DarkGrey=%lu, LightGrey=%lu, Black=%lu", pixelCounts[0],
             pixelCounts[1], pixelCounts[2], pixelCounts[3]);
+#endif
+
+    // The grayscale path returns before the shared overlay call at the end of
+    // this function, so xtcStatusBarMode was silently ignored for XTH books.
+    // The overlay has to be part of the BW frame, so compose it after each of
+    // the two BW passes.
+    const auto applyStatusBarOverlay = [this] {
+      if (SETTINGS.xtcStatusBarMode == CrossPointSettings::XTC_STATUS_BAR_MODE::XTC_STATUS_BAR_HIDE) return;
+      renderStatusBarOverlay(SETTINGS.xtcStatusBarMode == CrossPointSettings::XTC_STATUS_BAR_MODE::XTC_STATUS_BAR_TOP
+                                 ? StatusBarOverlayPosition::Top
+                                 : StatusBarOverlayPosition::Bottom);
+    };
 
     // Pass 1: BW buffer - draw all non-white pixels as black
     for (uint16_t y = 0; y < pageHeight; y++) {
@@ -293,6 +314,7 @@ void XtcReaderActivity::renderPage() {
         }
       }
     }
+    applyStatusBarOverlay();
 
     if (SETTINGS.readerInvertColors) {
       renderer.invertScreen();
@@ -352,6 +374,7 @@ void XtcReaderActivity::renderPage() {
         }
       }
     }
+    applyStatusBarOverlay();
 
     // Cleanup grayscale buffers with current frame buffer
     renderer.cleanupGrayscaleWithFrameBuffer();

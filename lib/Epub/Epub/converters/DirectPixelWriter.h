@@ -175,6 +175,12 @@ struct DirectPixelWriter {
     const int sy = phyY - originY;
     if (static_cast<unsigned>(sy) >= static_cast<unsigned>(clipRows)) return;
 
+    // The column needs the same guard. renderFromCache deliberately accepts a
+    // cache one pixel larger than the layout, so phyX could reach panelWidth and
+    // land on the first byte of the next row — during the grayscale strip pass
+    // that is one byte past the band scratch allocation.
+    if (static_cast<unsigned>(phyX >> 3) >= static_cast<unsigned>(displayWidthBytes)) return;
+
     const uint16_t byteIndex = static_cast<uint16_t>(sy * displayWidthBytes + (phyX >> 3));
     const uint8_t bitMask = 1 << (7 - (phyX & 7));
 

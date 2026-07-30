@@ -10,11 +10,13 @@
 EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool hasFootnotes, const bool hasBookmarks, const bool isFavorite)
+                                               const uint8_t currentPageTurnOption, const bool hasFootnotes,
+                                               const bool hasBookmarks, const bool isFavorite)
     : Activity("EpubReaderMenu", renderer, mappedInput),
       menuItems(buildMenuItems(hasFootnotes, hasBookmarks, isFavorite)),
       title(title),
       pendingOrientation(currentOrientation),
+      selectedPageTurnOption(currentPageTurnOption),
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent) {}
@@ -22,7 +24,6 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes,
                                                                                      bool hasBookmarks,
                                                                                      bool isFavorite) {
-  (void)hasBookmarks;
   std::vector<MenuItem> items;
   items.reserve(18);
   items.push_back({MenuAction::GO_TO_PAGE, StrId::STR_GO_TO_PAGE});
@@ -30,7 +31,12 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }
-  items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
+  // Gated like Footnotes: the bookmarks screen renders nothing but a header when
+  // there are none, so offering it was a dead end. Toggle Bookmark below still
+  // creates the first one.
+  if (hasBookmarks) {
+    items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
+  }
   items.push_back({MenuAction::READING_SETTINGS, StrId::STR_READING_SETTINGS});
   items.push_back({MenuAction::BOOK_INFO, StrId::STR_BOOK_INFO});
   items.push_back({MenuAction::OPEN_FROM_FILE, StrId::STR_OPEN_FROM_FILE});
@@ -114,11 +120,11 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
   GUI.drawSubHeader(
       renderer,
-      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
+      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.subHeaderHeight},
       progressLine.c_str());
 
   const int contentTop =
-      screen.y + metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
+      screen.y + metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing;
   const int contentHeight = screen.height - contentTop - metrics.verticalSpacing;
 
   GUI.drawList(

@@ -374,7 +374,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
                    isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER), nullptr);
 
     if (state == WebServerActivityState::SERVER_RUNNING) {
-      GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+      GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                         connectedSSID.c_str());
       renderServerRunning();
     } else {
@@ -392,14 +392,14 @@ void CrossPointWebServerActivity::renderServerRunning() const {
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
                  isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER), nullptr);
-  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                     connectedSSID.c_str());
 
   if (!isApMode) {
     renderWifiIndicator(metrics.topPadding + metrics.headerHeight);
   }
 
-  int startY = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing * 2;
+  int startY = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 2;
   int height10 = renderer.getLineHeight(UI_10_FONT_ID);
   if (isApMode) {
     // AP mode display
@@ -473,7 +473,7 @@ void CrossPointWebServerActivity::renderWifiIndicator(int subHeaderTop) const {
   const int iconWidth = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP;
   const int iconRight = renderer.getScreenWidth() - metrics.contentSidePadding;
   const int iconLeft = iconRight - iconWidth;
-  const int iconBottom = subHeaderTop + metrics.tabBarHeight - metrics.verticalSpacing;
+  const int iconBottom = subHeaderTop + metrics.subHeaderHeight - metrics.verticalSpacing;
 
   const bool wifiUp = (WiFi.status() == WL_CONNECTED) && (consecutiveDisconnects == 0);
   if (wifiUp) {

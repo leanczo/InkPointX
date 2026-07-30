@@ -3,7 +3,7 @@
  * name: firago_14_medium
  * size: 14
  * mode: 1-bit
- * Command used: /Users/vans/Documents/xteink x4/lib/EpdFont/scripts/fontconvert.py firago_14_medium 14 /Users/vans/Documents/xteink x4/lib/EpdFont/scripts/downloaded_fonts/FiraGO/FiraGO-Medium.ttf --codepoints-file /Users/vans/Documents/xteink x4/build/ui-fonts/firago-ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
+ * Command used: /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/fontconvert.py firago_14_medium 14 /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/downloaded_fonts/FiraGO/FiraGO-Medium.ttf --codepoints-file /Users/vans/InkPoint X/InkPointX-dev/build/ui-fonts/firago-ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
  */
 #pragma once
 #include "EpdFontData.h"

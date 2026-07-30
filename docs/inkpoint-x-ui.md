@@ -72,7 +72,7 @@ French, German, Hebrew, Hungarian, Italian, Kazakh, Lithuanian, Polish, Portugue
 (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish,
 Ukrainian, and Vietnamese.
 
-Each locale owns all 523 source strings. The generated release therefore never
+Each locale owns all 498 source strings. The generated release therefore never
 falls back to English for a missing menu label, warning, file operation,
 reader action, network workflow, or settings value. Format placeholders and
 the spacing of concatenated labels are validated before building.

@@ -452,7 +452,11 @@ void HomeActivity::render(RenderLock&&) {
                static_cast<unsigned long>(totalMinutes));
     }
 
-    char progressSummary[64] = "-";
+    // With no book yet, the progress figure, the rule and the reading-time line
+    // have nothing to report. Drawing "-", "-" and an empty 0% rule made the
+    // first screen a new device shows look broken; leave the bands empty instead
+    // so the vertical rhythm — and the action button's position — is unchanged.
+    char progressSummary[64] = "";
     if (!recentBooks.empty() && readingSummary.totalPages > 0) {
       snprintf(progressSummary, sizeof(progressSummary), "%u%%  ·  %lu / %lu", readingSummary.progressPercent,
                static_cast<unsigned long>(readingSummary.currentPage),
@@ -468,20 +472,25 @@ void HomeActivity::render(RenderLock&&) {
     const int progressTextTop = detailCursorY;
     renderer.drawCenteredText(UI_10_FONT_ID, progressTextTop, progressLine.c_str());
 
-    constexpr int progressX = 52;
-    constexpr int progressWidth = 376;
+    // Inset the rule to the same content margin as the title, author and action
+    // row above and below it, instead of a hardcoded 52 px that also assumed a
+    // 480 px panel.
+    const int progressX = HOME_ACTION_SIDE_MARGIN;
+    const int progressWidth = pageWidth - HOME_ACTION_SIDE_MARGIN * 2;
     const int progressBarTop = progressTextTop + metadataLineHeight + HOME_PROGRESS_BAR_GAP;
-    for (int x = progressX; x <= progressX + progressWidth; x += 2) {
-      renderer.drawPixel(x, progressBarTop, true);
-    }
-    const int progressFillWidth =
-        std::clamp(progressWidth * static_cast<int>(readingSummary.progressPercent) / 100, 0, progressWidth);
-    if (progressFillWidth > 0) {
-      renderer.drawLine(progressX, progressBarTop, progressX + progressFillWidth, progressBarTop,
-                        HOME_PROGRESS_BAR_THICKNESS, true);
+    if (hasRecentBook) {
+      for (int x = progressX; x <= progressX + progressWidth; x += 2) {
+        renderer.drawPixel(x, progressBarTop, true);
+      }
+      const int progressFillWidth =
+          std::clamp(progressWidth * static_cast<int>(readingSummary.progressPercent) / 100, 0, progressWidth);
+      if (progressFillWidth > 0) {
+        renderer.drawLine(progressX, progressBarTop, progressX + progressFillWidth, progressBarTop,
+                          HOME_PROGRESS_BAR_THICKNESS, true);
+      }
     }
 
-    char readingLine[96] = "-";
+    char readingLine[96] = "";
     if (!recentBooks.empty()) {
       snprintf(readingLine, sizeof(readingLine), "%s: %s", tr(STR_READING_TIME), readingTimeText);
     }

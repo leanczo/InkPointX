@@ -104,6 +104,25 @@ void CalibreConnectActivity::loop() {
     exitRequested = true;
   }
 
+  // Without this the screen keeps showing setup instructions forever when the
+  // access point drops, which is indistinguishable from a hang.
+  if (webServer && webServer->isRunning() && millis() - lastWifiCheckAt > 2000) {
+    lastWifiCheckAt = millis();
+    if (WiFi.status() != WL_CONNECTED) {
+      if (firstDisconnectAt == 0) {
+        firstDisconnectAt = millis();
+      } else if (millis() - firstDisconnectAt > WIFI_ABANDON_MS) {
+        LOG_ERR("CAL", "WiFi unavailable for >%lu s; leaving Calibre mode", WIFI_ABANDON_MS / 1000UL);
+        state = CalibreConnectState::ERROR;
+        stopWebServer();
+        requestUpdate();
+        return;
+      }
+    } else {
+      firstDisconnectAt = 0;
+    }
+  }
+
   if (webServer && webServer->isRunning()) {
     const unsigned long timeSinceLastHandleClient = millis() - lastHandleClientTime;
     if (lastHandleClientTime > 0 && timeSinceLastHandleClient > 100) {
@@ -130,12 +149,20 @@ void CalibreConnectActivity::loop() {
     const auto status = webServer->getWsUploadStatus();
     bool changed = false;
     if (status.inProgress) {
-      if (status.received != lastProgressReceived || status.total != lastProgressTotal ||
-          status.filename != currentUploadName) {
-        lastProgressReceived = status.received;
-        lastProgressTotal = status.total;
-        currentUploadName = status.filename;
-        changed = true;
+      // A new file, or the first frame of one, repaints immediately; ongoing
+      // byte counts are rate limited so the panel is not driven once per 64 KB.
+      const bool newUpload = status.filename != currentUploadName || lastProgressTotal != status.total;
+      const bool dueForRepaint = millis() - lastProgressRepaintAt >= PROGRESS_REPAINT_MIN_MS;
+      const bool finished = status.total > 0 && status.received >= status.total;
+      if (newUpload || dueForRepaint || finished) {
+        if (status.received != lastProgressReceived || status.total != lastProgressTotal ||
+            status.filename != currentUploadName) {
+          lastProgressReceived = status.received;
+          lastProgressTotal = status.total;
+          currentUploadName = status.filename;
+          lastProgressRepaintAt = millis();
+          changed = true;
+        }
       }
     } else if (lastProgressReceived != 0 || lastProgressTotal != 0) {
       lastProgressReceived = 0;
@@ -184,10 +211,10 @@ void CalibreConnectActivity::render(RenderLock&&) {
   } else if (state == CalibreConnectState::ERROR) {
     renderer.drawCenteredText(UI_12_FONT_ID, top, tr(STR_CONNECTION_FAILED), true, EpdFontFamily::BOLD);
   } else if (state == CalibreConnectState::SERVER_RUNNING) {
-    GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+    GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                       connectedSSID.c_str(), (std::string(tr(STR_IP_ADDRESS_PREFIX)) + connectedIP).c_str());
 
-    int y = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing * 4;
+    int y = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 4;
     const auto headingHeight = renderer.getTextHeight(HEADER_FONT_ID);
     renderer.drawText(HEADER_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_SETUP));
     y += headingHeight + metrics.verticalSpacing * 2;

@@ -48,8 +48,12 @@ void EpubReaderPercentSelectionActivity::loop() {
     return;
   }
 
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustPercent(-kSmallStep); });
-  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustPercent(kSmallStep); });
+  // NavPrevious/NavNext, not raw Left/Right: mapLabels() flips the "-"/"+"
+  // legend with the reader orientation, so bound to the raw buttons the key
+  // labelled "+" decremented in Inverted and Landscape-CCW.
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::NavPrevious},
+                                       [this] { adjustPercent(-kSmallStep); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::NavNext}, [this] { adjustPercent(kSmallStep); });
 
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] { adjustPercent(kLargeStep); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] { adjustPercent(-kLargeStep); });

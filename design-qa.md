@@ -2,6 +2,163 @@
 
 final result: passed
 
+## Systematic defect pass — design and function — 2026-07-30
+
+A four-part audit (interface layer, reader and settings, network and transfer,
+rendering and document formats) drove this pass. Findings were verified against
+the tree before being fixed; nothing was changed on suspicion alone.
+
+### Interface
+
+- Gallery's list reserved only 8 px above the button legend while it also drew
+  the "n / m" footer counter, so with nine or more images the last row was drawn
+  underneath it. Library, Settings and Interface font each reserved a different
+  value (54, 42, 42). All four now derive the bottom edge from one shared
+  `UITheme::getListContentBottom`.
+- The Favorites marker was a U+2605 star appended to the format string. FiraGO
+  has no glyph for that codepoint, so nothing was drawn and the two padding
+  spaces left favourited rows with a ragged right edge. It is now a generated
+  16 px Lucide star drawn through the shared accessory lane.
+- The image viewer painted photographs with the differential waveform and its
+  text error states with the clean one. Reversed: a halftoned photo is the one
+  payload a differential update cannot reconcile, and browsing siblings stacked
+  photo over photo with no clean in between.
+- Two hardcoded English strings in the image viewer now use the existing
+  localized key, so no screen falls back to English in the other 26 locales.
+- Back did nothing on the confirmation dialog — the modal every destructive
+  action routes through. Back now cancels, Confirm confirms, and both commit on
+  release like every other screen.
+- The file browser's path bar drew a 3 px edge-to-edge rule, the heaviest element
+  on the screen; the folder picker drew none. Both now use one shared inset
+  hairline, and the folder picker's action row is distinguishable by accessory
+  rather than only by position.
+- Dotfiles rendered as blank, selectable, deletable rows because the name was
+  split on its leading dot.
+- `truncatedText` dropped one more character than necessary from every truncated
+  label (`>=` where the fit test used `<=`).
+- Properties clamped the filename it exists to show to ~200 px and printed raw
+  byte counts; it now uses two-line rows and KB/MB units.
+- The reader Font row drew a chevron and labelled Confirm "Select" but cycled the
+  value in place unless SD fonts were installed. It always opens the picker now.
+- Home's first-boot state showed two dashes and an empty 0 % rule; those bands
+  are now simply empty, and the rule follows the content margin instead of a
+  hardcoded 52 px that assumed a 480 px panel.
+- Removed: two theme engines that were never instantiated, 15 orphaned icon
+  headers, the tab-bar drawing triple and the legacy home wordmark. `tabBarHeight`
+  is renamed `subHeaderHeight` — it governs the sub-header on a third of the
+  firmware's screens and the tab bar it was named for no longer exists.
+- 25 dead photo-frame and chess keys were removed from all 27 locale files; the
+  generated string table drops from 331,810 to 315,642 bytes.
+
+### Reader and settings
+
+- Opening the reader menu switched automatic page turning off. The menu returns
+  its picker value on cancel as well, and that value was a fresh 0 on every
+  visit; the reader now passes the running rate in, as it already did for
+  orientation.
+- Reading statistics applied the UTC offset twice, so every time-of-day bucket,
+  day of week and streak day was shifted by double the configured offset.
+- Automatic page turning did not inhibit deep sleep, so hands-free reading was
+  interrupted by the inactivity timer.
+- `serialization::readString` resized a `std::string` to an unvalidated 32-bit
+  length read from storage. With exceptions disabled that aborts, and the call
+  sites are book-open and boot — a reboot loop that survives a power cycle. Reads
+  are now bounded and checked, and the metadata-cache readers reject truncated
+  entries.
+- The chapter list built its indent from `level - 1` on a `uint8_t`; a level of 0
+  (an unloaded cache, an out-of-range index, an `<a>` outside any `<ol>`)
+  underflowed and aborted the firmware.
+- The footnote return stack was popped even when the matching push had been
+  skipped, so Back after an unresolvable footnote landed on the wrong page.
+- XTH page buffers were sized from `(w*h+7)/8` while the reader addresses them
+  column-major, under-allocating whenever the height is not a multiple of 8; a
+  short read also rendered uninitialised heap. The status-bar setting was
+  silently ignored for XTH books, and a 384,000-iteration debug histogram ran in
+  release builds.
+- The plain-text reader read an uninitialised offset and could persist a garbage
+  page index; its cache accepted an unbounded page count.
+- Web settings listed the clock position labels in reverse, so the web UI put the
+  clock opposite the chosen side and disagreed with the device screen. The
+  status-bar screen clamped the wrong field, leaving progress-bar thickness
+  unvalidated. "Go to percent" bound +/- to raw buttons while its legend followed
+  orientation.
+- Bookmark files dropped the extension from their key, so `a.epub` and `a.txt`
+  shared one file. Fixed with a one-shot migration that adopts the old file.
+- Bookmarks is no longer offered when there are none (it rendered an empty
+  screen), and the status bar's progress fraction now matches the reader menu.
+
+### Network and transfer
+
+- `/download`, `/delete`, `/api/files`, `/mkdir` and WebDAV `PROPFIND` tested only
+  the last path component, so `/.crosspoint/wifi.json` — the saved Wi-Fi and sync
+  credentials — was readable and deletable by any client on the network. All
+  paths are now canonicalized and every segment checked.
+- Upload destinations were unvalidated in both the multipart and WebSocket paths,
+  so a crafted filename or path wrote anywhere on the card.
+- `GET /api/settings` returned the KOReader sync password in plaintext over an
+  unauthenticated endpoint — served over an open network in hotspot mode. Secrets
+  now report only whether a value is stored.
+- `WifiCredentialStore` was loaded only by the Wi-Fi picker, and it persists its
+  whole in-memory list. Adding a network from the web UI in hotspot mode rewrote
+  `wifi.json` from an empty list, discarding every saved network. It is now loaded
+  at boot with the other stores.
+- OTA disabled TLS hostname verification while writing straight to the OTA
+  partition with no image signature to fall back on.
+- A browser that died mid-upload left the WebSocket slot claimed forever, so
+  every retry was refused. Added a heartbeat and a stall deadline.
+- Hotspot mode ran a wildcard DNS server but answered every probe with a plain
+  404, so no captive-portal sheet appeared and Android flagged the network as
+  offline.
+- The web settings Save button stayed disabled after a failed save, and password
+  fields were detected by sniffing the *translated* label — plain text in every
+  non-English locale.
+- Calibre mode had no Wi-Fi health check (a dropped access point looked like a
+  hang) and repainted the panel on every 64 KB of progress.
+
+### Rendering and formats
+
+- Upscaled PNGs left destination rows unwritten. On the direct pass that showed
+  as white combing; once cached it became permanent black stripes, because the
+  cache flushes unwritten rows from a zeroed band where 0 means black. The row
+  span is now derived from the real height ratio.
+- `DirectPixelWriter` clipped rows but not columns, so one pixel past the layout
+  wrote past the grayscale band scratch buffer.
+- `ZipFile` computed `uncompressedSize + 1` in 32 bits: a ZIP64 sentinel wrapped
+  to 0, `malloc(0)` succeeded, and the read wrote gigabytes past it. Entry and
+  chapter counts read from file headers no longer drive unbounded reserves.
+- The bidi pass stopped building its buffer at U+FFFD, which is what the UTF-8
+  decoder returns for any malformed byte — so one bad byte in a title or filename
+  silently dropped the rest of the string.
+- `drawRect` drew every border one pixel wider and taller than requested, so
+  frames bled outside their fill and a rect flush with a screen edge logged an
+  out-of-range error per pixel.
+- The three ditherers allocated their error rows with throwing `new`; cover
+  generation on a fragmented heap aborted instead of degrading to plain
+  quantization.
+- Footnote hrefs longer than the fixed buffer were silently truncated and
+  resolved to nothing; they are now left as ordinary text with a log line.
+
+### Verification
+
+- Development and release builds pass. Release uses 90.9 % of the application
+  partition (was 91.2 %) and 32.3 % of RAM.
+- 107 of 107 host tests pass.
+- Localization validation passes for all 27 locales (498 strings each, 533 UI
+  codepoints, 10 font families checked).
+- `pio check` reports 0 high and 0 medium findings.
+- Not changed on purpose: automatic clean-refresh injection stays off for
+  navigation. That is a deliberate, documented and test-covered decision — the
+  driver keeps controller RAM synchronized as the differential baseline, and the
+  reader has its own configurable cadence. The photographic case that genuinely
+  needed a clean waveform is fixed above.
+- Not verified here: this pass was validated by build, host tests, static
+  analysis and framebuffer reasoning. It has not been flashed to a physical X4,
+  so outdoor contrast, panel retention across hundreds of differential refreshes,
+  and the live Wi-Fi, Calibre, WebDAV and OTA sessions remain untested on
+  hardware.
+
+final result: passed
+
 ## Brand-only lock and unlock presentation — 2026-07-29
 
 - Source reference:

@@ -368,8 +368,8 @@ void EpubReaderActivity::loop() {
       recordCurrentPageReadingTime("reader_menu");
       startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                  renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                                 SETTINGS.orientation, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
-                                 FAVORITE_BOOKS.contains(epub->getPath())),
+                                 SETTINGS.orientation, currentPageTurnOption, !currentPageFootnotes.empty(),
+                                 !cachedBookmarks.empty(), FAVORITE_BOOKS.contains(epub->getPath())),
                              [this](const ActivityResult& result) {
                                // Always apply orientation change even if the menu was cancelled
                                const auto& menu = std::get<MenuResult>(result.data);
@@ -974,9 +974,11 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
 void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption) {
   if (selectedPageTurnOption == 0 || selectedPageTurnOption >= std::size(PAGE_TURN_RATES)) {
     automaticPageTurnActive = false;
+    currentPageTurnOption = 0;
     return;
   }
 
+  currentPageTurnOption = selectedPageTurnOption;
   lastPageTurnTime = millis();
   // calculates page turn duration by dividing by number of pages
   pageTurnDuration = (1UL * 60 * 1000) / PAGE_TURN_RATES[selectedPageTurnOption];
@@ -1095,7 +1097,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
-    section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
+    // Plain new aborts under -fno-exceptions, so a tight heap would panic the
+    // device instead of failing back to the library like the other error paths.
+    section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer);
+    if (!section) {
+      LOG_ERR("ERS", "Out of memory loading section %d", currentSpineIndex);
+      showPendingSyncSaveError();
+      return;
+    }
 
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                   SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,
@@ -1445,10 +1454,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 }
 
 void EpubReaderActivity::renderStatusBar() const {
-  // Calculate progress in book
+  // Calculate progress in book. The label is 1-based ("5 / 20"), but the
+  // fraction must use the 0-based page like the reader menu, Book Info and
+  // Reading Stats do — mixing the two made the status bar read one page ahead of
+  // every other surface.
   const int currentPage = section->currentPage + 1;
   const float pageCount = section->pageCount;
-  const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;
+  const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(section->currentPage) / pageCount) : 0;
   const float bookProgress = epub->calculateProgress(currentSpineIndex, sectionChapterProg) * 100;
 
   std::string title;
@@ -1485,9 +1497,11 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
   if (!epub) return;
 
   // Push current position onto saved stack
+  bool pushedPosition = false;
   if (savePosition && section && footnoteDepth < MAX_FOOTNOTE_DEPTH) {
     savedPositions[footnoteDepth] = {currentSpineIndex, section->currentPage};
     footnoteDepth++;
+    pushedPosition = true;
     LOG_DBG("ERS", "Saved position [%d]: spine %d, page %d", footnoteDepth, currentSpineIndex, section->currentPage);
   }
 
@@ -1510,7 +1524,10 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
 
   if (targetSpineIndex < 0) {
     LOG_DBG("ERS", "Could not resolve href: %s", hrefStr.c_str());
-    if (savePosition && footnoteDepth > 0) footnoteDepth--;  // undo push
+    // Only undo a push that actually happened. The push is skipped at max depth
+    // or without a loaded section, and popping anyway discarded a real saved
+    // position, so Back landed on the wrong page.
+    if (pushedPosition) footnoteDepth--;
     return;
   }
 

@@ -362,9 +362,16 @@
     }
 
     if (setting.type === 'string') {
-      const inputType = setting.name.toLowerCase().includes('password') ? 'password' : 'text';
+      // The server marks secrets explicitly. Sniffing the localized label for
+      // "password" left the field as plain text in every non-English locale.
+      const inputType = setting.secret ? 'password' : 'text';
       const val = setting.value || '';
+      const placeholder = setting.secret
+        ? (setting.hasValue ? ' placeholder="Saved - leave empty to keep"' : ' placeholder="Not set"')
+        : '';
+      const autocomplete = setting.secret ? ' autocomplete="new-password"' : '';
       return '<input type="' + inputType + '" id="' + id + '" value="' + escapeHtml(val) + '"' +
+        placeholder + autocomplete +
         ' oninput="handleSettingChanged(\'' + setting.key + '\')">';
     }
 
@@ -564,13 +571,15 @@
       }
     });
 
-    if (Object.keys(changes).length === 0) {
-      showMessage('No changes to save.', false);
-      btn.textContent = 'Save Settings';
-      return;
-    }
-
+    // Re-enable in a finally block: leaving the button disabled after a failed
+    // save made retrying impossible without a reload, which discarded every
+    // edit on the page.
     try {
+      if (Object.keys(changes).length === 0) {
+        showMessage('No changes to save.', false);
+        return;
+      }
+
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -591,9 +600,10 @@
     } catch (e) {
       console.error(e);
       showMessage('Error: ' + e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Settings';
     }
-
-    btn.textContent = 'Save Settings';
   }
 
   loadSettings();

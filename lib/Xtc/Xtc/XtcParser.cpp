@@ -322,7 +322,11 @@ XtcError XtcParser::readChapters() {
     return XtcError::READ_ERROR;
   }
 
-  m_chapters.reserve(chapterCount);
+  // chapterCount is derived from header fields, so a bogus dataOffset in a large
+  // file can imply hundreds of thousands of chapters. Reserve conservatively and
+  // let the vector grow; under -fno-exceptions a failed reserve aborts.
+  constexpr size_t MAX_RESERVED_CHAPTERS = 4096;
+  m_chapters.reserve(std::min<size_t>(chapterCount, MAX_RESERVED_CHAPTERS));
   std::vector<uint8_t> chapterBuf(chapterSize);
   for (size_t i = 0; i < chapterCount; i++) {
     if (m_file.read(chapterBuf.data(), chapterSize) != chapterSize) {

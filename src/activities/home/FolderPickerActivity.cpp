@@ -119,10 +119,18 @@ void FolderPickerActivity::render(RenderLock&&) {
         return index == 0 ? std::string(tr(STR_SELECT_THIS_FOLDER))
                           : directories[index - 1].substr(0, directories[index - 1].size() - 1);
       },
-      nullptr, [](int) { return UIIcon::Folder; }, nullptr, true);
+      nullptr, [](int) { return UIIcon::Folder; }, nullptr, false, nullptr,
+      // The first row is the action, not one of the folders below it. Give it a
+      // check accessory so it is distinguishable by more than position.
+      [](int index) { return index == 0 ? UIAccessory::Check : UIAccessory::None; });
 
   const int pathY = pageHeight - metrics.buttonHintsHeight - pathHeight;
-  renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, pathY, basepath.c_str());
+  // Same path bar as the file browser, so both pickers read as one firmware.
+  GUI.drawDivider(renderer, metrics.contentSidePadding, pageWidth - metrics.contentSidePadding - 1,
+                  pathY - metrics.verticalSpacing / 2);
+  const auto pathText = renderer.truncatedText(SMALL_FONT_ID, basepath.c_str(),
+                                               pageWidth - metrics.contentSidePadding * 2);
+  renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, pathY, pathText.c_str());
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

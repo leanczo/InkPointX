@@ -35,7 +35,7 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   }
 }
 
-int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
+int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasSubHeader, bool hasButtonHints,
                                      bool hasSubtitle, int extraReservedHeight) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   auto orientation = renderer.getOrientation();
@@ -43,8 +43,8 @@ int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader
   if (hasHeader) {
     reservedHeight += metrics.headerHeight + metrics.verticalSpacing;
   }
-  if (hasTabBar) {
-    reservedHeight += metrics.tabBarHeight;
+  if (hasSubHeader) {
+    reservedHeight += metrics.subHeaderHeight;
   }
   if (hasButtonHints && SETTINGS.showButtonHints && orientation != GfxRenderer::Orientation::LandscapeClockwise &&
       orientation != GfxRenderer::Orientation::LandscapeCounterClockwise) {
@@ -86,6 +86,15 @@ Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButton
       break;
   }
   return safeArea;
+}
+
+int UITheme::getListContentBottom(const GfxRenderer& renderer, const bool hasFooterCounter) {
+  const ThemeMetrics& metrics = getInstance().getMetrics();
+  int bottom = renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  if (hasFooterCounter) {
+    bottom -= BaseTheme::footerCounterTopOffset;
+  }
+  return bottom;
 }
 
 std::string UITheme::getCoverThumbPath(std::string coverBmpPath, int coverHeight) {

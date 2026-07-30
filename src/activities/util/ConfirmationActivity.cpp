@@ -45,11 +45,13 @@ void ConfirmationActivity::onEnter() {
 
 void ConfirmationActivity::render(RenderLock&& lock) {
   renderer.clearScreen();
-  renderer.fillRoundedRect(cardX, cardY, cardWidth, cardHeight, 14, Color::White);
-  renderer.drawRoundedRect(cardX, cardY, cardWidth, cardHeight, 1, 14, true);
+  // Share the popup radius so a confirmation and the "Loading…" popup that can
+  // precede it are the same shape.
+  const int radius = UITheme::getInstance().getMetrics().popupCornerRadius;
+  renderer.fillRoundedRect(cardX, cardY, cardWidth, cardHeight, radius, Color::White);
+  renderer.drawRoundedRect(cardX, cardY, cardWidth, cardHeight, 1, radius, true);
 
   int currentY = cardY + margin;
-  LOG_DBG("CONF", "currentY: %d", currentY);
   if (!safeHeading.empty()) {
     const int headingWidth =
         renderer.getTextWidth(headingFontId, safeHeading.c_str(), EpdFontFamily::BOLD);
@@ -64,15 +66,20 @@ void ConfirmationActivity::render(RenderLock&& lock) {
     currentY += bodyLineHeight;
   }
 
-  // Draw UI Elements
-  const auto labels = mappedInput.mapLabels("", "", I18N.get(StrId::STR_CANCEL), I18N.get(StrId::STR_CONFIRM));
+  // Draw UI Elements. Back and Confirm carry their global meaning here, so the
+  // legend names all four slots instead of leaving the first two blank.
+  const auto labels = mappedInput.mapLabels(I18N.get(StrId::STR_CANCEL), I18N.get(StrId::STR_CONFIRM),
+                                            I18N.get(StrId::STR_CANCEL), I18N.get(StrId::STR_CONFIRM));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer(HalDisplay::RefreshMode::FAST_REFRESH);
 }
 
 void ConfirmationActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+  // Commit on release, like every other screen: acting on the press edge leaks
+  // the release into whatever activity is shown next.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     ActivityResult res;
     res.isCancelled = false;
     setResult(std::move(res));
@@ -80,7 +87,10 @@ void ConfirmationActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+  // Back is the universal cancel in this firmware; without it the only way out
+  // of a destructive-action modal was discovering that Left means cancel.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+      mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult res;
     res.isCancelled = true;
     setResult(std::move(res));

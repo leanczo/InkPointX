@@ -171,12 +171,15 @@ void BmpViewerActivity::onEnter() {
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       // Single pass for non-grayscale images
 
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      // A halftoned photograph is the one payload a differential update cannot
+      // reconcile cleanly, and browsing siblings stacks photo over photo with no
+      // automatic clean in between, so drive the panel with the clean waveform.
+      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
     } else {
       // Handle file parsing error
       renderer.clearScreen();
-      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, "Invalid BMP File");
+      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_IMAGE_PREVIEW_FAILED));
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -186,7 +189,7 @@ void BmpViewerActivity::onEnter() {
   } else {
     // Handle file open error
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, "Could not open file");
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_IMAGE_PREVIEW_FAILED));
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);

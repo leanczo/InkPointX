@@ -93,6 +93,9 @@ void drawAccessory(const GfxRenderer& renderer, const UIAccessory accessory, con
     case UIAccessory::Check:
       renderer.drawIcon(LucideCheck16, x, y, 16, 16);
       break;
+    case UIAccessory::Favorite:
+      renderer.drawIcon(LucideStar16, x, y, 16, 16);
+      break;
     case UIAccessory::ToggleOff:
     case UIAccessory::ToggleOn: {
       renderer.drawRoundedRect(x, y, toggleWidth, toggleHeight, 1, toggleHeight / 2, true);
@@ -175,31 +178,6 @@ void LyraTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
                rect.x + rect.width - LyraMetrics::values.contentSidePadding, rect.y + rect.height - 1);
 }
 
-void LyraTheme::drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                           bool selected) const {
-  int currentX = rect.x + LyraMetrics::values.contentSidePadding;
-
-  for (const auto& tab : tabs) {
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, tab.label, EpdFontFamily::REGULAR);
-
-    if (tab.selected) {
-      if (selected) {
-        drawSelection(renderer, Rect{currentX, rect.y + 3, textWidth + 2 * hPaddingInSelection, rect.height - 7});
-      } else {
-        renderer.drawLine(currentX, rect.y + rect.height - 3, currentX + textWidth + 2 * hPaddingInSelection,
-                          rect.y + rect.height - 3, 2, true);
-      }
-    }
-
-    renderer.drawText(UI_10_FONT_ID, currentX + hPaddingInSelection, rect.y + 8, tab.label, true,
-                      tab.selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-
-    currentX += textWidth + LyraMetrics::values.tabSpacing + 2 * hPaddingInSelection;
-  }
-
-  drawHairline(renderer, rect.x + LyraMetrics::values.contentSidePadding,
-               rect.x + rect.width - LyraMetrics::values.contentSidePadding, rect.y + rect.height - 1);
-}
 
 int LyraTheme::getListPageItems(int contentHeight, bool hasSubtitle) const {
   int rowHeight = (hasSubtitle) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
@@ -356,6 +334,10 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   BaseTheme::drawButtonHints(renderer, btn1, btn2, btn3, btn4);
 }
 
+void LyraTheme::drawDivider(const GfxRenderer& renderer, const int x1, const int x2, const int y) const {
+  drawHairline(renderer, x1, x2, y);
+}
+
 void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* topBtn, const char* bottomBtn) const {
   if (!SETTINGS.showButtonHints) return;
 
@@ -407,51 +389,7 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
   }
 }
 
-void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                    const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                                    bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {
-  (void)selectorIndex;
-  (void)coverRendered;
-  (void)coverBufferStored;
-  (void)bufferRestored;
-  (void)storeCoverBuffer;
 
-  const int cardX = rect.x + 58;
-  const int cardY = rect.y + 6;
-  const int cardWidth = rect.width - 116;
-  const int cardHeight = std::min(208, rect.height - 12);
-  renderer.drawRoundedRect(cardX, cardY, cardWidth, cardHeight, 1, 12, true, true, true, true, true);
-  renderer.drawIcon(LucideBookOpen24, cardX + 28, cardY + 42, 24, 24);
-
-  const int textX = cardX + 82;
-  const int textWidth = cardWidth - 104;
-  renderer.drawText(UI_10_FONT_ID, textX, cardY + 24,
-                    recentBooks.empty() ? tr(STR_START_READING) : tr(STR_CONTINUE_READING), true, EpdFontFamily::BOLD);
-
-  if (recentBooks.empty()) {
-    renderer.drawText(UI_10_FONT_ID, textX, cardY + 72, tr(STR_NO_OPEN_BOOK));
-    renderer.drawText(SMALL_FONT_ID, textX, cardY + 112, tr(STR_OPEN_LIBRARY_HINT));
-    return;
-  }
-
-  const RecentBook& book = recentBooks.front();
-  const auto title = renderer.truncatedText(UI_12_FONT_ID, book.title.c_str(), textWidth, EpdFontFamily::BOLD);
-  renderer.drawText(UI_12_FONT_ID, textX, cardY + 68, title.c_str(), true, EpdFontFamily::BOLD);
-  if (!book.author.empty()) {
-    const auto author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textWidth);
-    renderer.drawText(UI_10_FONT_ID, textX, cardY + 108, author.c_str());
-  }
-  renderer.drawLine(textX, cardY + cardHeight - 36, cardX + cardWidth - 76, cardY + cardHeight - 36, 4, true);
-  renderer.drawText(SMALL_FONT_ID, cardX + cardWidth - 56, cardY + cardHeight - 46, tr(STR_OPEN));
-}
-
-void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) const {
-  constexpr int padding = 48;
-  renderer.drawText(UI_12_FONT_ID, rect.x + padding,
-                    rect.y + rect.height / 2 - renderer.getLineHeight(UI_12_FONT_ID) - 2, tr(STR_NO_OPEN_BOOK), true,
-                    EpdFontFamily::BOLD);
-  renderer.drawText(UI_10_FONT_ID, rect.x + padding, rect.y + rect.height / 2 + 2, tr(STR_START_READING), true);
-}
 
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,

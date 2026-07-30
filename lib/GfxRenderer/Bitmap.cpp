@@ -167,10 +167,21 @@ BmpReaderError Bitmap::parseHeaders() {
   //  - High-color + dithering disabled → simple quantization (no error diffusion)
   const bool highColor = !nativePalette;
   if (highColor && dithering) {
+    // A ditherer whose error rows failed to allocate must be dropped, not used:
+    // readNextRow would dereference null. Without one the pixel path falls back
+    // to plain quantization, which is the documented "dithering disabled" case.
     if (USE_ATKINSON) {
-      atkinsonDitherer = new AtkinsonDitherer(width);
+      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(width);
+      if (atkinsonDitherer && !atkinsonDitherer->isValid()) {
+        delete atkinsonDitherer;
+        atkinsonDitherer = nullptr;
+      }
     } else {
-      fsDitherer = new FloydSteinbergDitherer(width);
+      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(width);
+      if (fsDitherer && !fsDitherer->isValid()) {
+        delete fsDitherer;
+        fsDitherer = nullptr;
+      }
     }
   }
 

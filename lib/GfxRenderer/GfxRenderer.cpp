@@ -546,11 +546,18 @@ void GfxRenderer::drawRect(const int x, const int y, const int width, const int 
 // Border is inside the rectangle
 void GfxRenderer::drawRect(const int x, const int y, const int width, const int height, const int lineWidth,
                            const bool state) const {
+  // The far edges are width-1/height-1, matching the single-pixel overload
+  // above. Without the -1 every border was drawn one pixel wider and taller
+  // than asked for, so dialog frames and selection boxes bled a stray line
+  // outside their fill and a rect flush with a screen edge made drawPixel log an
+  // out-of-range error per pixel.
   for (int i = 0; i < lineWidth; i++) {
-    drawLine(x + i, y + i, x + width - i, y + i, state);
-    drawLine(x + width - i, y + i, x + width - i, y + height - i, state);
-    drawLine(x + width - i, y + height - i, x + i, y + height - i, state);
-    drawLine(x + i, y + height - i, x + i, y + i, state);
+    const int right = x + width - 1 - i;
+    const int bottom = y + height - 1 - i;
+    drawLine(x + i, y + i, right, y + i, state);
+    drawLine(right, y + i, right, bottom, state);
+    drawLine(right, bottom, x + i, bottom, state);
+    drawLine(x + i, bottom, x + i, y + i, state);
   }
 }
 
@@ -1458,7 +1465,10 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
     return item;
   }
 
-  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) >= maxWidth) {
+  // A string exactly maxWidth wide fits — the early return above uses <=, so
+  // this loop has to as well, otherwise one more character than necessary is
+  // dropped from every truncated label in the UI.
+  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) > maxWidth) {
     utf8RemoveLastChar(item);
   }
 

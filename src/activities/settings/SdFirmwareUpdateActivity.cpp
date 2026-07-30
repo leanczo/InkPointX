@@ -32,8 +32,17 @@ void SdFirmwareUpdateActivity::launchPicker() {
 void SdFirmwareUpdateActivity::onPickerResult(const ActivityResult& result) {
   if (result.isCancelled) {
     if (recoveryMode) {
-      // Recovery mode: re-launch the picker so the user cannot escape into a half-initialised UI.
-      launchPicker();
+      // Recovery mode is entered by a hardware combination at boot, so it is easy
+      // to reach by accident. Re-launching the picker here left Back doing
+      // nothing at all and the device looking wedged. There is no initialised UI
+      // to fall back to, so reboot: the combination is no longer held, and the
+      // device comes up in normal mode.
+      LOG_INF("FW", "Recovery mode cancelled, restarting into normal boot");
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_RESTARTING_HINT));
+      renderer.displayBuffer();
+      delay(1200);
+      ESP.restart();
       return;
     }
     finish();
@@ -248,6 +257,8 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
     // PICKING / CONFIRMING: a sub-activity is on top, nothing to draw.
     if (recoveryMode) {
       renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_RECOVERY_MODE_HINT));
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     }
   }
 

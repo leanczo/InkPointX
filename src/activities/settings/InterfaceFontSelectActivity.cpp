@@ -50,7 +50,7 @@ void InterfaceFontSelectActivity::render(RenderLock&&) {
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, width, metrics.headerHeight}, tr(STR_INTERFACE_FONT));
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = height - contentTop - metrics.buttonHintsHeight - 42;
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, true) - contentTop);
   GUI.drawList(
       renderer, Rect{0, contentTop, width, contentHeight}, static_cast<int>(fontNames.size()), selectedIndex,
       [&fontNames](const int index) { return std::string(I18N.get(fontNames[index])); }, nullptr, nullptr, nullptr,

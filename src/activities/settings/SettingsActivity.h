@@ -49,6 +49,11 @@ struct SettingInfo {
   const char* key = nullptr;             // JSON API key (nullptr for ACTION types)
   StrId category = StrId::STR_NONE_OPT;  // Category for web UI grouping
   bool obfuscated = false;               // Save/load via base64 obfuscation (passwords)
+  // Never serialize the value over the web API. The settings endpoints are
+  // unauthenticated and, in hotspot mode, served over an open network, so a
+  // stored password must not leave the device. The web UI receives only
+  // "hasValue" and preserves the stored value when it posts an empty field.
+  bool secret = false;
 
   // Direct char[] string fields (for settings stored in CrossPointSettings)
   size_t stringOffset = 0;
@@ -62,6 +67,11 @@ struct SettingInfo {
 
   SettingInfo& withObfuscated() {
     obfuscated = true;
+    return *this;
+  }
+
+  SettingInfo& withSecret() {
+    secret = true;
     return *this;
   }
 

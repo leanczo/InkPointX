@@ -84,7 +84,11 @@ bool applyBidiVisual(const char* utf8, std::string& out, int paragraphLevel) {
     }
 
     const uint32_t cp = utf8NextCodepoint(&p);
-    if (!cp || cp == REPLACEMENT_GLYPH) break;
+    if (!cp) break;
+    // Keep U+FFFD rather than stopping here. utf8NextCodepoint returns it for
+    // every malformed sequence, and the caller renders whatever this buffer
+    // holds — so a title or filename containing one bad byte (or a literal
+    // replacement character) used to lose everything after that point.
     logical[count] = cp;
     count++;
   }
@@ -134,7 +138,8 @@ bool computeVisualWordOrder(const std::vector<std::string>& words, bool paragrap
         break;
       }
       const uint32_t cp = utf8NextCodepoint(&p);
-      if (!cp || cp == REPLACEMENT_GLYPH) break;
+      // As above: a malformed byte must not silently drop the rest of the word.
+      if (!cp) break;
       line[count].origwc = line[count].wc = cp;
       line[count].index = static_cast<uint16_t>(w);
       count++;

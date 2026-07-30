@@ -18,11 +18,6 @@ struct Rect {
   explicit Rect(int x = 0, int y = 0, int width = 0, int height = 0) : x(x), y(y), width(width), height(height) {}
 };
 
-struct TabInfo {
-  const char* label;
-  bool selected;
-};
-
 struct ThemeMetrics {
   int batteryWidth;
   int batteryHeight;
@@ -41,8 +36,7 @@ struct ThemeMetrics {
   int menuRowHeight;
   int menuSpacing;
 
-  int tabSpacing;
-  int tabBarHeight;
+  int subHeaderHeight;
 
   int scrollBarWidth;
   int scrollBarRightOffset;
@@ -124,7 +118,7 @@ enum UIIcon {
   Clock,
 };
 
-enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn };
+enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };
 
 enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };
 
@@ -145,8 +139,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .listWithSubtitleRowHeight = 50,
                                  .menuRowHeight = 45,
                                  .menuSpacing = 8,
-                                 .tabSpacing = 10,
-                                 .tabBarHeight = 50,
+                                 .subHeaderHeight = 50,
                                  .scrollBarWidth = 4,
                                  .scrollBarRightOffset = 5,
                                  .homeTopPadding = 40,
@@ -201,6 +194,11 @@ class BaseTheme {
  public:
   virtual ~BaseTheme() = default;
 
+  // Distance from the top of the button legend up to the "n / m" footer
+  // counter's first row. Screens that draw the counter must keep list content
+  // above this band — see UITheme::getListContentBottom.
+  static constexpr int footerCounterTopOffset = 24;
+
   // Component drawing methods
   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
   void drawBatteryLeft(const GfxRenderer& renderer, Rect rect,
@@ -223,16 +221,10 @@ class BaseTheme {
                           const char* subtitle = nullptr) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
                              const char* rightLabel = nullptr) const;
-  virtual void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                          bool selected) const;
-  virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                   const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                                   bool& bufferRestored, std::function<bool()> storeCoverBuffer) const;
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                               const std::function<std::string(int index)>& buttonLabel,
                               const std::function<UIIcon(int index)>& rowIcon) const;
   void drawSelection(const GfxRenderer& renderer, Rect rect) const;
-  virtual void drawHomeBrand(const GfxRenderer& renderer, Rect rect) const;
   virtual void drawPageDots(const GfxRenderer& renderer, int selectedPage, int pageCount) const;
   virtual void drawFooterCounter(const GfxRenderer& renderer, int selectedIndex, int itemCount) const;
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
@@ -247,6 +239,10 @@ class BaseTheme {
                                const char* secondaryLabel = nullptr, KeyboardKeyType keyType = KeyboardKeyType::Normal,
                                bool inactiveSelection = false) const;
   virtual bool showsFileIcons() const { return false; }
+  // The shared divider treatment, inset to the content margin. Screens that
+  // need a rule outside a list (e.g. the file browser's path bar) must use this
+  // instead of drawing their own line, so weight and inset stay consistent.
+  virtual void drawDivider(const GfxRenderer& renderer, int x1, int x2, int y) const;
 
   // Shared constants and helpers for battery drawing (used by all themes)
   static constexpr int batteryPercentSpacing = 4;
