@@ -1177,12 +1177,36 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     return;
   }
 
+  // Inverse-map the destination when reducing, exactly as drawBitmap1Bit does.
+  // Forward mapping let several source pixels land on one screen pixel where only
+  // ink is written, so they combined by implicit OR — the same bias that made the
+  // 1-bit path blotchy. Sampling each destination pixel once keeps the intended
+  // density and removes the moire.
+  // croppedWidth above is the fractional width used for the fit calculation; this
+  // is the same span in whole source pixels.
+  const int croppedPixels = bitmap.getWidth() - cropPixX * 2;
+  const int outputWidth =
+      isScaled ? std::max(1, static_cast<int>(std::ceil(static_cast<float>(croppedPixels) * scale))) : croppedPixels;
+
   for (int bmpY = 0; bmpY < (bitmap.getHeight() - cropPixY); bmpY++) {
     // The BMP's (0, 0) is the bottom-left corner (if the height is positive, top-left if negative).
     // Screen's (0, 0) is the top-left corner.
-    int screenY = -cropPixY + (bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY);
+    const int sourceY = -cropPixY + (bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY);
+    int screenY = sourceY;
     if (isScaled) {
-      screenY = std::floor(screenY * scale);
+      const int outputYEnd = static_cast<int>(std::ceil(static_cast<float>(sourceY + 1) * scale));
+      screenY = static_cast<int>(std::ceil(static_cast<float>(sourceY) * scale));
+      // This source row is not the one the destination row samples: read it to
+      // keep the row counter in sync, but draw nothing.
+      if (screenY >= outputYEnd) {
+        if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
+          LOG_ERR("GFX", "Failed to read row %d from bitmap", bmpY);
+          free(outputRow);
+          free(rowBytes);
+          return;
+        }
+        continue;
+      }
     }
     screenY += y;  // the offset should not be scaled
     if (screenY >= getScreenHeight()) {
@@ -1205,12 +1229,12 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
       continue;
     }
 
-    for (int bmpX = cropPixX; bmpX < bitmap.getWidth() - cropPixX; bmpX++) {
-      int screenX = bmpX - cropPixX;
-      if (isScaled) {
-        screenX = std::floor(screenX * scale);
-      }
-      screenX += x;  // the offset should not be scaled
+    for (int outputX = 0; outputX < outputWidth; outputX++) {
+      const int croppedX =
+          isScaled ? std::min(croppedPixels - 1, static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
+                   : outputX;
+      const int bmpX = cropPixX + croppedX;
+      const int screenX = x + outputX;
       if (screenX >= getScreenWidth()) {
         break;
       }

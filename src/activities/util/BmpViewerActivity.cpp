@@ -111,6 +111,13 @@ void BmpViewerActivity::onEnter() {
     loadSiblingImages();
   }
 
+  showCurrentImage();
+}
+
+// Repaint for the currently selected file. Sibling navigation and the sleep-cover
+// action used to call onEnter() again, which re-ran the activity's own entry
+// bookkeeping and the sibling scan just to redraw.
+void BmpViewerActivity::showCurrentImage() {
   HalFile file;
 
   const auto pageWidth = renderer.getScreenWidth();
@@ -220,8 +227,10 @@ void BmpViewerActivity::doSetSleepCover() {
     GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
   }
 
-  delay(1000);
-  onEnter();
+  // The popup above is the confirmation. Hold it briefly, then repaint the image
+  // without re-entering the activity.
+  delay(600);
+  showCurrentImage();
 }
 
 void BmpViewerActivity::loop() {
@@ -249,7 +258,7 @@ void BmpViewerActivity::loop() {
       std::string dirPath = FsHelpers::extractFolderPath(filePath);
       if (dirPath.back() != '/') dirPath += "/";
       filePath = dirPath + siblingImages[currentImageIndex];
-      onEnter();
+      showCurrentImage();
     }
     return;
   }
@@ -262,7 +271,7 @@ void BmpViewerActivity::loop() {
       std::string dirPath = FsHelpers::extractFolderPath(filePath);
       if (dirPath.back() != '/') dirPath += "/";
       filePath = dirPath + siblingImages[currentImageIndex];
-      onEnter();
+      showCurrentImage();
     }
     return;
   }

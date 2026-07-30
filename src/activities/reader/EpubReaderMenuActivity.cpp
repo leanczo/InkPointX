@@ -125,7 +125,10 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
 
   const int contentTop =
       screen.y + metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.height - contentTop - metrics.verticalSpacing;
+  // contentTop already includes screen.y, so the remaining height is measured from
+  // the safe area's bottom edge. Subtracting it from screen.height instead lost
+  // screen.y worth of list rows in Portrait-Inverted.
+  const int contentHeight = (screen.y + screen.height) - contentTop - metrics.verticalSpacing;
 
   GUI.drawList(
       renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, menuItems.size(), selectedIndex,

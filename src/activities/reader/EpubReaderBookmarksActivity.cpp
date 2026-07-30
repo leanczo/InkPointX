@@ -124,6 +124,14 @@ void EpubReaderBookmarksActivity::loop() {
     return;
   }
 
+  // Nothing below this point may run while the delete prompt is up: the
+  // navigation handlers stayed live, so Up/Down moved the selection out from
+  // under the prompt and the confirmation then deleted a different bookmark than
+  // the one shown.
+  if (confirmingDelete >= DELETE_MODE_DISPLAY) {
+    return;
+  }
+
   if (mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() > ENTER_DELETE_MODE_MS) {
     if (bookmarks.empty()) {
       return;

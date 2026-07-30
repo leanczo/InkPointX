@@ -11,6 +11,9 @@ class TxtReaderActivity final : public Activity {
   std::unique_ptr<Txt> txt;
 
   int currentPage = 0;
+  // Byte offset of the page that was open when progress was last saved. Used to
+  // resume in the right place after the page index has been rebuilt.
+  size_t savedByteOffset = 0;
   int totalPages = 1;
   int pagesUntilFullRefresh = 0;
 

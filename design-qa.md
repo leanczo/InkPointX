@@ -2,6 +2,129 @@
 
 final result: passed
 
+## Second defect pass — remaining audit findings — 2026-07-30
+
+Continues the pass below, working through the audit findings that were left after
+the first round. Each was re-checked against the tree before being changed.
+
+### Plain text and documents
+
+- The plain-text reader assumed UTF-8 and fed raw bytes straight to the glyph
+  renderer, so a CP1251 or KOI8-R book — the common case for Russian .txt files —
+  rendered as a wall of replacement characters, and a UTF-8 BOM showed as a stray
+  glyph on page one. Encoding is now detected from the file's own bytes and the
+  text is transcoded before layout.
+  - Detection first tests whether the sample is valid UTF-8. If not, it chooses a
+    single-byte encoding by density rather than by byte range: Western accented
+    lowercase in CP1252 (à, é, ç) occupies 0xE0+, exactly where CP1251 keeps
+    Cyrillic lowercase, so the two are separated by what fraction of the letters
+    are high bytes. CP1251 and KOI8-R are then told apart by which half of the
+    high range holds the lowercase letters.
+  - `Fb2Encoding` gained CP1252, ISO-8859-1, ISO-8859-5 and CP866 tables
+    (generated from Python's codecs rather than typed by hand), a transcoder, and
+    the detector. FB2 files declaring those encodings now open too instead of
+    failing the whole parse.
+  - Page offsets stay in source-file bytes: one source byte is exactly one code
+    point in a single-byte encoding, so a position in the converted text is
+    mapped back by counting code points. The page-index cache version is bumped,
+    because boundaries in an old cache were computed from mis-decoded text.
+  - 10 host tests cover detection, transcoding, the one-byte-one-code-point
+    property the page index depends on, and BOM handling.
+- Changing the reader font, margin or alignment invalidates the plain-text page
+  index, and the saved page number then clamped to 1 — the reader was dumped back
+  to the start of the book. Progress now also stores the current page's byte
+  offset, which survives re-indexing, so the reader resumes in place. Page
+  numbering restarts, which is already how a freshly indexed plain-text file
+  behaves and is shown with a leading "~".
+
+### Reader and settings
+
+- Reset deleted the configuration files but left the credentials live in RAM, and
+  any store saving afterwards wrote them straight back. The in-memory Wi-Fi and
+  sync credentials are now cleared as well. `CrossPointSettings` is a
+  non-assignable singleton, so its fields are deliberately left to the reboot.
+- The bookmark list kept navigating while its delete prompt was up, so Up/Down
+  moved the selection out from under the prompt and the confirmation then deleted
+  a different bookmark than the one shown.
+- The bookmark list per book is now bounded at 64, matching favourites. Each entry
+  carries a text summary, so an unbounded list grew both the JSON file and the
+  session heap.
+- `isInReadFolder` compared case-sensitively against "/read" on a case-insensitive
+  filesystem, so a book opened through "/Read/…" was treated as not yet moved and
+  got a " (2)" duplicate.
+- The reader menu and chapter list subtracted a content top that already included
+  `screen.y` from `screen.height`, losing rows in Portrait-Inverted.
+
+### Interface
+
+- List selections reserved the scroll gutter only when a scrollbar was showing, so
+  every selection box jumped 10 px sideways the moment a library grew past one
+  page. The gutter is now always reserved, and menu tiles share the list's right
+  edge and vertical inset so a selection crossing between the two primitives on
+  Home does not jog.
+- The grayscale bitmap path still forward-mapped when scaling down, letting
+  several source pixels combine into one destination pixel by implicit OR — the
+  same bias that made the 1-bit path blotchy before it was rewritten. It now
+  inverse-maps like the 1-bit path, which removes the moire on downscaled sleep
+  images and gallery photos.
+- The four empty list states each hard-left-aligned their own message at an
+  unexplained offset; they now share one centred, wrapped primitive.
+- The image viewer called `onEnter()` recursively to repaint after setting a sleep
+  cover or moving between siblings, re-running the activity's entry bookkeeping
+  and sibling scan each time. Painting is split into its own method, and the
+  post-install pause is shortened.
+- `UI_12` and `UI_14` mapping to the same family turned out to be correct per the
+  documented type scale (both are 14 px); the slot names simply do not match pixel
+  sizes. Documented in place rather than changed.
+
+### Network and web interface
+
+- WebDAV `GET` wrote the whole file in one blocking call, so copying a large book
+  off the device in Finder or Explorer froze the UI for the length of the transfer
+  and could trip the idle watchdog. It now chunks and yields like the HTTP
+  download path.
+- An empty password on a secured network fell through to a keyless join; the
+  driver rarely reports that as an auth failure, so the user waited out the full
+  connection timeout for a generic error. Rejected up front instead. No minimum
+  length beyond that: WEP keys are legitimately 5 or 13 characters.
+- The web home page hardcoded "Connected" — wrong in hotspot mode — and failed
+  silently, leaving every field blank. It now shows the device, network mode,
+  IP, uptime and free memory reported by `/api/status`, surfaces errors inline,
+  and refreshes.
+- Font upload required picking a whole directory, which iOS Safari does not
+  support and which made uploading a single `.cpfont` impossible — and the phone
+  browser is the usual client, since access is via the QR code on the device.
+- KOReader sync treated a `200` with an empty progress field as real remote data,
+  producing a plausible-looking "remote 0%" that could overwrite a good local
+  position; it is now handled as not-found. The device id is derived from the MAC,
+  so two units are no longer indistinguishable to the server.
+- mDNS registered a hostname but never advertised `_http._tcp`, so the device
+  never appeared to anything browsing for the service.
+- The Wi-Fi QR omitted the auth type, which some scanners will not offer to join.
+- Removed the always-true AP-mode probe and the unused Calibre broadcast port
+  table.
+- `docs/webserver.md`, `docs/webserver-endpoints.md` and `docs/troubleshooting.md`
+  documented `crosspoint.local`, the SSID `CrossPoint-Reader` and a
+  `crosspoint (on …)` discovery reply. The firmware uses `inkpoint.local`,
+  `InkPointX` and `inkpointx (on …)`, so every documented URL and example failed.
+  29 references corrected.
+
+### Verification
+
+- Development and release builds pass. Release uses 91.0 % of the application
+  partition and 32.3 % of RAM.
+- 117 of 117 host tests pass (107 before this pass, plus 10 new encoding tests).
+- Localization validation passes for all 27 locales.
+- `pio check` reports 0 high and 0 medium findings.
+- Not verified on hardware: as with the previous pass, this was validated by
+  build, host tests, static analysis and framebuffer reasoning. The encoding
+  detection in particular is covered by unit tests over generated byte fixtures
+  but has not been exercised against a real mixed collection of .txt files on a
+  device, and the WebDAV, Calibre and KOReader paths have not been run against
+  live servers.
+
+final result: passed
+
 ## Systematic defect pass — design and function — 2026-07-30
 
 A four-part audit (interface layer, reader and settings, network and transfer,

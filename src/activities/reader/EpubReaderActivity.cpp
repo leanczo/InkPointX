@@ -76,8 +76,18 @@ constexpr char READ_FOLDER[] = "/read";
 // True if path is inside READ_FOLDER (starts with "<READ_FOLDER>/"). Non-allocating so
 // it is cheap to call from loop(), and avoids reintroducing a separate "/Read/" literal.
 bool isInReadFolder(const std::string& path) {
-  constexpr size_t n = sizeof(READ_FOLDER) - 1;  // length of "/Read" (excludes NUL)
-  return path.size() > n && path.compare(0, n, READ_FOLDER) == 0 && path[n] == '/';
+  constexpr size_t n = sizeof(READ_FOLDER) - 1;  // length of "/read" (excludes NUL)
+  if (path.size() <= n || path[n] != '/') return false;
+  // FAT is case-insensitive, so a book opened via "/Read/..." lives in the same
+  // directory as one opened via "/read/...". A case-sensitive compare treated the
+  // former as not-yet-moved and produced a " (2)" duplicate on the card.
+  for (size_t i = 0; i < n; i++) {
+    const char expected = READ_FOLDER[i];
+    char actual = path[i];
+    if (actual >= 'A' && actual <= 'Z') actual = static_cast<char>(actual - 'A' + 'a');
+    if (actual != expected) return false;
+  }
+  return true;
 }
 
 struct ProgressRange {
@@ -1616,6 +1626,12 @@ void EpubReaderActivity::addBookmark() {
     entry.computedChapterPageCount = pageCount;
     entry.computedChapterProgress = currentPage;
     cachedBookmarks.insert(cachedBookmarks.begin(), entry);
+    // Bounded like FAVORITE_BOOKS. Each entry carries a text summary, so an
+    // unbounded list grows both the JSON file and the heap for the whole session;
+    // the newest are kept because the list is ordered most-recent-first.
+    if (cachedBookmarks.size() > MAX_BOOKMARKS_PER_BOOK) {
+      cachedBookmarks.resize(MAX_BOOKMARKS_PER_BOOK);
+    }
     bookmarkRemoved = false;
     currentPageBookmarked = true;
   }

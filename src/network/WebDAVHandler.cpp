@@ -335,8 +335,28 @@ void WebDAVHandler::handleGet(WebServer& s) {
   s.setContentLength(file.size());
   s.send(200, contentType.c_str(), "");
 
+  // Chunked with an explicit yield, like the HTTP /download path. A single
+  // whole-file client.write(file) blocked the loop for the length of the
+  // transfer, so copying a large book off the device in Finder or Explorer froze
+  // the UI for tens of seconds and could trip the idle watchdog mid-transfer.
   NetworkClient client = s.client();
-  client.write(file);
+  constexpr size_t chunkSize = 4096;
+  uint8_t buffer[chunkSize];
+  while (file.available()) {
+    const int result = file.read(buffer, chunkSize);
+    if (result <= 0) break;
+    size_t written = 0;
+    const auto bytesRead = static_cast<size_t>(result);
+    while (written < bytesRead) {
+      const size_t wrote = client.write(buffer + written, bytesRead - written);
+      if (wrote == 0) {
+        file.close();
+        return;  // peer went away
+      }
+      written += wrote;
+      yield();
+    }
+  }
   file.close();
 }
 

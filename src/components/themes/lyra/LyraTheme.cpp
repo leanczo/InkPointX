@@ -28,6 +28,13 @@ constexpr int mainMenuIconSize = 24;
 constexpr int listIconSize = 24;
 constexpr int toggleWidth = 30;
 constexpr int toggleHeight = 16;
+// Space kept clear on the right of every list and menu for the scroll indicator,
+// reserved unconditionally so a selection box does not shift when a list grows
+// past one page.
+constexpr int scrollGutterWidth = LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset;
+// Vertical breathing room between a row's bounds and its selection outline.
+// Shared by lists and menu tiles so the selection is the same height on both.
+constexpr int selectionVerticalInset = 4;
 
 const uint8_t* iconForName(UIIcon icon, int size) {
   if (size == 24) {
@@ -234,13 +241,16 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                              LyraMetrics::values.scrollBarWidth / 2, Color::Black);
   }
 
-  const int contentWidth =
-      rect.width -
-      (totalPages > 1 ? (LyraMetrics::values.scrollBarWidth + LyraMetrics::values.scrollBarRightOffset) : 1);
+  // Reserve the scroll gutter whether or not a scrollbar is showing. Sizing it
+  // conditionally moved every selection box 10 px sideways the moment a library
+  // grew past one page, and the old `: 1` fallback also left list selections one
+  // pixel narrower than the menu tiles they sit next to on Home.
+  const int contentWidth = rect.width - scrollGutterWidth;
   if (selectedIndex >= 0) {
     const int selectedY = rect.y + selectedIndex % pageItems * rowHeight;
-    drawSelection(renderer, Rect{rect.x + LyraMetrics::values.contentSidePadding, selectedY + 4,
-                                 contentWidth - LyraMetrics::values.contentSidePadding * 2, rowHeight - 8});
+    drawSelection(renderer, Rect{rect.x + LyraMetrics::values.contentSidePadding, selectedY + selectionVerticalInset,
+                                 contentWidth - LyraMetrics::values.contentSidePadding * 2,
+                                 rowHeight - selectionVerticalInset * 2});
   }
 
   const int rowLeft = rect.x + LyraMetrics::values.contentSidePadding + hPaddingInSelection;
@@ -407,7 +417,9 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
   }
 
   for (int i = 0; i < buttonCount; ++i) {
-    const int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2;
+    // Same right edge and same vertical inset as drawList, so a selection moving
+    // between menu tiles and list rows on one screen does not visibly jog.
+    const int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2 - scrollGutterWidth;
     const Rect tileRect =
         Rect{rect.x + LyraMetrics::values.contentSidePadding,
              rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing), tileWidth,
@@ -416,7 +428,8 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     const bool selected = selectedIndex == i;
 
     if (selected) {
-      drawSelection(renderer, Rect{tileRect.x, tileRect.y + 3, tileRect.width, tileRect.height - 6});
+      drawSelection(renderer, Rect{tileRect.x, tileRect.y + selectionVerticalInset, tileRect.width,
+                                   tileRect.height - selectionVerticalInset * 2});
     }
 
     std::string labelStr = buttonLabel(i);

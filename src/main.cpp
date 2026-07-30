@@ -169,12 +169,17 @@ void applyInterfaceFont() {
   renderer.removeFont(UI_18_FONT_ID);
   if (renderer.getFontCacheManager()) renderer.getFontCacheManager()->clearCache();
 
-  renderer.insertFont(SMALL_FONT_ID, firaGo8FontFamily);
-  renderer.insertFont(UI_10_FONT_ID, firaGo12FontFamily);
-  renderer.insertFont(UI_12_FONT_ID, firaGo14FontFamily);
-  renderer.insertFont(UI_14_FONT_ID, firaGo14FontFamily);
-  renderer.insertFont(UI_16_FONT_ID, firaGo16FontFamily);
-  renderer.insertFont(UI_18_FONT_ID, firaGo18FontFamily);
+  // The UI_nn identifiers are slot names, not pixel sizes — the slots are mapped
+  // one step up the FiraGO scale. docs/inkpoint-x-ui.md defines the intended
+  // scale: 8 px legends, 12 px labels and metadata, 14 px for both primary list
+  // rows and book titles, 16-18 px for screen hierarchy. UI_12 and UI_14 landing
+  // on the same family is therefore deliberate, not an oversight.
+  renderer.insertFont(SMALL_FONT_ID, firaGo8FontFamily);   // 8 px
+  renderer.insertFont(UI_10_FONT_ID, firaGo12FontFamily);  // 12 px
+  renderer.insertFont(UI_12_FONT_ID, firaGo14FontFamily);  // 14 px — list rows
+  renderer.insertFont(UI_14_FONT_ID, firaGo14FontFamily);  // 14 px — book titles
+  renderer.insertFont(UI_16_FONT_ID, firaGo16FontFamily);  // 16 px
+  renderer.insertFont(UI_18_FONT_ID, firaGo18FontFamily);  // 18 px
 }
 
 void silentRestart() {

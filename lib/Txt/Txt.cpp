@@ -1,8 +1,16 @@
 #include "Txt.h"
 
+#include <Fb2Encoding.h>
 #include <FsHelpers.h>
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
+
+#include <algorithm>
+
+namespace {
+// Enough text to judge the high-byte distribution without a large stack buffer.
+constexpr size_t ENCODING_SAMPLE_BYTES = 1024;
+}  // namespace
 
 Txt::Txt(std::string path, std::string cacheBasePath)
     : filepath(std::move(path)), contentPath(filepath), cacheBasePath(std::move(cacheBasePath)) {
@@ -36,12 +44,24 @@ bool Txt::load() {
   }
 
   fileSize = file.size();
+
+  // Sample the head of the file to guess the encoding. Plain text carries no
+  // declaration, and the reader previously fed raw bytes straight to the glyph
+  // renderer — so a CP1251 or KOI8-R book displayed as a wall of replacement
+  // characters, and a UTF-8 BOM showed as a stray glyph on page one.
+  char sample[ENCODING_SAMPLE_BYTES];
+  const size_t sampleLength = file.read(sample, std::min(sizeof(sample), fileSize));
+  encoding = Fb2Encoding::detect(sample, sampleLength);
+  contentStart = Fb2Encoding::bomLength(sample, sampleLength);
   file.close();
 
   loaded = true;
-  LOG_DBG("TXT", "Loaded TXT file: %s (%zu bytes)", filepath.c_str(), fileSize);
+  LOG_DBG("TXT", "Loaded TXT file: %s (%zu bytes, encoding %s%s)", filepath.c_str(), fileSize, encoding,
+          contentStart > 0 ? ", BOM" : "");
   return true;
 }
+
+const char* Txt::getEncoding() const { return encoding ? encoding : Fb2Encoding::UTF8; }
 
 std::string Txt::getTitle() const {
   if (!title.empty()) {

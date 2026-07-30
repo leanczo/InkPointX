@@ -544,6 +544,24 @@ void BaseTheme::drawDivider(const GfxRenderer& renderer, const int x1, const int
   renderer.drawLine(x1, y, x2, y, 1, true);
 }
 
+void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, const char* message) const {
+  if (!message || message[0] == '\0' || content.height <= 0) return;
+  const int maxWidth = std::max(0, content.width - BaseMetrics::values.contentSidePadding * 2);
+  const auto lines = renderer.wrappedText(UI_10_FONT_ID, message, maxWidth, 3);
+  if (lines.empty()) return;
+
+  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int blockHeight = static_cast<int>(lines.size()) * lineHeight;
+  // Sit slightly above the middle: a block centred exactly reads as low on a tall
+  // portrait panel with a header above it.
+  int lineY = content.y + std::max(0, (content.height - blockHeight) * 2 / 5);
+  for (const auto& line : lines) {
+    const int lineWidth = renderer.getTextWidth(UI_10_FONT_ID, line.c_str());
+    renderer.drawText(UI_10_FONT_ID, content.x + (content.width - lineWidth) / 2, lineY, line.c_str());
+    lineY += lineHeight;
+  }
+}
+
 Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int marginX = metrics.popupMarginX;

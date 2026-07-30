@@ -80,7 +80,10 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
                  tr(STR_SELECT_CHAPTER));
 
   const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.height - contentTop - metrics.verticalSpacing;
+  // Measure from the safe area's bottom edge: contentTop already includes
+  // screen.y, so subtracting it from screen.height dropped rows in
+  // Portrait-Inverted, where screen.y is non-zero.
+  const int contentHeight = (screen.y + screen.height) - contentTop - metrics.verticalSpacing;
 
   const int totalItems = getTotalItems();
   GUI.drawList(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, totalItems, selectorIndex,

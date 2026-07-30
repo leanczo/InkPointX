@@ -243,6 +243,10 @@ class BaseTheme {
   // need a rule outside a list (e.g. the file browser's path bar) must use this
   // instead of drawing their own line, so weight and inset stay consistent.
   virtual void drawDivider(const GfxRenderer& renderer, int x1, int x2, int y) const;
+  // The shared "nothing here" treatment for an empty list: centred in the content
+  // rect and direction-aware, rather than each screen hard-left-aligning its own
+  // message at an unexplained offset.
+  virtual void drawEmptyState(const GfxRenderer& renderer, Rect content, const char* message) const;
 
   // Shared constants and helpers for battery drawing (used by all themes)
   static constexpr int batteryPercentSpacing = 4;

@@ -126,7 +126,7 @@ void GalleryActivity::render(RenderLock&&) {
       std::max(0, UITheme::getListContentBottom(renderer, !images.empty()) - contentTop);
 
   if (images.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_IMAGES));
+    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_IMAGES));
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(images.size()),

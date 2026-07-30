@@ -17,6 +17,9 @@ class BmpViewerActivity final : public Activity {
 
  private:
   void loadSiblingImages();
+  // Paint the currently selected file. Separate from onEnter() so navigating
+  // between siblings does not re-run the activity's entry bookkeeping.
+  void showCurrentImage();
   void doSetSleepCover();
   bool prepareDisplayImage();
 

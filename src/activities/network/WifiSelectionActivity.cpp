@@ -193,10 +193,22 @@ void WifiSelectionActivity::selectNetwork(const int index) {
                            [this](const ActivityResult& result) {
                              if (result.isCancelled) {
                                state = WifiSelectionState::NETWORK_LIST;
-                             } else {
-                               enteredPassword = std::get<KeyboardResult>(result.data).text;
-                               // state will be updated in next loop iteration
+                               return;
                              }
+                             enteredPassword = std::get<KeyboardResult>(result.data).text;
+                             // An empty key on a secured network fell through to
+                             // WiFi.begin(ssid) with no key at all. The driver
+                             // rarely reports WL_CONNECT_FAILED for that, so the
+                             // user waited out the whole connection timeout to be
+                             // told only that it failed. No length rule beyond
+                             // this: WEP keys are legitimately 5 or 13 characters.
+                             if (enteredPassword.empty()) {
+                               connectionError = tr(STR_ENTER_WIFI_PASSWORD);
+                               state = WifiSelectionState::NETWORK_LIST;
+                               requestUpdate();
+                               return;
+                             }
+                             // state will be updated in next loop iteration
                            });
   } else {
     // Connect directly for open networks

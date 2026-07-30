@@ -66,6 +66,9 @@ class EpubReaderActivity final : public Activity {
     int pageNumber;
   };
   static constexpr int MAX_FOOTNOTE_DEPTH = 3;
+  // Matches FavoriteBooksStore's cap. Each bookmark stores a text summary, so an
+  // unbounded list grows the JSON file and the session heap without limit.
+  static constexpr size_t MAX_BOOKMARKS_PER_BOOK = 64;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
 
