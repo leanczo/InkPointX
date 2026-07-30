@@ -2,6 +2,60 @@
 
 final result: passed
 
+## Physical device verification — 2026-07-30
+
+The two defect passes below were previously validated only by build, host tests
+and static analysis. This closes that gap for the interface changes.
+
+### What was flashed
+
+- `pio run -e gh_release` output, 5,974,896 bytes, SHA-256
+  `5517d1814384ab9d39a54f82ae69fb421ab6b4184d2516029bfe080233518a4a`.
+- Written to the connected XTEINK X4 at offset `0x10000` over USB. Chip reported
+  ESP32-C3 (QFN32) rev v0.4, MAC `8c:bf:ea:37:c4:d0` — the unit recorded in
+  `X4_WORKFLOW_RU.md`, checked before writing. esptool verified the written hash.
+- The debug (`default`) build was flashed temporarily to reach the screens below,
+  because the `PROFILE_*` serial routes are compiled out at `LOG_LEVEL=1`. The
+  release build was flashed back afterwards and is what the device now runs.
+
+### Evidence, captured from the device's own framebuffer
+
+- `docs/qa/device-flash-2026-07-30/01-release-home.png` — release build, Now
+  Reading with real book data.
+- `02-books-favorite-star.png` — Books.
+- `03-gallery-footer-clearance.png` — Gallery.
+- `04-files-hairline-path-bar.png` — Files.
+- `05-settings-interface.png` — Interface settings.
+
+### Findings
+
+- Boot reaches Now Reading with the real cover, title, author, `48% · 730 / 1507`,
+  reading time and the primary action. Free heap settles at ~135 KB with no panic
+  and no reboot loop.
+- The favourite marker now renders. The selected Books row shows the format value
+  followed by the outlined star accessory; before this pass the U+2605 star had no
+  glyph in FiraGO and nothing was drawn at all.
+- Gallery fits eight rows with the `1 / 8` counter clearly below the last one. The
+  card in this unit holds exactly eight images, so the original nine-row collision
+  could not be reproduced directly — what the capture confirms is that the shared
+  reserve leaves the counter its own band.
+- The Files path bar is the light inset hairline, not the former 3 px
+  edge-to-edge rule.
+- Selections clear the scroll gutter on both a scrolling list (Books, 40 items,
+  scrollbar visible) and a short one (Interface, 7 items, no scrollbar), which is
+  the point of reserving it unconditionally. Short lists are 11 px narrower than
+  before as a result; this is the intended trade.
+
+### Still not verified on hardware
+
+- Plain-text encoding detection. The logic is covered by host tests over generated
+  CP1251, KOI8-R, CP1252, UTF-8 and BOM fixtures, but exercising the on-device
+  path needs a legacy-encoded `.txt` on the card, which cannot be placed over the
+  USB serial link.
+- WebDAV, Calibre, OPDS, KOReader sync and OTA, which need live servers and
+  on-device button presses.
+- Outdoor contrast and panel retention across hundreds of differential refreshes.
+
 ## Second defect pass — remaining audit findings — 2026-07-30
 
 Continues the pass below, working through the audit findings that were left after
