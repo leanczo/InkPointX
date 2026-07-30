@@ -21,13 +21,15 @@
 // Internal constants
 namespace {
 constexpr int hPaddingInSelection = 10;
-constexpr int cornerRadius = 12;
+constexpr int cornerRadius = 14;
 constexpr int topHintButtonY = 345;
 constexpr int maxListValueWidth = 200;
-constexpr int mainMenuIconSize = 24;
-constexpr int listIconSize = 24;
-constexpr int toggleWidth = 30;
-constexpr int toggleHeight = 16;
+constexpr int mainMenuIconSize = 32;
+constexpr int listIconSize = 32;
+// Row accessories (chevron, check, star) scale with the type.
+constexpr int accessoryIconSize = 24;
+constexpr int toggleWidth = 36;
+constexpr int toggleHeight = 20;
 // Space kept clear on the right of every list and menu for the scroll indicator,
 // reserved unconditionally so a selection box does not shift when a list grows
 // past one page.
@@ -37,51 +39,51 @@ constexpr int scrollGutterWidth = LyraMetrics::values.scrollBarWidth + LyraMetri
 constexpr int selectionVerticalInset = 4;
 
 const uint8_t* iconForName(UIIcon icon, int size) {
-  if (size == 24) {
+  if (size == mainMenuIconSize) {
     switch (icon) {
       case UIIcon::Folder:
-        return LucideFolder24;
+        return LucideFolder32;
       case UIIcon::Text:
       case UIIcon::File:
-        return LucideFileText24;
+        return LucideFileText32;
       case UIIcon::Image:
-        return LucideImage24;
+        return LucideImage32;
       case UIIcon::Book:
-        return LucideBookOpen24;
+        return LucideBookOpen32;
       case UIIcon::Recent:
       case UIIcon::Clock:
-        return LucideClock24;
+        return LucideClock32;
       case UIIcon::Settings:
-        return LucideSettings24;
+        return LucideSettings32;
       case UIIcon::Transfer:
-        return LucideSend24;
+        return LucideSend32;
       case UIIcon::Library:
-        return LucideLibrary24;
+        return LucideLibrary32;
       case UIIcon::Wifi:
-        return LucideWifi24;
+        return LucideWifi32;
       case UIIcon::Hotspot:
-        return LucideHotspot24;
+        return LucideHotspot32;
       case UIIcon::Bookmark:
-        return LucideBookmark24;
+        return LucideBookmark32;
       // A star, matching the marker drawn on a favourited row. A bookmark glyph
       // here meant one concept was shown with two different symbols: a bookmark
       // reads as "saved position", which is a different feature.
       case UIIcon::Favorite:
-        return LucideStar24;
+        return LucideStar32;
       case UIIcon::Interface:
-        return LucideInterface24;
+        return LucideInterface32;
       case UIIcon::Power:
-        return LucidePower24;
+        return LucidePower32;
       case UIIcon::Reading:
-        return LucideReading24;
+        return LucideReading32;
       case UIIcon::Controls:
-        return LucideControls24;
+        return LucideControls32;
       case UIIcon::Files:
-        return LucideFiles24;
+        return LucideFiles32;
       case UIIcon::NetworkSync:
-        return LucideNetwork24;
+        return LucideNetwork32;
       case UIIcon::System:
-        return LucideSystem24;
+        return LucideSystem32;
       default:
         return nullptr;
     }
@@ -94,19 +96,19 @@ void drawHairline(const GfxRenderer& renderer, int x1, int x2, int y) {
 }
 
 int accessoryWidth(const UIAccessory accessory) {
-  return accessory == UIAccessory::ToggleOff || accessory == UIAccessory::ToggleOn ? toggleWidth : 16;
+  return accessory == UIAccessory::ToggleOff || accessory == UIAccessory::ToggleOn ? toggleWidth : accessoryIconSize;
 }
 
 void drawAccessory(const GfxRenderer& renderer, const UIAccessory accessory, const int x, const int y, bool rtl) {
   switch (accessory) {
     case UIAccessory::Chevron:
-      renderer.drawIcon(rtl ? LucideChevronLeft16 : LucideChevronRight16, x, y, 16, 16);
+      renderer.drawIcon(rtl ? LucideChevronLeft24 : LucideChevronRight24, x, y, accessoryIconSize, accessoryIconSize);
       break;
     case UIAccessory::Check:
-      renderer.drawIcon(LucideCheck16, x, y, 16, 16);
+      renderer.drawIcon(LucideCheck24, x, y, accessoryIconSize, accessoryIconSize);
       break;
     case UIAccessory::Favorite:
-      renderer.drawIcon(LucideStar16, x, y, 16, 16);
+      renderer.drawIcon(LucideStar24, x, y, accessoryIconSize, accessoryIconSize);
       break;
     case UIAccessory::ToggleOff:
     case UIAccessory::ToggleOn: {
@@ -147,8 +149,14 @@ void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   int secondaryWidth = 0;
   if (subtitle) {
     if (auto* cache = renderer.getFontCacheManager()) cache->warmGlyphCache(SMALL_FONT_ID, subtitle);
-    const auto secondary =
-        renderer.truncatedText(SMALL_FONT_ID, subtitle, std::max(0, (contentRight - contentLeft) / 2));
+    // Give the value whatever the title does not need, rather than a fixed half.
+    // A short title ("Books") next to a long value ("Sorting: Recently opened")
+    // otherwise truncated the value to nothing but its own label, which is the one
+    // part the user already knows.
+    const int available = std::max(0, contentRight - contentLeft);
+    const int titleNeeds = title ? renderer.getTextWidth(HEADER_FONT_ID, title, EpdFontFamily::BOLD) : 0;
+    const int secondaryBudget = std::max(available / 2, available - titleNeeds - hPaddingInSelection);
+    const auto secondary = renderer.truncatedText(SMALL_FONT_ID, subtitle, std::min(available, secondaryBudget));
     secondaryWidth = renderer.getTextWidth(SMALL_FONT_ID, secondary.c_str());
     const int secondaryX = rtl ? contentLeft : contentRight - secondaryWidth;
     renderer.drawText(SMALL_FONT_ID, secondaryX, rect.y + titleTop + 5, secondary.c_str());
@@ -270,7 +278,7 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     const bool rowRtl = BidiUtils::startsWithRtl(itemName.c_str());
     const UIAccessory accessory = rowAccessory ? rowAccessory(i) : UIAccessory::None;
     const int accessoryW = accessory == UIAccessory::None ? 0 : accessoryWidth(accessory);
-    const int accessoryH = accessory == UIAccessory::None ? 0 : 16;
+    const int accessoryH = accessory == UIAccessory::None ? 0 : accessoryIconSize;
     const int accessorySpace = accessory == UIAccessory::None ? 0 : accessoryW + hPaddingInSelection;
 
     const int iconX = rowRtl ? rowRight - iconSize : rowLeft;
@@ -298,8 +306,13 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     const auto item = renderer.truncatedText(titleFontId, itemName.c_str(), rowTextWidth, titleStyle);
     const int itemWidth = renderer.getTextWidth(titleFontId, item.c_str(), titleStyle);
     const int titleX = rowRtl ? textLaneRight - itemWidth : textLaneLeft;
+    // Anchor the title to the top only when this row actually has a subtitle under
+    // it. Keying off the callback instead meant a book with no author kept the
+    // top-anchored title and an empty band below it, which read as a gap in the
+    // rhythm rather than as a row with less to say.
+    const bool rowHasSubtitle = rowSubtitle && !rowSubtitle(i).empty();
     const int titleY =
-        rowSubtitle ? itemY + 8 : itemY + std::max(0, (rowHeight - titleLineHeight) / 2);
+        rowHasSubtitle ? itemY + 8 : itemY + std::max(0, (rowHeight - titleLineHeight) / 2);
     renderer.drawText(titleFontId, titleX, titleY, item.c_str(), true,
                       i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
@@ -471,7 +484,8 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     const int textX = rtl ? textRight - labelWidth : textLeft;
     renderer.drawText(UI_12_FONT_ID, textX, textY, truncated.c_str(), true,
                       selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    drawAccessory(renderer, UIAccessory::Chevron, accessoryX, tileRect.y + (tileRect.height - 16) / 2, rtl);
+    drawAccessory(renderer, UIAccessory::Chevron, accessoryX,
+                  tileRect.y + (tileRect.height - accessoryIconSize) / 2, rtl);
 
     const bool nextSelected = i + 1 == selectedIndex;
     if (!selected && !nextSelected && i + 1 < buttonCount) {

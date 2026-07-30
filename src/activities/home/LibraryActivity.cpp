@@ -253,7 +253,10 @@ void LibraryActivity::render(RenderLock&&) {
   const char* title = mode == Mode::Favorites ? tr(STR_FAVORITES) : tr(STR_BOOKS);
 
   std::string sortValue;
-  if (mode == Mode::AllBooks) sortValue = std::string(tr(STR_SORT_PREFIX)) + sortModeLabel();
+  // The mode name alone. At the larger type scale "Sorting: Recently opened" plus
+  // the screen title plus the battery does not fit 480 px, and the prefix is the
+  // half the user already knows -- it was the value that got truncated away.
+  if (mode == Mode::AllBooks) sortValue = sortModeLabel();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title,
                  sortValue.empty() ? nullptr : sortValue.c_str());
 

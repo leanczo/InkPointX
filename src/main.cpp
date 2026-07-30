@@ -123,11 +123,12 @@ EpdFontFamily firaGo14FontFamily(&firaGo14MediumFont, &firaGo14SemiBoldFont);
 EpdFont firaGo16MediumFont(&firago_16_medium);
 EpdFont firaGo16SemiBoldFont(&firago_16_semibold);
 EpdFontFamily firaGo16FontFamily(&firaGo16MediumFont, &firaGo16SemiBoldFont);
-EpdFontFamily firaGoHeaderFontFamily(&firaGo16SemiBoldFont);
 
 EpdFont firaGo18MediumFont(&firago_18_medium);
 EpdFont firaGo18SemiBoldFont(&firago_18_semibold);
 EpdFontFamily firaGo18FontFamily(&firaGo18MediumFont, &firaGo18SemiBoldFont);
+// Screen headings sit at the top of the scale.
+EpdFontFamily firaGoHeaderFontFamily(&firaGo18SemiBoldFont);
 
 EpdFont firaGoWordmarkFont(&firago_wordmark_36_semibold);
 EpdFontFamily firaGoWordmarkFontFamily(&firaGoWordmarkFont, &firaGoWordmarkFont);
@@ -161,6 +162,7 @@ void drawSystemFrameOverlay(const GfxRenderer& target) {
 }
 
 void applyInterfaceFont() {
+  renderer.removeFont(MICRO_FONT_ID);
   renderer.removeFont(SMALL_FONT_ID);
   renderer.removeFont(UI_10_FONT_ID);
   renderer.removeFont(UI_12_FONT_ID);
@@ -169,16 +171,21 @@ void applyInterfaceFont() {
   renderer.removeFont(UI_18_FONT_ID);
   if (renderer.getFontCacheManager()) renderer.getFontCacheManager()->clearCache();
 
-  // The UI_nn identifiers are slot names, not pixel sizes — the slots are mapped
-  // one step up the FiraGO scale. docs/inkpoint-x-ui.md defines the intended
-  // scale: 8 px legends, 12 px labels and metadata, 14 px for both primary list
-  // rows and book titles, 16-18 px for screen hierarchy. UI_12 and UI_14 landing
-  // on the same family is therefore deliberate, not an oversight.
-  renderer.insertFont(SMALL_FONT_ID, firaGo8FontFamily);   // 8 px
-  renderer.insertFont(UI_10_FONT_ID, firaGo12FontFamily);  // 12 px
-  renderer.insertFont(UI_12_FONT_ID, firaGo14FontFamily);  // 14 px — list rows
-  renderer.insertFont(UI_14_FONT_ID, firaGo14FontFamily);  // 14 px — book titles
-  renderer.insertFont(UI_16_FONT_ID, firaGo16FontFamily);  // 16 px
+  // The UI_nn identifiers are slot names, not pixel sizes. The whole scale sits one
+  // step higher than the slot names suggest, so the interface reads comfortably at
+  // arm's length on a 480 x 800 panel rather than merely fitting on it. Row heights,
+  // the header, the legend bar and the footer counter are sized from these line
+  // heights in LyraMetrics, so the two move together.
+  //
+  // MICRO exists for one job: the keyboard's secondary key labels. That grid is
+  // structurally dense (10 columns of single characters) and does not benefit from
+  // larger type, so it keeps the size the rest of the interface has outgrown.
+  renderer.insertFont(MICRO_FONT_ID, firaGo8FontFamily);   // 8 px  — keyboard only
+  renderer.insertFont(SMALL_FONT_ID, firaGo12FontFamily);  // 12 px — legends, captions
+  renderer.insertFont(UI_10_FONT_ID, firaGo14FontFamily);  // 14 px — labels, values
+  renderer.insertFont(UI_12_FONT_ID, firaGo16FontFamily);  // 16 px — list row titles
+  renderer.insertFont(UI_14_FONT_ID, firaGo18FontFamily);  // 18 px — book titles
+  renderer.insertFont(UI_16_FONT_ID, firaGo18FontFamily);  // 18 px
   renderer.insertFont(UI_18_FONT_ID, firaGo18FontFamily);  // 18 px
 }
 
@@ -302,7 +309,7 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
 #endif  // OMIT_FONTS
   applyInterfaceFont();
-  renderer.insertFont(HEADER_FONT_ID, firaGoHeaderFontFamily);
+  renderer.insertFont(HEADER_FONT_ID, firaGoHeaderFontFamily);  // 18 px semibold
   renderer.insertFont(WORDMARK_FONT_ID, firaGoWordmarkFontFamily);
 
   // Discover and load SD card fonts

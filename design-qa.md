@@ -2,6 +2,92 @@
 
 final result: passed
 
+## Interface scale increase — 2026-07-30
+
+Requested: a larger interface and larger text. The whole UI type scale moves one
+step up the FiraGO ladder, and every piece of geometry that was sized from a line
+height moves with it, so the result is a bigger interface rather than bigger text
+in boxes built for smaller text.
+
+### Type
+
+| Slot | Was | Now | Used for |
+|---|---|---|---|
+| `MICRO` | — | 8 px | keyboard secondary key labels only |
+| `SMALL` | 8 px | 12 px | legends, captions, footer counter, path bar |
+| `UI_10` | 12 px | 14 px | labels, values, metadata |
+| `UI_12` | 14 px | 16 px | list row titles |
+| `UI_14` | 14 px | 18 px | book titles |
+| `HEADER` | 16 px | 18 px semibold | screen titles |
+
+No new font subsets were generated, so this costs no flash: the scale shifts
+within the sizes already built. `MICRO` is a new slot pointing at the 8 px subset
+that the rest of the interface has outgrown.
+
+The book text default also moves one step, from `MEDIUM` to `LARGE`.
+
+### Geometry moved with the type
+
+Header 60 → 68, list row 54 → 62, subtitle row 76 → 86, menu row 58 → 66,
+sub-header 42 → 50, legend bar 32 → 44 (pill 24 → 34), footer counter clearance
+24 → 36, reader status bar margin 19 → 26. Icons 24 → 32, row accessories
+16 → 24, toggles 30×16 → 36×20. Home's fixed offsets follow.
+
+A list page now holds 7 subtitle rows instead of 8, and 10 single-line rows
+instead of 12. That is the trade the request asks for.
+
+### Deliberately left at the old size
+
+The keyboard. Its grid is 10 columns of single characters — structurally dense,
+with no room to grow and nothing to gain from larger type. Key labels are pinned
+one slot below the shifted scale and secondary labels to `MICRO`, so the keyboard
+renders exactly as it did before while everything around it grew.
+
+### Defects found on the device and fixed
+
+These were caught by flashing and reading the framebuffer, not by inspection.
+
+- **Icons rendered as noise at 28 px.** `EInkDisplay::drawImageTransparent`
+  derives its source stride as `width / 8` with integer division, so a 28 px row
+  is read as 3 bytes while the generator packs 4, and every row desynchronises.
+  Icon dimensions must be multiples of 8 — the old 24 and 16 both were, which is
+  why this had never surfaced. Settled on 32 px icons and 24 px accessories, and
+  the generator now states the constraint.
+- **The button legend truncated its labels.** "« Главная" no longer fits a legend
+  section at 12 px. A legend that names the buttons is worse truncated than small,
+  so it now measures its labels and drops the whole legend to `MICRO` when any one
+  would not fit — never a mix, which would read as an accident.
+- **The screen header crowded out its value.** The subtitle was given a fixed half
+  of the header, so a short title next to a long value ("Books" / "Sorting:
+  Recently opened") truncated the value down to its own label. It now gets
+  whatever the title does not need. The Books screen also drops the "Sorting: "
+  prefix and shows the mode alone, since the prefix was the half the user already
+  knew.
+- **Rows without an author looked like gaps.** The title was top-anchored whenever
+  the list *could* have subtitles, so a book with no author left an empty band
+  below it. The title is now centred when that particular row has no subtitle.
+
+### Evidence and verification
+
+- `docs/qa/scale-2026-07-30/` — Books, the settings hub, Files and the release
+  Home screen, all read from the device's framebuffer at the new scale, plus the
+  intermediate capture showing the garbled 28 px icons that led to the stride
+  finding.
+- Development and release builds pass; release uses 91.0 % of the application
+  partition and 32.3 % of RAM, unchanged, because no new font data was added.
+- 117/117 host tests pass, localization validation passes for 27 locales,
+  `pio check` reports no high or medium findings.
+
+### Note on the two typography defaults
+
+`hyphenationEnabled` and `fontSize` are both persisted settings. A device that
+already has `/.crosspoint/settings.json` keeps its stored values, so the new
+defaults apply to a fresh install or after a settings reset — not to an existing
+device on upgrade. On an upgraded device they are two switches in
+Settings → Reading.
+
+final result: passed
+
 ## UX pass — learnability and defaults — 2026-07-30
 
 The previous passes fixed defects. This one addresses findings from a review of

@@ -30,7 +30,7 @@ constexpr int bookmarkStatusIconGap = 4;
 constexpr int bookmarkStatusIconTopCrop = 2;
 constexpr int buttonHintSideMargin = 20;
 constexpr int buttonHintGroupGap = 12;
-constexpr int buttonHintHeight = 24;
+constexpr int buttonHintHeight = 34;
 constexpr int buttonHintBottomMargin = 7;
 constexpr int buttonHintCornerRadius = buttonHintHeight / 2;
 constexpr int selectionCornerRadius = 12;
@@ -214,6 +214,22 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   // The X4 has two long physical rockers, each split into two independently
   // clickable sections. Reproduce that silhouette on-screen so the label-to-
   // hardware mapping is readable at a glance.
+  // The legend names what each button does, so a truncated label is worse than a
+  // smaller one. Use the normal caption size when every label fits, and drop the
+  // whole legend to the micro size only when one would not -- never a mix, which
+  // would read as an accident.
+  int hintFontId = SMALL_FONT_ID;
+  {
+    const int sectionTextWidth = buttonHintSectionRect(buttonHintGroupRect(renderer, 0), 0).width - 6;
+    for (const char* label : labels) {
+      if (!label || label[0] == '\0') continue;
+      if (renderer.getTextWidth(SMALL_FONT_ID, label, EpdFontFamily::REGULAR) > sectionTextWidth) {
+        hintFontId = MICRO_FONT_ID;
+        break;
+      }
+    }
+  }
+
   for (int groupIndex = 0; groupIndex < 2; ++groupIndex) {
     const Rect group = buttonHintGroupRect(renderer, groupIndex);
     renderer.fillRect(group.x, group.y, group.width, group.height, false);
@@ -231,12 +247,11 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       }
 
       if (labels[physicalButtonIndex] && labels[physicalButtonIndex][0] != '\0') {
-        const auto label =
-            renderer.truncatedText(SMALL_FONT_ID, labels[physicalButtonIndex], section.width - 6,
-                                   EpdFontFamily::REGULAR);
-        const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, label.c_str(), EpdFontFamily::REGULAR);
-        const int textY = section.y + std::max(1, (section.height - renderer.getLineHeight(SMALL_FONT_ID)) / 2);
-        renderer.drawText(SMALL_FONT_ID, section.x + (section.width - textWidth) / 2, textY, label.c_str(), true,
+        const auto label = renderer.truncatedText(hintFontId, labels[physicalButtonIndex], section.width - 6,
+                                                  EpdFontFamily::REGULAR);
+        const int textWidth = renderer.getTextWidth(hintFontId, label.c_str(), EpdFontFamily::REGULAR);
+        const int textY = section.y + std::max(1, (section.height - renderer.getLineHeight(hintFontId)) / 2);
+        renderer.drawText(hintFontId, section.x + (section.width - textWidth) / 2, textY, label.c_str(), true,
                           EpdFontFamily::REGULAR);
       }
     }
@@ -858,15 +873,18 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
   }
 
   const bool hasSecondary = secondaryLabel != nullptr && secondaryLabel[0] != '\0';
-  const int itemWidth = renderer.getTextWidth(UI_12_FONT_ID, label);
+  // Pinned one slot below the shifted scale, and the secondary label to MICRO: a
+  // 10-column grid of single characters gains nothing from larger type and has no
+  // room for it.
+  const int itemWidth = renderer.getTextWidth(UI_10_FONT_ID, label);
   const int textX = rect.x + (rect.width - itemWidth) / 2;
-  const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
+  const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
 
-  renderer.drawText(UI_12_FONT_ID, textX, textY, label, true);
+  renderer.drawText(UI_10_FONT_ID, textX, textY, label, true);
 
   if (hasSecondary) {
-    const int secWidth = renderer.getTextWidth(SMALL_FONT_ID, secondaryLabel);
-    renderer.drawText(SMALL_FONT_ID, rect.x + rect.width - secWidth - metrics.keyboardSecondaryLabelRightPadding,
+    const int secWidth = renderer.getTextWidth(MICRO_FONT_ID, secondaryLabel);
+    renderer.drawText(MICRO_FONT_ID, rect.x + rect.width - secWidth - metrics.keyboardSecondaryLabelRightPadding,
                       rect.y + metrics.keyboardSecondaryLabelTopPadding, secondaryLabel, true);
   }
 }

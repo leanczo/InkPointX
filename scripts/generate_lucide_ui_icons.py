@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Generate 1-bit firmware icons from a pinned Lucide release."""
+"""Generate 1-bit firmware icons from a pinned Lucide release.
+
+Sizes must be multiples of 8: EInkDisplay::drawImageTransparent derives the source
+stride as width / 8 with integer division, so any other width desynchronises the
+rows and renders noise.
+"""
 
 from __future__ import annotations
 
@@ -15,29 +20,29 @@ from PIL import Image
 
 LUCIDE_VERSION = "1.27.0"
 ICONS = (
-    ("LucideBookOpen24", "book-open", 24),
-    ("LucideFolder24", "folder", 24),
-    ("LucideImage24", "image", 24),
-    ("LucideBookmark24", "bookmark", 24),
+    ("LucideBookOpen32", "book-open", 32),
+    ("LucideFolder32", "folder", 32),
+    ("LucideImage32", "image", 32),
+    ("LucideBookmark32", "bookmark", 32),
+    ("LucideStar32", "star", 32),
+    ("LucideWifi32", "wifi", 32),
+    ("LucideLibrary32", "library-big", 32),
+    ("LucideHotspot32", "radio-tower", 32),
+    ("LucideInterface32", "sliders-horizontal", 32),
+    ("LucidePower32", "battery-charging", 32),
+    ("LucideReading32", "book-open-text", 32),
+    ("LucideControls32", "toggle-left", 32),
+    ("LucideFiles32", "folder-open", 32),
+    ("LucideNetwork32", "refresh-cw", 32),
+    ("LucideSystem32", "info", 32),
+    ("LucideFileText32", "file-text", 32),
+    ("LucideClock32", "clock", 32),
+    ("LucideSend32", "send", 32),
+    ("LucideSettings32", "settings", 32),
+    ("LucideChevronLeft24", "chevron-left", 24),
+    ("LucideChevronRight24", "chevron-right", 24),
+    ("LucideCheck24", "check", 24),
     ("LucideStar24", "star", 24),
-    ("LucideWifi24", "wifi", 24),
-    ("LucideLibrary24", "library-big", 24),
-    ("LucideHotspot24", "radio-tower", 24),
-    ("LucideInterface24", "sliders-horizontal", 24),
-    ("LucidePower24", "battery-charging", 24),
-    ("LucideReading24", "book-open-text", 24),
-    ("LucideControls24", "toggle-left", 24),
-    ("LucideFiles24", "folder-open", 24),
-    ("LucideNetwork24", "refresh-cw", 24),
-    ("LucideSystem24", "info", 24),
-    ("LucideFileText24", "file-text", 24),
-    ("LucideClock24", "clock", 24),
-    ("LucideSend24", "send", 24),
-    ("LucideSettings24", "settings", 24),
-    ("LucideChevronLeft16", "chevron-left", 16),
-    ("LucideChevronRight16", "chevron-right", 16),
-    ("LucideCheck16", "check", 16),
-    ("LucideStar16", "star", 16),
 )
 
 

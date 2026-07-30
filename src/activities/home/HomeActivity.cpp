@@ -28,7 +28,7 @@
 
 namespace {
 constexpr int HOME_CONTENT_MARGIN = 18;
-constexpr int HOME_COVER_TOP = 78;
+constexpr int HOME_COVER_TOP = 88;
 constexpr int HOME_COVER_SOURCE_HEIGHT = 402;
 constexpr int HOME_COVER_MAX_WIDTH = 280;
 constexpr int HOME_COVER_MIN_HEIGHT = 160;
@@ -41,8 +41,8 @@ constexpr int HOME_PROGRESS_BAR_THICKNESS = 2;
 constexpr int HOME_PROGRESS_TO_TIME_GAP = 11;
 constexpr int HOME_TIME_TO_ACTION_GAP = 12;
 constexpr int HOME_ACTION_SIDE_MARGIN = 20;
-constexpr int HOME_CONTINUE_HEIGHT = 56;
-constexpr int HOME_DOTS_TOP_OFFSET = 42;
+constexpr int HOME_CONTINUE_HEIGHT = 66;
+constexpr int HOME_DOTS_TOP_OFFSET = 50;
 constexpr int HOME_DOTS_CLEARANCE = 22;
 constexpr int HOME_ACTION_EDGE_PADDING = 18;
 constexpr int HOME_ACTION_ICON_GAP = 12;
@@ -50,8 +50,8 @@ constexpr int HOME_ACTION_ICON_GAP = 12;
 void drawHomeActionRow(const GfxRenderer& renderer, const Rect rect, const char* label) {
   GUI.drawSelection(renderer, rect);
 
-  constexpr int leadingIconSize = 24;
-  constexpr int accessorySize = 16;
+  constexpr int leadingIconSize = 32;
+  constexpr int accessorySize = 24;
   const bool rtl = BidiUtils::startsWithRtl(label);
   const int centerY = rect.y + rect.height / 2;
   const int leadingIconX =
@@ -67,9 +67,9 @@ void drawHomeActionRow(const GfxRenderer& renderer, const Rect rect, const char*
   const int textX = rtl ? textRight - renderedTextWidth : textLeft;
   const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
 
-  renderer.drawIcon(LucideBookOpen24, leadingIconX, centerY - leadingIconSize / 2, leadingIconSize, leadingIconSize);
+  renderer.drawIcon(LucideBookOpen32, leadingIconX, centerY - leadingIconSize / 2, leadingIconSize, leadingIconSize);
   renderer.drawText(UI_10_FONT_ID, textX, textY, text.c_str(), true, EpdFontFamily::BOLD);
-  renderer.drawIcon(rtl ? LucideChevronLeft16 : LucideChevronRight16, accessoryX, centerY - accessorySize / 2,
+  renderer.drawIcon(rtl ? LucideChevronLeft24 : LucideChevronRight24, accessoryX, centerY - accessorySize / 2,
                     accessorySize, accessorySize);
 }
 
@@ -422,7 +422,7 @@ void HomeActivity::render(RenderLock&&) {
     }
 
     if (!coverDrawn) {
-      renderer.drawIcon(LucideBookOpen24, pageWidth / 2 - 12, HOME_COVER_TOP + coverSlotHeight / 2 - 12, 24, 24);
+      renderer.drawIcon(LucideBookOpen32, pageWidth / 2 - 12, HOME_COVER_TOP + coverSlotHeight / 2 - 12, 24, 24);
     }
 
     const int titleTop = HOME_COVER_TOP + coverSlotHeight + HOME_COVER_TO_TITLE_GAP;

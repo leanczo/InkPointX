@@ -198,7 +198,7 @@ class BaseTheme {
   // Distance from the top of the button legend up to the "n / m" footer
   // counter's first row. Screens that draw the counter must keep list content
   // above this band — see UITheme::getListContentBottom.
-  static constexpr int footerCounterTopOffset = 24;
+  static constexpr int footerCounterTopOffset = 36;
 
   // Component drawing methods
   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
