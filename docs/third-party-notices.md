@@ -21,16 +21,37 @@ licensed under CC BY 4.0.
 - License: https://fontawesome.com/license/free
 - LVGL font source: https://github.com/lvgl/lvgl/tree/master/scripts/built_in_font
 
-## FiraGO
+## Inter
 
-The interface uses FiraGO Medium for body text and FiraGO SemiBold for headings
-and emphasis. The build downloads pinned upstream sources and embeds only
-translation-derived, 1-bit bitmap subsets; complete TTF files are not shipped
-inside the firmware.
+The interface uses Inter for all of its type: the Medium weight for body text and
+SemiBold for headings, selection and emphasis. Inter ships as a variable font, and
+the build instances its `wght` and `opsz` axes per weight and per raster size before
+subsetting. The build downloads pinned upstream sources and embeds only
+translation-derived, 1-bit bitmap subsets; complete TTF files are not shipped inside
+the firmware.
 
-- Upstream project: https://github.com/bBoxType/FiraGO
-- License: SIL Open Font License 1.1
-- Pinned revision: `5bbcb9d066ab563686ed1de1e6f62eec0148e82d`
+- Upstream project: https://github.com/rsms/inter
+- License: SIL Open Font License 1.1 — `LICENSES/Inter-OFL-1.1.txt`
+- Fetched from: `google/fonts`, revision
+  `7ff85c87f93ea6cca5f41c69f2e4edcb90240f26`, `ofl/inter`
+
+## Interface Hebrew and Arabic fallbacks
+
+Inter covers no Hebrew or Arabic, which four interface locales and dynamic book,
+author and file names need. The interface subsets are therefore generated from a
+font stack: Inter first, then Noto Sans Hebrew and Noto Naskh Arabic supply exactly
+the code points Inter is missing.
+
+- Noto Sans Hebrew: SIL Open Font License 1.1 —
+  `LICENSES/NotoSansHebrew-OFL-1.1.txt`, sources in
+  `lib/EpdFont/builtinFonts/source/NotoSansHebrew`
+- Noto Naskh Arabic: SIL Open Font License 1.1 —
+  `LICENSES/NotoNaskhArabic-OFL-1.1.txt`, fetched from the pinned `google/fonts`
+  revision above
+
+The Arabic presentation forms requested from the fallback are exactly those
+`lib/MiniBidi/ArabicShaper.cpp` can emit, parsed from that file at build time
+rather than requested as Unicode blocks.
 
 ## Noto Serif and Noto Naskh Arabic
 

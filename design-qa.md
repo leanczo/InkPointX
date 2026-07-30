@@ -2,6 +2,82 @@
 
 final result: passed
 
+## Interface typeface: FiraGO → Inter — 2026-07-30
+
+Requested as "SF Pro (free)". SF Pro is not usable here: Apple's font licence
+grants use only for designing, developing and testing apps for Apple platforms,
+and does not permit embedding the font in software or firmware for other hardware
+or redistributing it or data derived from it. This firmware rasterizes the
+interface font into `firmware.bin`, which is published from a public MIT
+repository, so shipping SF Pro would put a licence violation in every release.
+
+Inter was chosen instead and confirmed with the requester. It is the standard
+substitute for SF Pro's role — a typeface designed for screen interfaces — and it
+is SIL OFL 1.1, which permits embedding and redistribution.
+
+### What the swap required
+
+- **Variable-axis instancing.** Inter ships as a variable font and `fontconvert.py`
+  hands its input straight to FreeType, which renders a variable font's default
+  instance — wght 400. Both weights would have come out Regular and the
+  Medium/SemiBold distinction would have vanished silently. Each weight is now
+  instanced with fontTools before subsetting, and `opsz` is set to the raster size
+  so every size gets Inter's own optical treatment instead of one outline scaled.
+- **Hebrew and Arabic fallbacks.** FiraGO was carrying four locales on its own
+  multiscript coverage; Inter has no Hebrew or Arabic. `fontconvert.py` already
+  accepts a font stack ordered by priority, so the subsets are now built from
+  Inter → Noto Sans Hebrew → Noto Naskh Arabic, and the Noto faces contribute
+  exactly the code points Inter lacks.
+- **The Arabic request was wrong all along.** The pipeline asked for whole Unicode
+  blocks, including FB50–FDFF — over two thousand decorative ligatures — while
+  `ArabicShaper` can only ever emit the 106 presentation forms named in its own
+  substitution table. This was invisible while the UI font had no glyph for most
+  of that block, but a Naskh fallback resolves all of them, and the first build
+  came out with subsets more than twice their previous size. The manifest now
+  parses the shaper source for the forms it can actually produce, so it cannot
+  drift from the C++ table.
+
+Net effect on the request: 888 requested code points instead of 1806, and the
+release image *shrank* from 91.0 % to 89.3 % of the application partition while
+gaining a new typeface and proper Hebrew/Arabic fallbacks.
+
+### Naming
+
+Generated subsets are now `ui_<size>_<weight>.h` rather than `firago_*`, and the
+interface-font label string is `STR_UI_FONT_NAME` rather than `STR_INK_SANS` —
+that key was named after Ink Sans, held the value "FiraGO", and would have held
+"Inter". Neutral names mean the next swap touches the pipeline and nothing else.
+The typeface name itself is a proper noun and reads "Inter" in all 27 locales.
+
+### Attribution
+
+`LICENSES/Inter-OFL-1.1.txt`, `LICENSES/NotoSansHebrew-OFL-1.1.txt` and
+`LICENSES/NotoNaskhArabic-OFL-1.1.txt` were added, and
+`docs/third-party-notices.md` now describes the stack, the pinned revisions and
+the presentation-form derivation.
+
+### Evidence and verification
+
+- `docs/qa/inter-2026-07-30/` — the same Books screen in FiraGO and in Inter, plus
+  the settings hub and the release Home screen, all read from the device's
+  framebuffer.
+- Development and release builds pass; release at 89.3 % of the application
+  partition, RAM 32.3 %. 117/117 host tests pass. Localization validation passes
+  for all 27 locales with 10 font families checked, which is what confirms the
+  fallback stack actually covers Hebrew and Arabic. `pio check` reports no high or
+  medium findings.
+
+### Consequence worth knowing
+
+Inter is wider than FiraGO at the same nominal size, so list titles truncate
+sooner — visible in the before/after captures. If that matters more than the
+typeface, the format column on the Books screen (EPUB/FB2/PDF) is the cheapest
+~70 px to reclaim: every row already carries a book icon that says the same thing.
+Not done here, because dropping a column is a content decision rather than a
+typographic one.
+
+final result: passed
+
 ## Interface scale increase — 2026-07-30
 
 Requested: a larger interface and larger text. The whole UI type scale moves one

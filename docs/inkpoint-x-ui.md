@@ -12,15 +12,17 @@ to a non-touch 1-bit e-ink device rather than copied from iOS.
 
 - 20 px outer margins and an 8 px spacing rhythm keep screens calm and
   consistent.
-- FiraGO Medium is used for body text; SemiBold is reserved for titles,
+- Inter Medium is used for body text; SemiBold is reserved for titles,
   selection and values that need emphasis.
 - Focus uses a 12 px rounded outline over a deterministic 1/16-density surface.
   It never depends on color or an inverted black bar, and the sparse pixel
   charge is friendly to differential e-ink refreshes.
 - Hairline dividers use a sparse deterministic pixel pattern, reducing visual
   weight and avoiding unstable antialiasing.
-- Lucide line icons are rasterized at 24 × 24; disclosure and check
-  accessories use 16 × 16 assets. RTL screens use mirrored disclosure icons.
+- Lucide line icons are rasterized at 32 × 32; disclosure, check and favourite
+  accessories use 24 × 24 assets. Both are multiples of 8 because the display
+  driver derives an icon's row stride by integer division. RTL screens use
+  mirrored disclosure icons.
 - Bottom button legends reproduce the X4's two long, two-section rockers,
   omit unavailable actions and mirror the user's physical-button mapping.
 - Boolean settings use a compact outlined switch with a position-changing
@@ -54,13 +56,16 @@ the rest of the firmware.
 
 ## Typography
 
-FiraGO is the system typeface: Medium is used for normal UI text and SemiBold
-for headings, selections and emphasis. The 1-bit scale is deliberately small:
-8 px for hardware legends, 12 px for labels and metadata, 14 px for primary
-two-line rows and book titles, and 16–18 px for screen hierarchy.
+Inter is the system typeface: Medium is used for normal UI text and SemiBold for
+headings, selections and emphasis. The scale is sized to be read at arm's length
+rather than merely to fit: 12 px for hardware legends and captions, 14 px for
+labels and metadata, 16 px for list row titles, and 18 px for book titles and
+screen hierarchy. An 8 px size is retained for the keyboard's secondary key
+labels, whose grid has no room to grow.
 
 The pre-build pipeline reads every value in `lib/I18n/translations/*.yaml`,
-adds bounded dynamic Hebrew/Arabic ranges, and generates native 1-bit subsets.
+adds the core Hebrew and Arabic alphabets plus exactly the Arabic presentation
+forms the shaper can emit, and generates native 1-bit subsets.
 Complete TTF files are downloaded only as build inputs and are not embedded in
 the firmware. Reader fonts are configured independently.
 
@@ -77,8 +82,8 @@ falls back to English for a missing menu label, warning, file operation,
 reader action, network workflow, or settings value. Format placeholders and
 the spacing of concatenated labels are validated before building.
 
-FiraGO includes every Unicode character used by these translations. Hebrew and
-Arabic use the firmware's bidirectional text path; Arabic also receives
+Inter, with its Hebrew and Arabic fallbacks, covers every Unicode character used
+by these translations. Hebrew and Arabic use the firmware's bidirectional text path; Arabic also receives
 contextual shaping for static UI text and dynamic book, author and file names.
 Vietnamese precomposed characters and the extended Cyrillic characters used by
 Belarusian, Kazakh, Russian, and Ukrainian are embedded in the subsets.

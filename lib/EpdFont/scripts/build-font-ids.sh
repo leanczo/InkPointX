@@ -88,40 +88,40 @@ for logical_size in 10 12 14 16 18; do
   esac
   echo "#define UI_${logical_size}_FONT_ID ($(
   ruby -rdigest -e "puts ([
-    \"FIRAGO_UI_${logical_size}\",
-    File.read(\"./firago_${raster_size}_medium.h\"),
-    File.read(\"./firago_${raster_size}_semibold.h\"),
+    \"UI_${logical_size}\",
+    File.read(\"./ui_${raster_size}_medium.h\"),
+    File.read(\"./ui_${raster_size}_semibold.h\"),
   ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)"
   ))"
 done
 
 echo "#define HEADER_FONT_ID ($(
 ruby -rdigest -e 'puts ([
-  "FIRAGO_HEADER",
-  File.read("./firago_16_semibold.h"),
+  "UI_HEADER",
+  File.read("./ui_18_semibold.h"),
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
 echo "#define SMALL_FONT_ID ($(
 ruby -rdigest -e 'puts ([
-  "FIRAGO_SMALL",
-  File.read("./firago_8_medium.h"),
-  File.read("./firago_8_semibold.h"),
+  "UI_SMALL",
+  File.read("./ui_8_medium.h"),
+  File.read("./ui_8_semibold.h"),
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
 echo "#define MICRO_FONT_ID ($(
 ruby -rdigest -e 'puts ([
-  "FIRAGO_MICRO",
-  File.read("./firago_8_medium.h"),
-  File.read("./firago_8_semibold.h"),
+  "UI_MICRO",
+  File.read("./ui_8_medium.h"),
+  File.read("./ui_8_semibold.h"),
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
 echo "#define WORDMARK_FONT_ID ($(
 ruby -rdigest -e 'puts ([
-  "FIRAGO_WORDMARK",
-  File.read("./firago_wordmark_36_semibold.h"),
+  "UI_WORDMARK",
+  File.read("./ui_wordmark_36_semibold.h"),
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 

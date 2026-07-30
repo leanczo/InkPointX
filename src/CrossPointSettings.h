@@ -162,7 +162,7 @@ class CrossPointSettings {
 
   // UI Theme
   enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3 };
-  enum UI_FONT_FAMILY { UI_FIRAGO = 0, UI_FONT_FAMILY_COUNT };
+  enum UI_FONT_FAMILY { UI_INTER = 0, UI_FONT_FAMILY_COUNT };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -260,7 +260,7 @@ class CrossPointSettings {
   // UI Theme
   uint8_t uiTheme = LYRA;
   // Interface font family. Reader fonts are configured separately.
-  uint8_t uiFontFamily = UI_FIRAGO;
+  uint8_t uiFontFamily = UI_INTER;
   // Compact physical-button hints at the edge of UI screens (1 = shown, 0 = hidden).
   uint8_t showButtonHints = 1;
   // Sunlight fading compensation

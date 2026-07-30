@@ -46,7 +46,7 @@ void InterfaceFontSelectActivity::render(RenderLock&&) {
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
   constexpr std::array<StrId, CrossPointSettings::UI_FONT_FAMILY_COUNT> fontNames = {
-      StrId::STR_INK_SANS};
+      StrId::STR_UI_FONT_NAME};
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, width, metrics.headerHeight}, tr(STR_INTERFACE_FONT));
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;

@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Generate compact FiraGO UI fonts from the complete translation corpus.
+"""Generate the compact UI font subsets from the complete translation corpus.
+
+Inter supplies the interface type. It is a variable font, and fontconvert.py takes
+the default instance of whatever it is handed, so each weight is instanced here
+first with fontTools: the wght axis gives Medium and SemiBold, and the opsz axis is
+set to the raster size so every size gets Inter's own optical adjustments rather
+than one outline scaled up and down.
+
+Inter has no Hebrew or Arabic, which the firmware needs for four locales and for
+dynamic book and author names. fontconvert.py accepts a font stack ordered by
+descending priority, so Noto Sans Hebrew and Noto Naskh Arabic fill exactly the
+code points Inter is missing and nothing else.
 
 The firmware never embeds the upstream TTF files.  This pre-build step extracts
 only glyphs reachable from lib/I18n/translations/*.yaml, plus the bounded Arabic
@@ -11,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,51 +37,50 @@ TRANSLATIONS_DIR = ROOT / "lib/I18n/translations"
 FONT_SCRIPT = ROOT / "lib/EpdFont/scripts/fontconvert.py"
 FONT_ID_SCRIPT = ROOT / "lib/EpdFont/scripts/build-font-ids.sh"
 FONT_OUTPUT_DIR = ROOT / "lib/EpdFont/builtinFonts"
-FONT_CACHE_DIR = ROOT / "lib/EpdFont/scripts/downloaded_fonts/FiraGO"
+FONT_CACHE_DIR = ROOT / "lib/EpdFont/scripts/downloaded_fonts/Inter"
+HEBREW_SOURCE_DIR = ROOT / "lib/EpdFont/builtinFonts/source/NotoSansHebrew"
 BUILD_DIR = ROOT / "build/ui-fonts"
-CODEPOINTS_PATH = BUILD_DIR / "firago-ui-codepoints.txt"
-WORDMARK_CODEPOINTS_PATH = BUILD_DIR / "firago-wordmark-codepoints.txt"
-STAMP_PATH = BUILD_DIR / "firago-ui-subset.sha256"
+CODEPOINTS_PATH = BUILD_DIR / "ui-codepoints.txt"
+WORDMARK_CODEPOINTS_PATH = BUILD_DIR / "ui-wordmark-codepoints.txt"
+STAMP_PATH = BUILD_DIR / "ui-subset.sha256"
 FONT_IDS_PATH = ROOT / "src/fontIds.h"
 
-FIRAGO_REVISION = "5bbcb9d066ab563686ed1de1e6f62eec0148e82d"
-FONTS = {
-    "medium": {
-        "url": (
-            "https://raw.githubusercontent.com/bBoxType/FiraGO/"
-            f"{FIRAGO_REVISION}/Fonts/FiraGO_TTF_1001/Roman/FiraGO-Medium.ttf"
-        ),
-        "sha256": "5f753a48c7dff5b7af294e76624febb28c41071a5a65c0fd8a024ea9d1491e8a",
-        "filename": "FiraGO-Medium.ttf",
-    },
-    "semibold": {
-        "url": (
-            "https://raw.githubusercontent.com/bBoxType/FiraGO/"
-            f"{FIRAGO_REVISION}/Fonts/FiraGO_TTF_1001/Roman/FiraGO-SemiBold.ttf"
-        ),
-        "sha256": "b47f1eaf02deaf16051a897f84f275326476306eb198f1cbceb5b1f5882021b1",
-        "filename": "FiraGO-SemiBold.ttf",
-    },
+# Pinned google/fonts revision: both files are OFL 1.1 and may be embedded and
+# redistributed, which is what this firmware does with the rasterized result.
+GOOGLE_FONTS_REVISION = "7ff85c87f93ea6cca5f41c69f2e4edcb90240f26"
+
+INTER_SOURCE = {
+    "url": (
+        "https://raw.githubusercontent.com/google/fonts/"
+        f"{GOOGLE_FONTS_REVISION}/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf"
+    ),
+    "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+    "filename": "Inter[opsz,wght].ttf",
 }
+
+ARABIC_FALLBACK_SOURCE = {
+    "url": (
+        "https://raw.githubusercontent.com/google/fonts/"
+        f"{GOOGLE_FONTS_REVISION}/ofl/notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf"
+    ),
+    "sha256": "67b5a525a661b607971fbd3f96a81b89d3a768e74534fca84f18ac97e6fab72f",
+    "filename": "NotoNaskhArabic[wght].ttf",
+}
+
+# Interface weights, as Inter wght axis values. Medium carries body text; SemiBold
+# is reserved for headings, selection and emphasis.
+WEIGHTS = {"medium": 500, "semibold": 600}
+
+# Hebrew fallback ships in-tree. Noto Sans Hebrew has no variable axis, so the two
+# static weights are paired with the two Inter weights.
+HEBREW_FALLBACKS = {"medium": "NotoSansHebrew-Regular.ttf", "semibold": "NotoSansHebrew-Bold.ttf"}
+
 SIZES = (8, 12, 14, 16, 18)
 WORDMARK_SIZE = 36
 WORDMARK_TEXT = "InkPoint X"
 
-# Translation YAML is authoritative for every static string.  Dynamic text is
-# unbounded, so retain complete core Hebrew/Arabic alphabets and the contextual
-# presentation forms emitted by ArabicShaper.  These are still a small subset
-# of FiraGO's full multiscript character set.
-DYNAMIC_TEXT_RANGES = (
-    (0x0590, 0x05FF),  # Hebrew
-    (0x0600, 0x06FF),  # Arabic + Persian core
-    (0x0750, 0x077F),  # Arabic Supplement
-    (0x0870, 0x089F),  # Arabic Extended-B
-    (0x08A0, 0x08FF),  # Arabic Extended-A
-    (0xFB1D, 0xFB4F),  # Hebrew presentation forms
-    (0xFB50, 0xFDFF),  # Arabic presentation forms A
-    (0xFE70, 0xFEFC),  # Arabic contextual forms B
-)
-
+# Invisible characters the renderer and bidi layer emit at runtime; they never
+# appear in a translation file but must still have a glyph slot.
 RUNTIME_CODEPOINTS = {
     0x00A0,  # NBSP
     0x200C,  # ZWNJ
@@ -88,6 +99,31 @@ RUNTIME_CODEPOINTS = {
     0x2069,
     0xFFFD,
 }
+
+# Translation YAML is authoritative for every static string. Dynamic text is
+# unbounded, so retain the complete core Hebrew and Arabic alphabets a book, author
+# or file name can contain.
+DYNAMIC_TEXT_RANGES = (
+    (0x0590, 0x05FF),  # Hebrew
+    (0x0600, 0x06FF),  # Arabic + Persian core
+    (0x0750, 0x077F),  # Arabic Supplement
+)
+
+# The Arabic presentation forms are NOT requested as blocks. ArabicShaper can only
+# ever emit the forms named in its own substitution table -- 106 of them -- while
+# FB50-FDFF alone holds over two thousand decorative ligatures. Asking for the whole
+# block was harmless while the UI font simply had no glyph for most of it, but a
+# Naskh fallback resolves them all, which more than doubled every subset. Parse the
+# shaper instead, so this stays exact and cannot drift from the C++ table.
+ARABIC_SHAPER_SOURCE = ROOT / "lib/MiniBidi/ArabicShaper.cpp"
+
+
+def arabic_presentation_forms() -> set[int]:
+    text = ARABIC_SHAPER_SOURCE.read_text(encoding="utf-8")
+    forms = {int(value, 16) for value in re.findall(r"0x(F[BE][0-9A-Fa-f]{2})", text)}
+    if not forms:
+        raise RuntimeError(f"No Arabic presentation forms found in {ARABIC_SHAPER_SOURCE}")
+    return forms
 
 
 def sha256_file(path: Path) -> str:
@@ -130,6 +166,7 @@ def collect_codepoints() -> set[int]:
             result.update(ord(character) for character in value if character not in "\r\n")
     for start, end in DYNAMIC_TEXT_RANGES:
         result.update(range(start, end + 1))
+    result.update(arabic_presentation_forms())
     return result
 
 
@@ -162,11 +199,12 @@ def select_converter_python() -> str:
 
 def build_signature(codepoints: set[int], font_paths: dict[str, Path]) -> str:
     digest = hashlib.sha256()
-    digest.update(b"firago-ui-subsets-v3\0")
-    digest.update(b"sizes=8,12,14,16,18;wordmark=36;mono=1;threshold=6;autohint=1;compressed=0\0")
+    digest.update(b"inter-ui-subsets-v1\0")
+    digest.update(b"sizes=8,12,14,16,18;wordmark=36;mono=1;threshold=6;autohint=1;compressed=0;"
+                b"wght=500/600;opsz=size;fallback=hebrew+arabic\0")
     for codepoint in sorted(codepoints):
         digest.update(codepoint.to_bytes(4, "little"))
-    for path in (SCRIPT_PATH, FONT_SCRIPT, FONT_ID_SCRIPT):
+    for path in (SCRIPT_PATH, FONT_SCRIPT, FONT_ID_SCRIPT, ARABIC_SHAPER_SOURCE):
         digest.update(path.read_bytes())
     for weight in sorted(font_paths):
         digest.update(weight.encode("ascii"))
@@ -184,23 +222,47 @@ def write_if_changed(path: Path, content: bytes) -> None:
     temporary_path.replace(path)
 
 
+def instance_inter(source_path: Path, weight_value: int, size: int, destination: Path) -> None:
+    """Freeze Inter's variable axes into a static face for one weight and size.
+
+    fontconvert.py hands the file straight to FreeType, which renders a variable
+    font's default instance -- wght 400 for Inter. Without this both weights would
+    come out Regular and the Medium/SemiBold distinction the interface relies on
+    would silently disappear. opsz is set to the raster size (clamped to the axis
+    range) so each size gets Inter's intended optical treatment.
+    """
+    from fontTools.ttLib import TTFont
+    from fontTools.varLib import instancer
+
+    font = TTFont(str(source_path))
+    axes = {axis.axisTag: axis for axis in font["fvar"].axes}
+    coordinates = {"wght": weight_value}
+    if "opsz" in axes:
+        optical = axes["opsz"]
+        coordinates["opsz"] = max(optical.minValue, min(optical.maxValue, float(size)))
+    instancer.instantiateVariableFont(font, coordinates, inplace=True, updateFontNames=False)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    font.save(str(destination))
+
+
 def generate_font(
     python: str,
     weight: str,
     size: int,
-    source_path: Path,
+    fontstack: list[Path],
     *,
     font_name: str | None = None,
     codepoints_path: Path = CODEPOINTS_PATH,
 ) -> None:
-    font_name = font_name or f"firago_{size}_{weight}"
+    font_name = font_name or f"ui_{size}_{weight}"
     output_path = FONT_OUTPUT_DIR / f"{font_name}.h"
     command = [
         python,
         str(FONT_SCRIPT),
         font_name,
         str(size),
-        str(source_path),
+        # Ordered by descending priority: Inter first, then the scripts it lacks.
+        *(str(path) for path in fontstack),
         "--codepoints-file",
         str(codepoints_path),
         "--force-autohint",
@@ -211,7 +273,7 @@ def generate_font(
     result = subprocess.run(command, capture_output=True)
     if result.returncode != 0:
         raise RuntimeError(
-            f"FiraGO {weight} {size} generation failed:\n"
+            f"UI font {weight} {size} generation failed:\n"
             f"{result.stderr.decode('utf-8', errors='replace')}"
         )
     write_if_changed(output_path, result.stdout)
@@ -232,11 +294,18 @@ def regenerate_font_ids() -> None:
 
 
 def main() -> None:
-    font_paths: dict[str, Path] = {}
-    for weight, spec in FONTS.items():
-        destination = FONT_CACHE_DIR / spec["filename"]
-        download_verified(spec["url"], destination, spec["sha256"])
-        font_paths[weight] = destination
+    inter_source = FONT_CACHE_DIR / INTER_SOURCE["filename"]
+    download_verified(INTER_SOURCE["url"], inter_source, INTER_SOURCE["sha256"])
+    arabic_source = FONT_CACHE_DIR / ARABIC_FALLBACK_SOURCE["filename"]
+    download_verified(ARABIC_FALLBACK_SOURCE["url"], arabic_source, ARABIC_FALLBACK_SOURCE["sha256"])
+
+    hebrew_sources = {weight: HEBREW_SOURCE_DIR / name for weight, name in HEBREW_FALLBACKS.items()}
+    for path in hebrew_sources.values():
+        if not path.exists():
+            raise RuntimeError(f"Missing in-tree Hebrew fallback: {path}")
+
+    # Every input participates in the stamp so a changed source or axis rebuilds.
+    font_paths = {"inter": inter_source, "arabic": arabic_source, **hebrew_sources}
 
     codepoints = collect_codepoints()
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
@@ -247,29 +316,37 @@ def main() -> None:
 
     signature = build_signature(codepoints, font_paths)
     expected_outputs = [
-        FONT_OUTPUT_DIR / f"firago_{size}_{weight}.h"
+        FONT_OUTPUT_DIR / f"ui_{size}_{weight}.h"
         for size in SIZES
-        for weight in FONTS
+        for weight in WEIGHTS
     ]
-    expected_outputs.append(FONT_OUTPUT_DIR / "firago_wordmark_36_semibold.h")
+    expected_outputs.append(FONT_OUTPUT_DIR / "ui_wordmark_36_semibold.h")
     current_stamp = STAMP_PATH.read_text(encoding="ascii").strip() if STAMP_PATH.exists() else ""
     if current_stamp != signature or not all(path.exists() for path in expected_outputs):
         python = select_converter_python()
         print(
-            f"UI fonts: generating {len(expected_outputs)} 1-bit FiraGO subsets "
+            f"UI fonts: generating {len(expected_outputs)} 1-bit Inter subsets "
             f"from {len(codepoints)} requested codepoints"
         )
-        for size in SIZES:
-            for weight, source_path in font_paths.items():
-                generate_font(python, weight, size, source_path)
-        generate_font(
-            python,
-            "semibold",
-            WORDMARK_SIZE,
-            font_paths["semibold"],
-            font_name="firago_wordmark_36_semibold",
-            codepoints_path=WORDMARK_CODEPOINTS_PATH,
-        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+
+            def stack_for(weight: str, size: int) -> list[Path]:
+                instanced = temporary / f"Inter-{weight}-{size}.ttf"
+                instance_inter(inter_source, WEIGHTS[weight], size, instanced)
+                return [instanced, hebrew_sources[weight], arabic_source]
+
+            for size in SIZES:
+                for weight in WEIGHTS:
+                    generate_font(python, weight, size, stack_for(weight, size))
+            generate_font(
+                python,
+                "semibold",
+                WORDMARK_SIZE,
+                stack_for("semibold", WORDMARK_SIZE),
+                font_name="ui_wordmark_36_semibold",
+                codepoints_path=WORDMARK_CODEPOINTS_PATH,
+            )
         write_if_changed(STAMP_PATH, (signature + "\n").encode("ascii"))
     else:
         print("UI fonts: translation subsets are current")

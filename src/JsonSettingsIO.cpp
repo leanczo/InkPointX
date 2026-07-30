@@ -245,8 +245,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   }
 
   const uint8_t uiFontRevision = doc["uiFontRevision"] | static_cast<uint8_t>(0);
-  if (uiFontRevision < 2 || s.uiFontFamily != CrossPointSettings::UI_FIRAGO) {
-    s.uiFontFamily = CrossPointSettings::UI_FIRAGO;
+  if (uiFontRevision < 2 || s.uiFontFamily != CrossPointSettings::UI_INTER) {
+    s.uiFontFamily = CrossPointSettings::UI_INTER;
     if (needsResave) *needsResave = true;
   }
 

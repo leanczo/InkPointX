@@ -62,7 +62,7 @@ PROTECTED_TERMS = (
     "Noto Serif",
     "Noto Sans",
     "Ink Sans",
-    "FiraGO",
+    "Inter",
     "Noto Naskh Arabic",
     "Calibre",
     "Wi-Fi",

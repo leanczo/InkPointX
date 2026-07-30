@@ -35,7 +35,7 @@ for size in ${NOTOSANS_FONT_SIZES[@]}; do
 done
 
 # UI glyphs are generated from every translation YAML plus bounded dynamic RTL
-# ranges. This downloads build-only FiraGO sources and emits compact 1-bit
+# ranges. This downloads build-only Inter sources and emits compact 1-bit
 # Medium/SemiBold subsets; no complete UI font is embedded in the firmware.
 python ../../../scripts/build_ui_fonts.py
 

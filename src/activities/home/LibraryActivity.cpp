@@ -273,7 +273,7 @@ void LibraryActivity::render(RenderLock&&) {
         [this](int index) { return UITheme::getFileIcon(books[index].path); },
         [this](int index) { return books[index].format; }, false, nullptr,
         // The favourite marker is a real 16 px accessory. It used to be a U+2605
-        // star appended to the format string, but FiraGO has no glyph for it, so
+        // star appended to the format string, but the UI font has no glyph for it, so
         // nothing was drawn at all and the two padding spaces left favourited
         // rows with a ragged right edge.
         [this](int index) { return books[index].favorite ? UIAccessory::Favorite : UIAccessory::None; });

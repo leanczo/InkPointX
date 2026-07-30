@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate InkPoint X locale completeness and FiraGO UI subset coverage."""
+"""Validate InkPoint X locale completeness and Inter UI subset coverage."""
 
 from __future__ import annotations
 
@@ -148,11 +148,11 @@ def main() -> int:
             all_text.update(value)
 
     font_paths = sorted(
-        path for path in args.fonts_dir.glob("firago_*.h")
+        path for path in args.fonts_dir.glob("ui_*.h")
         if "wordmark" not in path.name
     )
     if not font_paths:
-        errors.append("no generated FiraGO UI subsets found")
+        errors.append("no generated Inter UI subsets found")
 
     ignored_codepoints = {0x0A, 0x0D}
     required_codepoints: Set[int] = {
@@ -189,7 +189,7 @@ def main() -> int:
                 f"{display_codepoints(missing_codepoints)}"
             )
 
-    wordmark_path = args.fonts_dir / "firago_wordmark_36_semibold.h"
+    wordmark_path = args.fonts_dir / "ui_wordmark_36_semibold.h"
     if wordmark_path.exists():
         wordmark_missing = {
             ord(character)

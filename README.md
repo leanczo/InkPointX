@@ -121,8 +121,10 @@ Resetting settings preserves books, reading progress, bookmarks, statistics, rec
 
 ## Typography and languages
 
-The system interface uses **FiraGO Medium** for normal text and **FiraGO SemiBold** for headings, selection, and
-emphasis. Full font files are not embedded. During the build, `scripts/build_ui_fonts.py` scans every string in
+The system interface uses **Inter Medium** for normal text and **Inter SemiBold** for headings, selection, and
+emphasis, instanced from Inter's variable `wght` and `opsz` axes so each size gets its own optical treatment. Inter
+carries no Hebrew or Arabic, so **Noto Sans Hebrew** and **Noto Naskh Arabic** supply exactly the code points it is
+missing. Full font files are not embedded. During the build, `scripts/build_ui_fonts.py` scans every string in
 `lib/I18n/translations/*.yaml` and generates compact native subsets containing only the glyphs the firmware needs.
 
 The firmware currently provides complete UI resources for 27 languages:

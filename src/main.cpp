@@ -105,33 +105,35 @@ EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, 
 
 #endif  // OMIT_FONTS
 
-// FiraGO's Medium and SemiBold weights are rasterized directly to compact
-// 1-bit translation subsets. Medium keeps body labels open on the X4 panel;
-// SemiBold supplies headings and selected/emphasized states.
-EpdFont firaGo8MediumFont(&firago_8_medium);
-EpdFont firaGo8SemiBoldFont(&firago_8_semibold);
-EpdFontFamily firaGo8FontFamily(&firaGo8MediumFont, &firaGo8SemiBoldFont);
+// Inter's Medium and SemiBold weights, instanced from its variable axes and
+// rasterized to compact 1-bit translation subsets. Medium keeps body labels open on
+// the X4 panel; SemiBold supplies headings and selected/emphasized states. Hebrew
+// and Arabic code points come from Noto fallbacks in the same subsets -- see
+// scripts/build_ui_fonts.py.
+EpdFont ui8MediumFont(&ui_8_medium);
+EpdFont ui8SemiBoldFont(&ui_8_semibold);
+EpdFontFamily ui8FontFamily(&ui8MediumFont, &ui8SemiBoldFont);
 
-EpdFont firaGo12MediumFont(&firago_12_medium);
-EpdFont firaGo12SemiBoldFont(&firago_12_semibold);
-EpdFontFamily firaGo12FontFamily(&firaGo12MediumFont, &firaGo12SemiBoldFont);
+EpdFont ui12MediumFont(&ui_12_medium);
+EpdFont ui12SemiBoldFont(&ui_12_semibold);
+EpdFontFamily ui12FontFamily(&ui12MediumFont, &ui12SemiBoldFont);
 
-EpdFont firaGo14MediumFont(&firago_14_medium);
-EpdFont firaGo14SemiBoldFont(&firago_14_semibold);
-EpdFontFamily firaGo14FontFamily(&firaGo14MediumFont, &firaGo14SemiBoldFont);
+EpdFont ui14MediumFont(&ui_14_medium);
+EpdFont ui14SemiBoldFont(&ui_14_semibold);
+EpdFontFamily ui14FontFamily(&ui14MediumFont, &ui14SemiBoldFont);
 
-EpdFont firaGo16MediumFont(&firago_16_medium);
-EpdFont firaGo16SemiBoldFont(&firago_16_semibold);
-EpdFontFamily firaGo16FontFamily(&firaGo16MediumFont, &firaGo16SemiBoldFont);
+EpdFont ui16MediumFont(&ui_16_medium);
+EpdFont ui16SemiBoldFont(&ui_16_semibold);
+EpdFontFamily ui16FontFamily(&ui16MediumFont, &ui16SemiBoldFont);
 
-EpdFont firaGo18MediumFont(&firago_18_medium);
-EpdFont firaGo18SemiBoldFont(&firago_18_semibold);
-EpdFontFamily firaGo18FontFamily(&firaGo18MediumFont, &firaGo18SemiBoldFont);
+EpdFont ui18MediumFont(&ui_18_medium);
+EpdFont ui18SemiBoldFont(&ui_18_semibold);
+EpdFontFamily ui18FontFamily(&ui18MediumFont, &ui18SemiBoldFont);
 // Screen headings sit at the top of the scale.
-EpdFontFamily firaGoHeaderFontFamily(&firaGo18SemiBoldFont);
+EpdFontFamily uiHeaderFontFamily(&ui18SemiBoldFont);
 
-EpdFont firaGoWordmarkFont(&firago_wordmark_36_semibold);
-EpdFontFamily firaGoWordmarkFontFamily(&firaGoWordmarkFont, &firaGoWordmarkFont);
+EpdFont uiWordmarkFont(&ui_wordmark_36_semibold);
+EpdFontFamily uiWordmarkFontFamily(&uiWordmarkFont, &uiWordmarkFont);
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -180,13 +182,13 @@ void applyInterfaceFont() {
   // MICRO exists for one job: the keyboard's secondary key labels. That grid is
   // structurally dense (10 columns of single characters) and does not benefit from
   // larger type, so it keeps the size the rest of the interface has outgrown.
-  renderer.insertFont(MICRO_FONT_ID, firaGo8FontFamily);   // 8 px  — keyboard only
-  renderer.insertFont(SMALL_FONT_ID, firaGo12FontFamily);  // 12 px — legends, captions
-  renderer.insertFont(UI_10_FONT_ID, firaGo14FontFamily);  // 14 px — labels, values
-  renderer.insertFont(UI_12_FONT_ID, firaGo16FontFamily);  // 16 px — list row titles
-  renderer.insertFont(UI_14_FONT_ID, firaGo18FontFamily);  // 18 px — book titles
-  renderer.insertFont(UI_16_FONT_ID, firaGo18FontFamily);  // 18 px
-  renderer.insertFont(UI_18_FONT_ID, firaGo18FontFamily);  // 18 px
+  renderer.insertFont(MICRO_FONT_ID, ui8FontFamily);   // 8 px  — keyboard only
+  renderer.insertFont(SMALL_FONT_ID, ui12FontFamily);  // 12 px — legends, captions
+  renderer.insertFont(UI_10_FONT_ID, ui14FontFamily);  // 14 px — labels, values
+  renderer.insertFont(UI_12_FONT_ID, ui16FontFamily);  // 16 px — list row titles
+  renderer.insertFont(UI_14_FONT_ID, ui18FontFamily);  // 18 px — book titles
+  renderer.insertFont(UI_16_FONT_ID, ui18FontFamily);  // 18 px
+  renderer.insertFont(UI_18_FONT_ID, ui18FontFamily);  // 18 px
 }
 
 void silentRestart() {
@@ -309,8 +311,8 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
 #endif  // OMIT_FONTS
   applyInterfaceFont();
-  renderer.insertFont(HEADER_FONT_ID, firaGoHeaderFontFamily);  // 18 px semibold
-  renderer.insertFont(WORDMARK_FONT_ID, firaGoWordmarkFontFamily);
+  renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 18 px semibold
+  renderer.insertFont(WORDMARK_FONT_ID, uiWordmarkFontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);

@@ -53,7 +53,7 @@ Validation date: 2026-07-25
 - `printf` placeholder identity;
 - leading and trailing whitespace required by composed labels;
 - leaked translation-protection tokens and unsupported control characters;
-- glyph availability in every generated FiraGO Medium/SemiBold UI subset,
+- glyph availability in every generated Inter Medium/SemiBold UI subset,
   including Arabic contextual forms used by dynamic metadata.
 
 `scripts/fill_missing_translations.py` is a reproducible audit and fill tool.
