@@ -347,18 +347,21 @@ void HomeActivity::openSelection() {
 }
 
 void HomeActivity::loop() {
-  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    pageIndex = (pageIndex + 1) % PAGE_COUNT;
-    selectedIndex = 0;
+  const auto changePage = [this](const int delta) {
+    rememberedSelection[pageIndex] = selectedIndex;
+    pageIndex = (pageIndex + delta + PAGE_COUNT) % PAGE_COUNT;
+    // Clamp on the way in: a page's item count can change between visits.
+    selectedIndex = std::min(rememberedSelection[pageIndex], std::max(0, pageItemCount() - 1));
     if (pageIndex == 0 && !recentDetailsLoaded) loadRecentBookDetails();
     requestUpdate();
+  };
+
+  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+    changePage(1);
     return;
   }
   if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-    pageIndex = (pageIndex + PAGE_COUNT - 1) % PAGE_COUNT;
-    selectedIndex = 0;
-    if (pageIndex == 0 && !recentDetailsLoaded) loadRecentBookDetails();
-    requestUpdate();
+    changePage(-1);
     return;
   }
 

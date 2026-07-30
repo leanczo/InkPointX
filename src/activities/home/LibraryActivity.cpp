@@ -271,11 +271,16 @@ void LibraryActivity::render(RenderLock&&) {
         static_cast<int>(selectedIndex), [this](int index) { return books[index].title; },
         [this](int index) { return books[index].author; },
         [this](int index) { return UITheme::getFileIcon(books[index].path); },
-        [this](int index) { return books[index].format; }, false, nullptr,
-        // The favourite marker is a real 16 px accessory. It used to be a U+2605
-        // star appended to the format string, but the UI font has no glyph for it, so
-        // nothing was drawn at all and the two padding spaces left favourited
-        // rows with a ragged right edge.
+        // No format column. It cost roughly 70 px of every row to repeat what the
+        // leading icon already says -- this is a book -- while the title, which is
+        // how anyone actually picks what to read, was truncated to make room. The
+        // format is still on the row in Files and on the Properties screen, where
+        // it is the point rather than decoration.
+        nullptr, false, nullptr,
+        // The favourite marker is a real accessory. It used to be a U+2605 star
+        // appended to the format string, but the UI font has no glyph for it, so
+        // nothing was drawn at all and the two padding spaces left favourited rows
+        // with a ragged right edge.
         [this](int index) { return books[index].favorite ? UIAccessory::Favorite : UIAccessory::None; });
     GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), static_cast<int>(books.size()));
   }

@@ -2,6 +2,92 @@
 
 final result: passed
 
+## Second UX pass — honest feedback, reclaimed space, RTL chrome — 2026-07-30
+
+Works through the gaps the first UX pass recorded but did not fix, plus the one
+regression the interface scale-up introduced.
+
+### Progress that tells the truth
+
+- **Chapter indexing had no progress.** `popupFn` was invoked exactly once, so
+  "Indexing" sat frozen for the whole build of a long chapter and a slow book was
+  indistinguishable from a hung device — while the PDF path had reported
+  `preparing page n/m` all along. The callback now carries a percentage derived
+  from bytes consumed in the parser's own read loop, which is the only honest
+  metric available there: the page count is not known until the parse finishes.
+  It is drawn with the popup's existing progress bar, so this needed no new
+  strings, and it repaints only on a whole-percent change because each frame costs
+  an e-ink refresh.
+- **The image viewer's progress bar was decorative** — hardcoded to 20 % and then
+  50 % regardless of the work done. Removed. The decoder reports nothing, and a bar
+  that invents numbers teaches the reader to distrust every other one. The popup
+  text already says what is happening.
+
+### Space returned to what the reader is actually reading
+
+- **The Books format column is gone.** It cost roughly 70 px of every row to
+  repeat what the leading icon already says — this is a book — while the title,
+  which is how anyone picks what to read, was truncated to make room. Inter being
+  wider than FiraGO had made this worse. Before and after, from the device:
+  "(бп) Богатый ..." → "(бп) Богатый папа...", "Кийосаки Робе..." → the full
+  "Кийосаки Роберт Тору", "3 amazing spider..." → complete. The format is still
+  shown in Files and on the Properties screen, where it is the point rather than
+  decoration.
+
+### Carousel that keeps its place
+
+- **Home reset the selection to the first item on every page change.** Stepping
+  over to Now Reading and back put you at the top of a seven-item list. Each page
+  now remembers where the selection was, clamped on return because a page's item
+  count can change between visits.
+
+### Chrome that follows the interface language
+
+Rows already mirror from the direction of their own content, which is right for a
+book title. Chrome has no content to infer from, so it stayed flush left in Hebrew
+and Arabic against an otherwise right-aligned interface. This matters more now that
+those two scripts have real font coverage.
+
+- Added `I18n::isRtl()` as the locale-level signal, and mirrored the footer counter
+  and both path bars (file browser, folder picker).
+- The empty-state block is left centred on purpose: centred reads correctly in both
+  directions and needs no flag.
+
+### Wi-Fi password visible while typing
+
+Reaching the `[abc]`/`[***]` toggle took two chained holds that nothing on screen
+advertises — hold Up for cursor mode, then hold Right to land on the toggle — so in
+practice a Wi-Fi password was typed blind on a four-button keyboard, which is
+exactly where a typo costs the most: a wrong key is not reported as an auth failure,
+it just times out. The field now starts visible, and leaving cursor mode no longer
+re-hides it. The toggle still hides it for anyone who wants that. This is a personal
+device with no touchscreen; the shoulder-surfing risk that justifies masking by
+default on a phone does not really apply.
+
+### Evidence and verification
+
+- `docs/qa/ux-pass2-2026-07-30/` — the Books screen with and without the format
+  column, and the release Home screen, read from the device's framebuffer.
+- Development and release builds pass; release at 89.3 % of the application
+  partition, RAM 32.3 %. 117/117 host tests pass, localization validation passes
+  for 27 locales, `pio check` reports no high or medium findings.
+
+### Still open
+
+- Three separate confirmation patterns for destructive actions (modal card,
+  full-screen warning state, in-list prompt). They now agree on which button
+  confirms, so this is consistency rather than a defect.
+- Home still hand-rolls its primary action row instead of using the shared menu
+  primitive, and keeps its own copies of several layout tokens.
+- `getScreenSafeArea` still ignores its `hasSideButtonHints` argument; every
+  current caller passes false, and the two screens that draw side hints lay
+  themselves out directly.
+- The RTL sweep covered the footer counter and path bars. The crash screen's
+  wrapped body and a `"%s: %s"` concatenation on Home are still built
+  left-to-right.
+
+final result: passed
+
 ## Interface typeface: FiraGO → Inter — 2026-07-30
 
 Requested as "SF Pro (free)". SF Pro is not usable here: Apple's font licence

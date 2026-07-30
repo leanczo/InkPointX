@@ -1306,9 +1306,15 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     return false;
   }
 
-  // Get file size to decide whether to show indexing popup.
-  if (popupFn && file.size() >= MIN_SIZE_FOR_POPUP) {
-    popupFn();
+  // Only worth a popup for a chapter big enough to be noticeable. Progress is
+  // reported as bytes consumed, which is the one honest metric available here --
+  // the page count is not known until the parse finishes.
+  const size_t chapterBytes = file.size();
+  const bool reportProgress = popupFn && chapterBytes >= MIN_SIZE_FOR_POPUP;
+  size_t bytesParsed = 0;
+  int lastReportedPercent = -1;
+  if (reportProgress) {
+    popupFn(0);
   }
 
   XML_SetUserData(parser, this);
@@ -1336,6 +1342,17 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     }
 
     done = file.available() == 0;
+
+    if (reportProgress) {
+      bytesParsed += len;
+      // Repaint only on a whole percent: e-ink cannot show more, and each frame
+      // costs a refresh.
+      const int percent = chapterBytes > 0 ? static_cast<int>((bytesParsed * 100) / chapterBytes) : 100;
+      if (percent != lastReportedPercent) {
+        lastReportedPercent = percent;
+        popupFn(percent > 100 ? 100 : percent);
+      }
+    }
 
     if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
       LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),

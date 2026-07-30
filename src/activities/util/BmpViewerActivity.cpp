@@ -122,8 +122,9 @@ void BmpViewerActivity::showCurrentImage() {
 
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  GUI.fillPopupProgress(renderer, popupRect, 20);  // Initial 20% progress
+  // No progress bar: the decoder reports nothing, and the old one was hardcoded to
+  // 20 % and then 50 % whatever the actual work, which is worse than no indicator.
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   if (!prepareDisplayImage()) {
     renderer.clearScreen();
     renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_IMAGE_PREVIEW_FAILED));
@@ -166,8 +167,6 @@ void BmpViewerActivity::showCurrentImage() {
 
       const auto labels =
           mappedInput.mapLabels(tr(STR_BACK), tr(STR_SET_SLEEP_COVER), (hasPrevious ? "<" : ""), (hasNext ? ">" : ""));
-
-      GUI.fillPopupProgress(renderer, popupRect, 50);
 
       renderer.clearScreen();
       // Assuming drawBitmap defaults to 0,0 crop if omitted, or pass explicitly: drawBitmap(bitmap, x, y, pageWidth,

@@ -770,7 +770,12 @@ void FileBrowserActivity::render(RenderLock&&) {
       snprintf(leftTruncBuf, sizeof(leftTruncBuf), "%s%s", ellipsis, p);
       pathDisplay = leftTruncBuf;
     }
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, pathY, pathDisplay);
+    // The path is a filesystem string with no inherent direction, so it follows the
+    // interface language rather than its own first character.
+    const int pathX = I18N.isRtl() ? pageWidth - metrics.contentSidePadding -
+                                         renderer.getTextWidth(SMALL_FONT_ID, pathDisplay)
+                                   : metrics.contentSidePadding;
+    renderer.drawText(SMALL_FONT_ID, pathX, pathY, pathDisplay);
   }
 
   // Help text

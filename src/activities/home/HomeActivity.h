@@ -19,6 +19,11 @@ class HomeActivity final : public Activity {
 
   int pageIndex = 0;
   int selectedIndex = 0;
+  // Where the selection was on each page. Resetting to the first item on every
+  // page change meant stepping over to Now Reading and back lost your place in a
+  // seven-item list, which makes the carousel feel lossy to move through.
+  static constexpr int PAGE_COUNT_MAX = 3;
+  int rememberedSelection[PAGE_COUNT_MAX] = {0, 0, 0};
   std::vector<RecentBook> recentBooks;
   ReadingSummary readingSummary;
   std::string homeCoverPath;

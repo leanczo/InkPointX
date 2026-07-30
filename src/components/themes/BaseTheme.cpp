@@ -551,8 +551,13 @@ void BaseTheme::drawFooterCounter(const GfxRenderer& renderer, const int selecte
   char counter[24];
   snprintf(counter, sizeof(counter), "%d / %d", selectedIndex + 1, itemCount);
   const auto& metrics = UITheme::getInstance().getMetrics();
-  renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding,
-                    renderer.getScreenHeight() - metrics.buttonHintsHeight - footerCounterTopOffset, counter);
+  const int y = renderer.getScreenHeight() - metrics.buttonHintsHeight - footerCounterTopOffset;
+  // Follows the interface language, not the counter's own digits, which are
+  // direction-neutral and would always have resolved to left.
+  const int x = I18N.isRtl() ? renderer.getScreenWidth() - metrics.contentSidePadding -
+                                   renderer.getTextWidth(SMALL_FONT_ID, counter)
+                             : metrics.contentSidePadding;
+  renderer.drawText(SMALL_FONT_ID, x, y, counter);
 }
 
 void BaseTheme::drawDivider(const GfxRenderer& renderer, const int x1, const int x2, const int y) const {

@@ -40,7 +40,13 @@ class KeyboardEntryActivity : public Activity {
   std::string text;
   size_t maxLength;
   InputType inputType;
-  bool passwordVisible = false;
+  // Visible by default. Reaching the [abc]/[***] toggle takes two chained holds
+  // that nothing on screen advertises -- hold Up for cursor mode, hold Right to
+  // land on the toggle -- so a password was effectively typed blind on a
+  // four-button keyboard, which is exactly where a typo is most expensive. This is
+  // a personal device with no touchscreen and no bystander to shoulder-surf; the
+  // toggle still hides the field for anyone who wants that.
+  bool passwordVisible = true;
 
   ButtonNavigator buttonNavigator;
 

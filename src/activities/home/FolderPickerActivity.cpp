@@ -130,7 +130,10 @@ void FolderPickerActivity::render(RenderLock&&) {
                   pathY - metrics.verticalSpacing / 2);
   const auto pathText = renderer.truncatedText(SMALL_FONT_ID, basepath.c_str(),
                                                pageWidth - metrics.contentSidePadding * 2);
-  renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, pathY, pathText.c_str());
+  const int pathX = I18N.isRtl()
+                        ? pageWidth - metrics.contentSidePadding - renderer.getTextWidth(SMALL_FONT_ID, pathText.c_str())
+                        : metrics.contentSidePadding;
+  renderer.drawText(SMALL_FONT_ID, pathX, pathY, pathText.c_str());
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

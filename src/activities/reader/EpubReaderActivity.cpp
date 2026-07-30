@@ -1129,7 +1129,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
       GUI.drawPopup(renderer, tr(STR_INDEXING));
 
-      const auto popupFn = [this]() { GUI.drawPopup(renderer, tr(STR_INDEXING)); };
+      const auto popupFn = [this](const int percent) {
+        const Rect popup = GUI.drawPopup(renderer, tr(STR_INDEXING));
+        GUI.fillPopupProgress(renderer, popup, percent);
+      };
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, viewportWidth,

@@ -18,7 +18,7 @@ void KeyboardEntryActivity::onEnter() {
   urlMode = false;
   cursorMode = false;
   togglePos = false;
-  passwordVisible = false;
+  passwordVisible = true;
   shiftState = 0;
   selectedRow = 0;
   selectedCol = 0;
@@ -227,7 +227,8 @@ void KeyboardEntryActivity::loop() {
     downHeld = true;
     if (cursorMode) {
       togglePos = false;
-      passwordVisible = false;
+      // Leaving cursor mode no longer re-hides the field: whichever state the
+      // reader chose at the toggle is the one they meant.
       cursorMode = false;
       hintVisible = false;
       downLongHandled = true;
