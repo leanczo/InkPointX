@@ -210,21 +210,34 @@ void CalibreConnectActivity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_12_FONT_ID, top, tr(STR_CALIBRE_STARTING));
   } else if (state == CalibreConnectState::ERROR) {
     renderer.drawCenteredText(UI_12_FONT_ID, top, tr(STR_CONNECTION_FAILED), true, EpdFontFamily::BOLD);
+    // Back has always worked here; the legend just never said so.
+    const auto errorLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, errorLabels.btn1, errorLabels.btn2, errorLabels.btn3, errorLabels.btn4);
   } else if (state == CalibreConnectState::SERVER_RUNNING) {
+    // Raw IP on the right: with the localized "IP Address:" prefix the value
+    // exceeded the 200 px value lane and was cut mid-octet — the one fact this
+    // screen exists to show. A bare dotted quad needs no label.
     GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
-                      connectedSSID.c_str(), (std::string(tr(STR_IP_ADDRESS_PREFIX)) + connectedIP).c_str());
+                      connectedSSID.c_str(), connectedIP.c_str());
 
     int y = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 4;
     const auto headingHeight = renderer.getTextHeight(HEADER_FONT_ID);
     renderer.drawText(HEADER_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_SETUP));
     y += headingHeight + metrics.verticalSpacing * 2;
 
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_INSTRUCTION_1));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height, tr(STR_CALIBRE_INSTRUCTION_2));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height * 2, tr(STR_CALIBRE_INSTRUCTION_3));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height * 3, tr(STR_CALIBRE_INSTRUCTION_4));
+    // Wrapped, and advanced by the SMALL line height — the old fixed grid used
+    // the UI_10 metric and clipped 22 locales at the right edge.
+    const int instructionLh = renderer.getLineHeight(SMALL_FONT_ID);
+    const int instructionMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+    for (const auto instruction : {StrId::STR_CALIBRE_INSTRUCTION_1, StrId::STR_CALIBRE_INSTRUCTION_2,
+                                   StrId::STR_CALIBRE_INSTRUCTION_3, StrId::STR_CALIBRE_INSTRUCTION_4}) {
+      for (const auto& line : renderer.wrappedText(SMALL_FONT_ID, I18N.get(instruction), instructionMaxWidth, 2)) {
+        renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y, line.c_str());
+        y += instructionLh;
+      }
+    }
 
-    y += height * 3 + metrics.verticalSpacing * 4;
+    y += metrics.verticalSpacing * 4;
     renderer.drawText(HEADER_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_STATUS));
     y += headingHeight + metrics.verticalSpacing * 2;
 
@@ -240,7 +253,10 @@ void CalibreConnectActivity::render(RenderLock&&) {
                           Rect{metrics.contentSidePadding, y + height + metrics.verticalSpacing,
                                pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
                           lastProgressReceived, lastProgressTotal);
-      y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight;
+      // drawProgressBar draws its own centred percent caption a line below
+      // the bar — reserve that line, or the next status line lands on it.
+      y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight +
+           renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
     }
 
     if (lastCompleteAt > 0 && (millis() - lastCompleteAt) < 6000) {

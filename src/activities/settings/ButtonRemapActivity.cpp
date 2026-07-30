@@ -5,6 +5,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -46,13 +47,23 @@ void ButtonRemapActivity::loop() {
   // - Up: reset mapping to defaults and exit.
   // - Down: cancel without saving.
   if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
-    // Persist default mapping immediately so the user can recover quickly.
-    SETTINGS.frontButtonBack = CrossPointSettings::FRONT_HW_BACK;
-    SETTINGS.frontButtonConfirm = CrossPointSettings::FRONT_HW_CONFIRM;
-    SETTINGS.frontButtonLeft = CrossPointSettings::FRONT_HW_LEFT;
-    SETTINGS.frontButtonRight = CrossPointSettings::FRONT_HW_RIGHT;
-    SETTINGS.saveToFile();
-    finish();
+    // Confirmed first: on every other list screen this same rocker press just
+    // scrolls, so an unconfirmed reset was one reflex away from wiping the
+    // user's layout.
+    startActivityForResult(
+        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_SETTINGS), tr(STR_REMAP_RESET_HINT)),
+        [this](const ActivityResult& result) {
+          if (result.isCancelled) {
+            requestUpdate();
+            return;
+          }
+          SETTINGS.frontButtonBack = CrossPointSettings::FRONT_HW_BACK;
+          SETTINGS.frontButtonConfirm = CrossPointSettings::FRONT_HW_CONFIRM;
+          SETTINGS.frontButtonLeft = CrossPointSettings::FRONT_HW_LEFT;
+          SETTINGS.frontButtonRight = CrossPointSettings::FRONT_HW_RIGHT;
+          SETTINGS.saveToFile();
+          finish();
+        });
     return;
   }
 
@@ -132,12 +143,12 @@ void ButtonRemapActivity::render(RenderLock&&) {
                      errorMessage.c_str());
   }
 
-  // Provide side button actions at the bottom of the screen (split across two lines).
-  GUI.drawHelpText(renderer,
-                   Rect{0, topOffset + 4 * metrics.listRowHeight + 4 * metrics.verticalSpacing, pageWidth, 20},
-                   tr(STR_REMAP_RESET_HINT));
-  GUI.drawHelpText(renderer,
-                   Rect{0, topOffset + 4 * metrics.listRowHeight + 5 * metrics.verticalSpacing + 20, pageWidth, 20},
+  // The side rockers are the only exits from this screen — label them in the
+  // side gutter like Home does, and keep the body text as the explanation.
+  GUI.drawSideButtonHints(renderer, tr(STR_RESET_SETTINGS), tr(STR_CANCEL));
+  const int helpTop = topOffset + 4 * metrics.listRowHeight + 4 * metrics.verticalSpacing;
+  GUI.drawHelpText(renderer, Rect{0, helpTop, pageWidth, 20}, tr(STR_REMAP_RESET_HINT));
+  GUI.drawHelpText(renderer, Rect{0, helpTop + metrics.verticalSpacing + 20, pageWidth, 20},
                    tr(STR_REMAP_CANCEL_HINT));
 
   // Live preview of logical labels under front buttons.
@@ -194,6 +205,6 @@ const char* ButtonRemapActivity::getHardwareName(const uint8_t buttonIndex) cons
     case CrossPointSettings::FRONT_HW_RIGHT:
       return tr(STR_HW_RIGHT_LABEL);
     default:
-      return "Unknown";
+      return tr(STR_UNNAMED);
   }
 }

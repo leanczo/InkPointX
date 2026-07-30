@@ -86,6 +86,15 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
   const int contentHeight = (screen.y + screen.height) - contentTop - metrics.verticalSpacing;
 
   const int totalItems = getTotalItems();
+  if (totalItems == 0) {
+    // An EPUB without a TOC: without this guard the list drew nothing but the
+    // selection outline, and the legend offered navigation with nowhere to go.
+    GUI.drawEmptyState(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, tr(STR_NO_CHAPTERS));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
   GUI.drawList(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, totalItems, selectorIndex,
                [this](int index) {
                  auto item = epub->getTocItem(index);

@@ -24,6 +24,9 @@ class TxtReaderActivity final : public Activity {
   int viewportWidth = 0;
   bool initialized = false;
   bool fullyIndexed = false;
+  // True while the end-of-book screen is shown: forward from the last page
+  // lands here first instead of silently ejecting the user to Home.
+  bool atEndOfBook = false;
   size_t currentPageEndOffset = 0;
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)

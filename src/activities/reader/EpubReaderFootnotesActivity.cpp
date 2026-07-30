@@ -58,17 +58,16 @@ void EpubReaderFootnotesActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
                  tr(STR_FOOTNOTES));
 
+  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight = screen.y + screen.height - contentTop - metrics.verticalSpacing;
+
   if (footnotes.empty()) {
-    renderer.drawCenteredText(UI_10_FONT_ID, screen.y + metrics.topPadding + metrics.headerHeight + 40,
-                              tr(STR_NO_FOOTNOTES));
+    GUI.drawEmptyState(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, tr(STR_NO_FOOTNOTES));
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
-
-  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.y + screen.height - contentTop - metrics.verticalSpacing;
   GUI.drawList(
       renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, static_cast<int>(footnotes.size()),
       selectedIndex,

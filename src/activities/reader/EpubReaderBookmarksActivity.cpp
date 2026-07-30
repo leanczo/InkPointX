@@ -56,9 +56,11 @@ void EpubReaderBookmarksActivity::onEnter() {
 void EpubReaderBookmarksActivity::onExit() { Activity::onExit(); }
 
 int EpubReaderBookmarksActivity::getGutterBottom(const GfxRenderer& renderer) {
-  const auto orientation = renderer.getOrientation();
-  const bool isPortrait = orientation == GfxRenderer::Orientation::Portrait;
-  return isPortrait ? 75 : 40;  // Reserve vertical space for button hints at the bottom
+  // Button hints plus the "Hold Open to Delete" help line above them. Derived
+  // from the theme instead of the old 75/40 constants, which no longer matched
+  // the metrics they were copied from.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  return metrics.buttonHintsHeight + metrics.verticalSpacing + LINE_HEIGHT;
 }
 
 int EpubReaderBookmarksActivity::getListHeight(const GfxRenderer& renderer) {
@@ -75,8 +77,10 @@ void EpubReaderBookmarksActivity::loop() {
   if (confirmingDelete >= DELETE_MODE_DISPLAY) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (confirmingDelete == DELETE_MODE_DISPLAY) {
-        confirmingDelete = DELETE_MODE_CONFIRM;  // first confirmation, update text
-        requestUpdate();
+        // This release belongs to the hold that opened the dialog — swallow it
+        // so the dialog needs one deliberate press. Nothing changed on screen,
+        // so no redraw either.
+        confirmingDelete = DELETE_MODE_CONFIRM;
         return;
       }
       bookmarks.erase(bookmarks.begin() + selectorIndex);
@@ -229,8 +233,10 @@ void EpubReaderBookmarksActivity::render(RenderLock&&) {
   }
 
   const auto backLabel = confirmingDelete >= DELETE_MODE_DISPLAY ? tr(STR_CANCEL) : tr(STR_BACK);
+  // "Open", not "Select": the help line above says "Hold Open to Delete", and
+  // both must name the button the same way.
   const auto confirmLabel =
-      bookmarks.size() > 0 ? (confirmingDelete >= DELETE_MODE_DISPLAY ? tr(STR_DELETE) : tr(STR_SELECT)) : "";
+      bookmarks.size() > 0 ? (confirmingDelete >= DELETE_MODE_DISPLAY ? tr(STR_DELETE) : tr(STR_OPEN)) : "";
   const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

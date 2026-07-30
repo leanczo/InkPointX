@@ -83,13 +83,16 @@ class FontDownloadActivity : public Activity {
   size_t currentFileTotal_ = 0;
   size_t fileProgress_ = 0;
   size_t fileTotal_ = 0;
-  int downloadingFamilyIndex_ = 0;
+  int downloadingFamilyIndex_ = -1;
+  // What the ERROR screen's Retry should re-run.
+  enum class FailedOp { None, Manifest, Download, Delete };
+  FailedOp lastFailedOp_ = FailedOp::None;
   std::string errorMessage_;
   bool cancelRequested_ = false;
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
-  void downloadFamily(ManifestFamily& family);
+  void downloadFamily(ManifestFamily& family, bool finalize = true);
   void downloadAll();
   void updateAll();
   static bool computeFileCrc32(const char* path, uint32_t& outCrc);

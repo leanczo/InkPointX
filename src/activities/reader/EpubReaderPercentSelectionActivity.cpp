@@ -75,11 +75,13 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   UITheme::drawCenteredText(renderer, screen, UI_12_FONT_ID, contentTop, percentText.c_str(), true,
                             EpdFontFamily::BOLD);
 
-  // Draw slider track.
+  // Draw slider track. Clear the percent value's full line box first: the
+  // digits are drawn from contentTop and UI_12's line reaches 40 px below it,
+  // so an offset that ignored the font put the bar through the number.
   constexpr int barWidth = 360;
   constexpr int barHeight = 16;
   const int barX = screen.x + (screen.width - barWidth) / 2;
-  const int barY = contentTop + metrics.verticalSpacing * 2;
+  const int barY = contentTop + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
 
   renderer.drawRect(barX, barY, barWidth, barHeight);
 

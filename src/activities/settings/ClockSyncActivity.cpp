@@ -95,6 +95,17 @@ void ClockSyncActivity::loop() {
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     finish();
+    return;
+  }
+
+  if ((state == FAILED || state == NO_WIFI) && mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    // Retry without leaving: reconnect first if the network dropped.
+    if (WiFi.status() == WL_CONNECTED) {
+      state = SYNCING;
+      requestUpdate();
+    } else {
+      launchWifiSelection();
+    }
   }
 }
 
@@ -127,13 +138,16 @@ void ClockSyncActivity::render(RenderLock&&) {
       renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_CLOCK_SYNC_NO_WIFI_HINT));
       break;
     case FAILED:
+      // The old detail line said "Check serial output" — useless advice on a
+      // device with no exposed serial port. Name the likely cause instead.
       renderer.drawCenteredText(UI_12_FONT_ID, midY - 20, tr(STR_CLOCK_SYNC_FAIL), true, EpdFontFamily::BOLD);
-      renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_CHECK_SERIAL_OUTPUT));
+      renderer.drawCenteredText(UI_10_FONT_ID, midY + 10, tr(STR_SYNC_ERR_NETWORK));
       break;
   }
 
   if (state != SYNCING) {
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    const bool canRetry = state == FAILED || state == NO_WIFI;
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), canRetry ? tr(STR_RETRY) : "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 

@@ -8,7 +8,8 @@
 
 #include "Logging.h"
 
-void QrUtils::drawQrCode(const GfxRenderer& renderer, const Rect& bounds, const std::string& textPayload) {
+bool QrUtils::drawQrCode(const GfxRenderer& renderer, const Rect& bounds, const std::string& textPayload,
+                         bool* wasTruncated) {
   // Dynamically calculate the QR code version based on text length
   // Version 4 holds ~114 bytes, Version 10 ~395, Version 20 ~1066, up to 40
   // qrcode.h max version is 40.
@@ -19,10 +20,12 @@ void QrUtils::drawQrCode(const GfxRenderer& renderer, const Rect& bounds, const 
   static constexpr size_t MAX_QR_CAPACITY = 2953;  // Version 40, ECC_LOW, byte mode
   std::string truncated;
   const char* payload = textPayload.c_str();
+  if (wasTruncated) *wasTruncated = false;
   if (len > MAX_QR_CAPACITY) {
     len = utf8SafeTruncateBuffer(textPayload.c_str(), static_cast<int>(MAX_QR_CAPACITY));
     truncated = textPayload.substr(0, len);
     payload = truncated.c_str();
+    if (wasTruncated) *wasTruncated = true;
   }
 
   int version = 4;
@@ -62,5 +65,7 @@ void QrUtils::drawQrCode(const GfxRenderer& renderer, const Rect& bounds, const 
   } else {
     // If it fails (e.g. text too large), log an error
     LOG_ERR("QR", "Text too large for QR Code version %d", version);
+    return false;
   }
+  return true;
 }

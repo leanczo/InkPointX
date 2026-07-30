@@ -231,10 +231,25 @@ void drawStatCell(const GfxRenderer& renderer, const int x, const int w, const i
                   const char* label) {
   const int valueLineH = renderer.getLineHeight(UI_12_FONT_ID);
   const int labelLineH = renderer.getLineHeight(SMALL_FONT_ID);
-  const int totalTextH = valueLineH + 4 + labelLineH;
-  const int textY = y + (h - totalTextH) / 2;
-  drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, textY, value, true);
-  drawCenteredLabel(renderer, SMALL_FONT_ID, x, w, textY + valueLineH + 4, label);
+  // Both lines are confined to the cell: several English labels ("Reading
+  // Streak") and most German ones are wider than a third-width cell and used
+  // to spill into their neighbours. Wrap the label to two lines when the cell
+  // is tall enough, else truncate.
+  const int maxTextW = std::max(0, w - 8);
+  const auto fittedValue = renderer.truncatedText(UI_12_FONT_ID, value, maxTextW, EpdFontFamily::BOLD);
+  auto labelLines = renderer.wrappedText(SMALL_FONT_ID, label, maxTextW, 2);
+  if (labelLines.empty()) labelLines.emplace_back("");
+  if (labelLines.size() > 1 && valueLineH + 4 + static_cast<int>(labelLines.size()) * labelLineH > h - 4) {
+    labelLines.assign(1, renderer.truncatedText(SMALL_FONT_ID, label, maxTextW));
+  }
+  const int totalTextH = valueLineH + 4 + static_cast<int>(labelLines.size()) * labelLineH;
+  const int textY = y + std::max(0, (h - totalTextH) / 2);
+  drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, textY, fittedValue.c_str(), true);
+  int labelY = textY + valueLineH + 4;
+  for (const auto& line : labelLines) {
+    drawCenteredLabel(renderer, SMALL_FONT_ID, x, w, labelY, line.c_str());
+    labelY += labelLineH;
+  }
 }
 
 void drawSectionCard(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
@@ -565,7 +580,10 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_HOME), "", showMoreButton ? tr(STR_MORE) : "");
+    // Confirm is only a hidden alias of Back here, and where it used to say
+    // "« Home" it went home only on the home-screen path — leave it blank
+    // rather than promise the wrong destination.
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), "", "", showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 }
@@ -647,7 +665,8 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   const int totalFieldW = monthW + gap + dayW + gap + yearW;
   const int fieldStartX = cardX + (cardW - totalFieldW) / 2;
 
-  char monthBuf[8];
+  // Wide enough for multibyte month tokens (Arabic month names reach 14 bytes).
+  char monthBuf[16];
   char dayBuf[8];
   char yearBuf[8];
 
@@ -679,6 +698,11 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   drawDateField(renderer, fieldStartX, row2Y, monthW, monthBuf, selectedField == 3);
   drawDateField(renderer, fieldStartX + monthW + gap, row2Y, dayW, dayBuf, selectedField == 4);
   drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row2Y, yearW, yearBuf, selectedField == 5);
+
+  // Stepping a field past its range clears the whole date (and un-completes
+  // the book) — that used to happen with no warning anywhere on the screen.
+  drawCenteredLabel(renderer, SMALL_FONT_ID, 0, pageWidth, cardY + cardH + metrics.verticalSpacing * 2,
+                    tr(STR_DATE_ROLL_CLEARS));
 
   if (showButtonHints && mappedInput) {
     const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_NEXT_FIELD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

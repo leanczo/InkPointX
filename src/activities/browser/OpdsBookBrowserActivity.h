@@ -38,6 +38,7 @@ class OpdsBookBrowserActivity final : public Activity {
   std::string errorMessage;
   std::string statusMessage;
   size_t downloadProgress = 0;
+  bool cancelRequested = false;
   size_t downloadTotal = 0;
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing

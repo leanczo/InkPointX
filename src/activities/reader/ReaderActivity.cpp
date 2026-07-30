@@ -16,7 +16,7 @@
 #include "Xtc.h"
 #include "XtcReaderActivity.h"
 #include "activities/util/BmpViewerActivity.h"
-#include "activities/util/FullScreenMessageActivity.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
@@ -187,41 +187,50 @@ void ReaderActivity::onEnter() {
 
   sdFontSystem.ensureLoaded(renderer);
 
+  // A book that fails to load must say so: silently bouncing back to the file
+  // browser read as a dead tap on the file the user just chose.
+  const auto reportOpenFailure = [this] {
+    GUI.drawPopup(renderer, tr(STR_BOOK_OPEN_FAILED));
+    renderer.displayBuffer();
+    delay(1500);
+    onGoBack();
+  };
+
   currentBookPath = initialBookPath;
   if (isBmpFile(initialBookPath)) {
     onGoToBmpViewer(initialBookPath);
   } else if (isXtcFile(initialBookPath)) {
     auto xtc = loadXtc(initialBookPath);
     if (!xtc) {
-      onGoBack();
+      reportOpenFailure();
       return;
     }
     onGoToXtcReader(std::move(xtc));
   } else if (isTxtFile(initialBookPath)) {
     auto txt = loadTxt(initialBookPath);
     if (!txt) {
-      onGoBack();
+      reportOpenFailure();
       return;
     }
     onGoToTxtReader(std::move(txt));
   } else if (isFb2File(initialBookPath)) {
     auto epub = loadFb2AsEpub(initialBookPath);
     if (!epub) {
-      onGoBack();
+      reportOpenFailure();
       return;
     }
     onGoToEpubReader(std::move(epub));
   } else if (isPdfFile(initialBookPath)) {
     auto epub = loadPdfAsEpub(initialBookPath);
     if (!epub) {
-      onGoBack();
+      reportOpenFailure();
       return;
     }
     onGoToEpubReader(std::move(epub));
   } else {
     auto epub = loadEpub(initialBookPath);
     if (!epub) {
-      onGoBack();
+      reportOpenFailure();
       return;
     }
     onGoToEpubReader(std::move(epub));

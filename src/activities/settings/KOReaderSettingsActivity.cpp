@@ -102,7 +102,12 @@ void KOReaderSettingsActivity::handleSelection() {
   } else if (selectedIndex == 4) {
     // Authenticate
     if (!KOREADER_STORE.hasCredentials()) {
-      // Can't authenticate without credentials - just show message briefly
+      // Can't authenticate without credentials — the old bare return made
+      // Confirm read as a dead button.
+      GUI.drawPopup(renderer, tr(STR_SET_CREDENTIALS_FIRST));
+      renderer.displayBuffer();
+      delay(1200);
+      requestUpdate();
       return;
     }
     startActivityForResult(std::make_unique<KOReaderAuthActivity>(renderer, mappedInput), [](const ActivityResult&) {});

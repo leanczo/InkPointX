@@ -11,6 +11,7 @@
 #include <algorithm>
 
 #include "CrossPointSettings.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/SleepImageInstaller.h"
@@ -127,7 +128,7 @@ void BmpViewerActivity::showCurrentImage() {
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   if (!prepareDisplayImage()) {
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_IMAGE_PREVIEW_FAILED));
+    GUI.drawEmptyState(renderer, Rect{0, 0, pageWidth, pageHeight}, tr(STR_IMAGE_PREVIEW_FAILED));
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -185,7 +186,7 @@ void BmpViewerActivity::showCurrentImage() {
     } else {
       // Handle file parsing error
       renderer.clearScreen();
-      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_IMAGE_PREVIEW_FAILED));
+      GUI.drawEmptyState(renderer, Rect{0, 0, pageWidth, pageHeight}, tr(STR_IMAGE_PREVIEW_FAILED));
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -195,7 +196,7 @@ void BmpViewerActivity::showCurrentImage() {
   } else {
     // Handle file open error
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_IMAGE_PREVIEW_FAILED));
+    GUI.drawEmptyState(renderer, Rect{0, 0, pageWidth, pageHeight}, tr(STR_IMAGE_PREVIEW_FAILED));
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -246,7 +247,19 @@ void BmpViewerActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    doSetSleepCover();
+    // Confirmed first: one press on the primary button used to permanently
+    // rewrite the global sleep-screen setting with no undo.
+    const auto slash = filePath.find_last_of('/');
+    startActivityForResult(
+        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_SET_SLEEP_COVER),
+                                               slash == std::string::npos ? filePath : filePath.substr(slash + 1)),
+        [this](const ActivityResult& result) {
+          if (result.isCancelled) {
+            showCurrentImage();
+            return;
+          }
+          doSetSleepCover();
+        });
     return;
   }
 

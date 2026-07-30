@@ -1,13 +1,32 @@
 #include "ReadingStatsUtils.h"
 
 #include <HalClock.h>
+#include <I18n.h>
+#include <algorithm>
+#include <cstring>
 #include <ctime>
 
 #include "CrossPointSettings.h"
 
 namespace {
-constexpr const char* MONTH_NAMES[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+// Month abbreviations come from the locale: STR_MONTHS_SHORT holds twelve
+// space-separated tokens ("Jan Feb …"). Copies the 1-based month into buf.
+void copyMonthToken(const unsigned month, char* buf, const size_t len) {
+  const char* tokens = tr(STR_MONTHS_SHORT);
+  unsigned index = 1;
+  const char* start = tokens;
+  while (index < month) {
+    const char* space = strchr(start, ' ');
+    if (!space) break;  // malformed locale string: fall back to the last token
+    start = space + 1;
+    ++index;
+  }
+  const char* end = strchr(start, ' ');
+  const size_t tokenLen = end ? static_cast<size_t>(end - start) : strlen(start);
+  const size_t copyLen = std::min(tokenLen, len - 1);
+  memcpy(buf, start, copyLen);
+  buf[copyLen] = '\0';
+}
 
 bool isBitSet(const std::array<uint8_t, READING_HISTORY_BYTES>& bits, const size_t bitIndex) {
   if (bitIndex >= READING_HISTORY_DAYS) {
@@ -278,7 +297,9 @@ void formatReadingStatsShortDate(const ReadingStatsDate& date, char* buf, const 
     snprintf(buf, len, "-");
     return;
   }
-  snprintf(buf, len, "%s %u", MONTH_NAMES[date.month - 1], static_cast<unsigned>(date.day));
+  char month[16];
+  copyMonthToken(date.month, month, sizeof(month));
+  snprintf(buf, len, "%s %u", month, static_cast<unsigned>(date.day));
 }
 
 void formatReadingStatsMonthToken(const ReadingStatsDate& date, char* buf, const size_t len) {
@@ -289,7 +310,7 @@ void formatReadingStatsMonthToken(const ReadingStatsDate& date, char* buf, const
     snprintf(buf, len, "-");
     return;
   }
-  snprintf(buf, len, "%s", MONTH_NAMES[date.month - 1]);
+  copyMonthToken(date.month, buf, len);
 }
 
 void recordReadingSpanIntoBuckets(std::array<uint32_t, READING_TIME_BUCKET_COUNT>& timeOfDaySeconds,

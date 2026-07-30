@@ -15,6 +15,7 @@
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "ProgressFile.h"
+#include "ReaderGesturesActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
@@ -81,20 +82,41 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  // Confirm opens the gesture reference — the only readers with a menu are
+  // EPUB/XTC, and without this a .txt reader had no way to discover the
+  // controls at all.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    startActivityForResult(std::make_unique<ReaderGesturesActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { requestUpdate(); });
+    return;
+  }
+
   const auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
     return;
   }
 
-  if (prevTriggered && currentPage > 0) {
-    currentPage--;
-    requestUpdate();
+  if (prevTriggered) {
+    if (atEndOfBook) {
+      atEndOfBook = false;
+      requestUpdate();
+    } else if (currentPage > 0) {
+      currentPage--;
+      requestUpdate();
+    }
   } else if (nextTriggered) {
     if (currentPage + 1 < static_cast<int>(pageOffsets.size())) {
       currentPage++;
       requestUpdate();
     } else if (fullyIndexed) {
-      onGoHome();
+      // Match the EPUB/XTC readers: show the end-of-book screen first; only a
+      // second forward press leaves the book.
+      if (atEndOfBook) {
+        onGoHome();
+      } else {
+        atEndOfBook = true;
+        requestUpdate();
+      }
     }
   }
 }
@@ -378,6 +400,15 @@ void TxtReaderActivity::render(RenderLock&&) {
   if (pageOffsets.empty()) {
     renderer.clearScreen();
     GUI.drawReaderMessage(renderer, tr(STR_EMPTY_FILE));
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (atEndOfBook) {
+    renderer.clearScreen();
+    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK));
+    const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }

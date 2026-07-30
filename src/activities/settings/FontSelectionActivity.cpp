@@ -203,7 +203,9 @@ void FontSelectionActivity::render(RenderLock&&) {
                                     : nullptr;
   renderPreviewPane(previewTop, previewHeight, previewFontId, previewFontName);
 
-  renderer.drawLine(0, listTop - metrics_.verticalSpacing / 2, pageWidth, listTop - metrics_.verticalSpacing / 2);
+  // The design system's inset hairline, not a full-bleed solid rule.
+  GUI.drawDivider(renderer, metrics_.contentSidePadding, pageWidth - metrics_.contentSidePadding,
+                  listTop - metrics_.verticalSpacing / 2);
 
   const int currentFontIndex = findCurrentFontIndex(registry_, originalSdFontFamilyName_, originalFontFamily_);
   GUI.drawList(

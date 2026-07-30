@@ -38,6 +38,7 @@
 #include "RecentBooksStore.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/settings/SettingsActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -696,21 +697,32 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       return;
     }
     case EpubReaderMenuActivity::MenuAction::DELETE_CACHE: {
-      {
-        RenderLock lock(*this);
-        if (epub && section) {
-          uint16_t backupSpine = currentSpineIndex;
-          uint16_t backupPage = section->currentPage;
-          uint16_t backupPageCount = section->pageCount;
-          section.reset();
-          epub->clearCache();
-          epub->setupCacheDir();
-          if (!saveProgress(backupSpine, backupPage, backupPageCount)) {
-            LOG_ERR("ERS", "Failed to save progress before cache clear");
-          }
-        }
-      }
-      onGoHome();
+      // The item sits one wrap-press from the menu's default selection and
+      // deleting costs a full re-index, so it must not fire unconfirmed.
+      startActivityForResult(
+          std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_CACHE),
+                                                 epub ? epub->getTitle() : std::string{}),
+          [this](const ActivityResult& confirmResult) {
+            if (confirmResult.isCancelled) {
+              requestUpdate();
+              return;
+            }
+            {
+              RenderLock lock(*this);
+              if (epub && section) {
+                uint16_t backupSpine = currentSpineIndex;
+                uint16_t backupPage = section->currentPage;
+                uint16_t backupPageCount = section->pageCount;
+                section.reset();
+                epub->clearCache();
+                epub->setupCacheDir();
+                if (!saveProgress(backupSpine, backupPage, backupPageCount)) {
+                  LOG_ERR("ERS", "Failed to save progress before cache clear");
+                }
+              }
+            }
+            onGoHome();
+          });
       return;
     }
     case EpubReaderMenuActivity::MenuAction::SCREENSHOT: {
@@ -722,7 +734,14 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
-      launchKOReaderSync();
+      if (!launchKOReaderSync()) {
+        // Without credentials the launch is refused — say so instead of
+        // closing the menu and doing nothing.
+        GUI.drawPopup(renderer, tr(STR_KOREADER_SETUP_HINT));
+        renderer.displayBuffer();
+        delay(1200);
+        requestUpdate();
+      }
       break;
     }
     case EpubReaderMenuActivity::MenuAction::BOOKMARKS: {
@@ -751,7 +770,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       const bool showAllDeviceStats = GlobalReadingStats::hasSyncedStats();
       if (showAllDeviceStats) {
         startActivityForResult(
-            std::make_unique<BookStatsActivity>(renderer, mappedInput, epub ? epub->getTitle() : std::string{"Unknown"},
+            std::make_unique<BookStatsActivity>(renderer, mappedInput, epub ? epub->getTitle() : std::string{tr(STR_UNNAMED)},
                                                 epub ? epub->getCachePath() : std::string{}, stats, currentProgress,
                                                 hasSessionEstimate, liveEstimatedTimeLeftSeconds, globalStats,
                                                 GlobalReadingStats::loadAggregated(globalStats), false),
@@ -766,7 +785,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
             });
       } else {
         startActivityForResult(
-            std::make_unique<BookStatsActivity>(renderer, mappedInput, epub ? epub->getTitle() : std::string{"Unknown"},
+            std::make_unique<BookStatsActivity>(renderer, mappedInput, epub ? epub->getTitle() : std::string{tr(STR_UNNAMED)},
                                                 epub ? epub->getCachePath() : std::string{}, stats, currentProgress,
                                                 hasSessionEstimate, liveEstimatedTimeLeftSeconds, globalStats, false),
             [this](const ActivityResult& result) {
@@ -1079,6 +1098,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (currentSpineIndex == epub->getSpineItemsCount()) {
     renderer.clearScreen();
     GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK));
+    // Not a reading page, so the no-legend rule does not apply — and one of
+    // these buttons silently leaves the book, which deserves a warning.
+    const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     automaticPageTurnActive = false;
     showPendingSyncSaveError();
@@ -1117,6 +1140,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     section = makeUniqueNoThrow<Section>(epub, currentSpineIndex, renderer);
     if (!section) {
       LOG_ERR("ERS", "Out of memory loading section %d", currentSpineIndex);
+      // Leaving the previous page on the panel made a failed load read as a
+      // dead button — say what happened instead.
+      renderer.clearScreen();
+      GUI.drawReaderMessage(renderer, tr(STR_MEMORY_ERROR));
+      renderer.displayBuffer();
       showPendingSyncSaveError();
       return;
     }
@@ -1140,6 +1168,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                                       SETTINGS.imageRendering, SETTINGS.focusReadingEnabled, popupFn)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
+        renderer.clearScreen();
+        GUI.drawReaderMessage(renderer, tr(STR_ERROR_GENERAL_FAILURE));
+        renderer.displayBuffer();
         showPendingSyncSaveError();
         return;
       }

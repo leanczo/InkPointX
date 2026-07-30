@@ -19,7 +19,9 @@ class OtaUpdateActivity : public Activity {
   static constexpr unsigned int UNINITIALIZED_PERCENTAGE = 111;
 
   State state = WIFI_SELECTION;
-  unsigned int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
+  const char* failureReason = nullptr;
+  static const char* failureText(int result);
+  int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
   OtaUpdater updater;
 
   void onWifiSelectionComplete(bool success);

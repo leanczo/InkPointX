@@ -151,13 +151,21 @@ void StatusBarSettingsActivity::loop() {
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, visibleItemCount);
+  // Page like every sibling list; holding the rocker used to single-step.
+  // Matches the render() list height (content minus the preview band).
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int previewTop = renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() -
+                         verticalPreviewPadding - verticalPreviewTextPadding;
+  const int pageItems = std::max(1, GUI.getListPageItems(previewTop - metrics.verticalSpacing - contentTop, false));
+
+  buttonNavigator.onNextContinuous([this, pageItems] {
+    selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, visibleItemCount, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, visibleItemCount);
+  buttonNavigator.onPreviousContinuous([this, pageItems] {
+    selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, visibleItemCount, pageItems);
     requestUpdate();
   });
 }
@@ -215,9 +223,12 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CUSTOMISE_STATUS_BAR));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  // Shared with every other list screen, so a row's bottom margin no longer
-  // differs by 8 px between siblings.
-  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, false) - contentTop);
+  // The list must stop above the live preview band at the bottom: sized to the
+  // usual content bottom it ran ten rows deep and the "Preview" caption plus
+  // the status-bar mock landed on top of the last row.
+  const int previewTop = pageHeight - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -
+                         verticalPreviewTextPadding;
+  const int contentHeight = std::max(0, previewTop - metrics.verticalSpacing - contentTop);
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, visibleItemCount, static_cast<int>(selectedIndex),
       [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr, nullptr,
@@ -251,10 +262,18 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
             return tr(STR_HIDE);
         }
       },
-      true);
+      true, nullptr,
+      // Chevrons mark the two rows that open sub-screens instead of toggling.
+      [](int index) {
+        return (index == ITEM_CLOCK_UTC_OFFSET || index == ITEM_CLOCK_SYNC) ? UIAccessory::Chevron
+                                                                            : UIAccessory::None;
+      });
 
-  // Draw button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Two of the rows open sub-screens rather than toggling — label the button
+  // accordingly so "Toggle" doesn't promise the wrong thing.
+  const bool opensSubScreen = selectedIndex == ITEM_CLOCK_UTC_OFFSET || selectedIndex == ITEM_CLOCK_SYNC;
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), opensSubScreen ? tr(STR_SELECT) : tr(STR_TOGGLE),
+                                            tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   std::string title;

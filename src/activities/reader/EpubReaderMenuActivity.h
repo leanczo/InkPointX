@@ -62,7 +62,11 @@ class EpubReaderMenuActivity final : public Activity {
   uint8_t selectedPageTurnOption = 0;
   const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                 StrId::STR_LANDSCAPE_CCW};
-  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1", "3", "6", "12"};
+  // The unit lives in the value ("3/min"), not the row title: the old
+  // "(Pages Per Minute)" parenthetical pushed the title past the value lane
+  // and it ellipsized in most locales.
+  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1/min", "3/min", "6/min",
+                                                   "12/min"};
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;

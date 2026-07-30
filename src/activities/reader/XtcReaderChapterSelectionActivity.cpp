@@ -91,32 +91,29 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
                  tr(STR_SELECT_CHAPTER));
 
+  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight = screen.y + screen.height - contentTop - metrics.verticalSpacing;
+
   const auto& chapters = xtc->getChapters();
   if (chapters.empty()) {
-    const int emptyWidth = renderer.getTextWidth(UI_10_FONT_ID, tr(STR_NO_CHAPTERS));
-    renderer.drawText(UI_10_FONT_ID, screen.x + (screen.width - emptyWidth) / 2,
-                      screen.y + metrics.topPadding + metrics.headerHeight + 44, tr(STR_NO_CHAPTERS));
-    if (renderer.getOrientation() != GfxRenderer::LandscapeClockwise) {
-      const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
-      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    }
+    GUI.drawEmptyState(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, tr(STR_NO_CHAPTERS));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
 
-  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.y + screen.height - contentTop - metrics.verticalSpacing;
   GUI.drawList(
       renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, static_cast<int>(chapters.size()),
       selectorIndex,
       [&chapters](int index) { return chapters[index].name.empty() ? std::string(tr(STR_UNNAMED)) : chapters[index].name; },
       nullptr, nullptr, nullptr, false, nullptr, [](int) { return UIAccessory::Chevron; });
 
-  // Skip button hints in landscape CW mode (they overlap content)
-  if (renderer.getOrientation() != GfxRenderer::LandscapeClockwise) {
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  }
+  // drawButtonHints renders in a forced-portrait pass and getScreenSafeArea
+  // already insets the content for it, so the old "skip in Landscape-CW"
+  // guard only removed the legend from this one screen.
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
 }

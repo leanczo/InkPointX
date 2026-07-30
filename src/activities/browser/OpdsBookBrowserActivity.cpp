@@ -106,8 +106,14 @@ void OpdsBookBrowserActivity::loop() {
       }
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
+    } else if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+      // On the press edge: Left is also NavPrevious, and the navigator's
+      // press handler used to move the selection before the release arrived,
+      // so the advertised Search could never actually fire.
+      if (!searchTemplate.empty() && selectorIndex == 0) {
+        launchSearch();
+        return;
+      }
     }
 
     if (!entries.empty()) {
@@ -175,7 +181,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
                                metrics.progressBarHeight},
                           downloadProgress, downloadTotal);
     }
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -188,7 +194,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   if (entries.empty()) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_NO_ENTRIES));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_ENTRIES));
   } else {
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
     const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
@@ -294,17 +300,29 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
       "/" + StringUtils::sanitizeFilename((book.author.empty() ? "" : book.author + " - ") + book.title) + ".epub";
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
+  // The transfer blocks this task, so input is polled from the progress
+  // callback — the same pattern the font downloader uses. Without it the
+  // download was uncancellable and the whole screen unresponsive.
+  cancelRequested = false;
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,
       [this](const size_t downloaded, const size_t total) {
         downloadProgress = downloaded;
         downloadTotal = total;
+        mappedInput.update();
+        if (mappedInput.isPressed(MappedInputManager::Button::Back) ||
+            mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+          cancelRequested = true;
+        }
         requestUpdate(true);
       },
-      nullptr, server.username, server.password);
+      &cancelRequested, server.username, server.password);
 
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
+    state = BrowserState::BROWSING;
+  } else if (result == HttpDownloader::ABORTED) {
+    Storage.remove(filename.c_str());
     state = BrowserState::BROWSING;
   } else {
     state = BrowserState::ERROR;

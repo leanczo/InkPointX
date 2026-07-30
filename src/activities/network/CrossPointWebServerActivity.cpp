@@ -404,11 +404,24 @@ void CrossPointWebServerActivity::renderServerRunning() const {
 
   int startY = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 2;
   int height10 = renderer.getLineHeight(UI_10_FONT_ID);
+  const int textMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+  // The two instruction lines are wider than the panel in most locales, so
+  // they wrap; the QR captions are truncated to the lane beside the code and
+  // stacked a full line box apart (they used to overlap by ~10 px and run off
+  // the right edge).
+  const auto drawWrapped = [&](const char* textToWrap) {
+    for (const auto& line : renderer.wrappedText(UI_10_FONT_ID, textToWrap, textMaxWidth, 2, EpdFontFamily::BOLD)) {
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, line.c_str(), true, EpdFontFamily::BOLD);
+      startY += height10;
+    }
+  };
   if (isApMode) {
     // AP mode display
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_CONNECT_WIFI_HINT), true,
-                      EpdFontFamily::BOLD);
-    startY += height10 + metrics.verticalSpacing * 2;
+    drawWrapped(tr(STR_CONNECT_WIFI_HINT));
+    startY += metrics.verticalSpacing * 2;
+
+    const int captionX = metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing;
+    const int captionMaxWidth = pageWidth - captionX - metrics.contentSidePadding;
 
     // Show QR code for Wifi
     // Include the auth type: scanners are unreliable about a bare "WIFI:S:ssid;;"
@@ -418,15 +431,14 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     QrUtils::drawQrCode(renderer, qrBoundsWifi, wifiConfig);
 
     // Show network name
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      connectedSSID.c_str());
+    renderer.drawText(UI_10_FONT_ID, captionX, startY + 80,
+                      renderer.truncatedText(UI_10_FONT_ID, connectedSSID.c_str(), captionMaxWidth).c_str());
 
     startY += QR_CODE_HEIGHT + 2 * metrics.verticalSpacing;
 
     // Show primary URL (hostname)
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_OPEN_URL_HINT), true,
-                      EpdFontFamily::BOLD);
-    startY += height10 + metrics.verticalSpacing * 2;
+    drawWrapped(tr(STR_OPEN_URL_HINT));
+    startY += metrics.verticalSpacing * 2;
 
     std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
     std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
@@ -436,10 +448,10 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     QrUtils::drawQrCode(renderer, qrBoundsUrl, hostnameUrl);
 
     // Show IP address as fallback
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      hostnameUrl.c_str());
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 100,
-                      ipUrl.c_str());
+    renderer.drawText(UI_10_FONT_ID, captionX, startY + 80,
+                      renderer.truncatedText(UI_10_FONT_ID, hostnameUrl.c_str(), captionMaxWidth).c_str());
+    renderer.drawText(SMALL_FONT_ID, captionX, startY + 80 + height10,
+                      renderer.truncatedText(SMALL_FONT_ID, ipUrl.c_str(), captionMaxWidth).c_str());
   } else {
     startY += metrics.verticalSpacing * 2;
 

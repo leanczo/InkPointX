@@ -79,7 +79,9 @@ void ClearCacheActivity::render(RenderLock&&) {
     int y = centredBlockTop(2);
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_CLEAR_CACHE_FAILED), true, EpdFontFamily::BOLD);
     y += lineHeight;
-    renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_CHECK_SERIAL_OUTPUT));
+    // "Check serial output" was useless advice on a device with no exposed
+    // serial port; the only failure path here is an unreadable cache dir.
+    renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_ERROR_GENERAL_FAILURE));
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

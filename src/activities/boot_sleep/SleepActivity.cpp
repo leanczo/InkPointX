@@ -331,7 +331,9 @@ void SleepActivity::renderCoverSleepScreen() const {
 
 void SleepActivity::renderLastScreenSleepScreen() const {
   const auto pageHeight = renderer.getScreenHeight();
-  renderer.drawImage(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
+  // Transparent: the opaque draw blanked a 48x48 square out of whatever the
+  // retained frame had in that corner (the legend pill, the status bar).
+  renderer.drawImageTransparent(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
   UITheme::getInstance().clearSystemBatteryOverlay(renderer);
   renderer.markFrameOverlayDrawn();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);

@@ -11,6 +11,22 @@
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
 
+const char* OtaUpdateActivity::failureText(const int result) {
+  // The user could not previously tell "no network" from "bad image" — the
+  // reason was logged and thrown away.
+  switch (result) {
+    case OtaUpdater::HTTP_ERROR:
+      return tr(STR_SYNC_ERR_NETWORK);
+    case OtaUpdater::OOM_ERROR:
+      return tr(STR_MEMORY_ERROR);
+    case OtaUpdater::JSON_PARSE_ERROR:
+    case OtaUpdater::UPDATE_OLDER_ERROR:
+    case OtaUpdater::INTERNAL_UPDATE_ERROR:
+    default:
+      return tr(STR_ERROR_GENERAL_FAILURE);
+  }
+}
+
 void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
     LOG_ERR("OTA", "WiFi connection failed, exiting");
@@ -32,6 +48,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
     {
       RenderLock lock(*this);
       state = FAILED;
+      failureReason = failureText(res);
     }
     return;
   }
@@ -130,13 +147,20 @@ void OtaUpdateActivity::render(RenderLock&&) {
     renderer.drawCenteredText(
         UI_10_FONT_ID, y,
         (std::to_string(updater.getProcessedSize()) + " / " + std::to_string(updater.getTotalSize())).c_str());
+    // Same warning the SD flasher shows: an interrupted OTA is a brick risk.
+    y += height + metrics.verticalSpacing;
+    renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF), true, EpdFontFamily::BOLD);
   } else if (state == NO_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    GUI.drawEmptyState(renderer,
+                       Rect{0, contentTop, pageWidth,
+                            pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - contentTop},
+                       tr(STR_UPDATE_FAILED), failureReason);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
@@ -169,6 +193,7 @@ void OtaUpdateActivity::loop() {
         {
           RenderLock lock(*this);
           state = FAILED;
+          failureReason = failureText(res);
         }
         requestUpdate();
         return;
@@ -197,6 +222,18 @@ void OtaUpdateActivity::loop() {
   if (state == FAILED) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       finish();
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      // Re-run the whole check: covers both a failed check and a failed
+      // install without special-casing.
+      if (WiFi.status() == WL_CONNECTED) {
+        onWifiSelectionComplete(true);
+        requestUpdate();
+      } else {
+        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                               [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
+      }
     }
     return;
   }

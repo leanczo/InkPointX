@@ -1,6 +1,8 @@
 #include "DeviceInfoActivity.h"
 
 #include <GfxRenderer.h>
+
+#include <algorithm>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <I18n.h>
@@ -41,11 +43,14 @@ void DeviceInfoActivity::render(RenderLock&&) {
 
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   GUI.drawList(
-      renderer, Rect{0, top, width, height - top - metrics.buttonHintsHeight - 10}, static_cast<int>(labels.size()), -1,
+      renderer, Rect{0, top, width, std::max(0, UITheme::getListContentBottom(renderer, false) - top)},
+      static_cast<int>(labels.size()), -1,
       [&labels](const int index) { return std::string(labels[index]); }, nullptr, nullptr,
       [&values](const int index) { return values[index]; }, false);
 
-  const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "", "");
+  // Nothing here is selectable — "Select" promised a detail view that does
+  // not exist. Confirm stays a hidden alias of Back.
+  const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
   renderer.displayBuffer();
 }

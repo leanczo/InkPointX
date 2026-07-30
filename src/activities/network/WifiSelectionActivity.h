@@ -80,7 +80,11 @@ class WifiSelectionActivity final : public Activity {
 
   // Connection timeout
   static constexpr unsigned long CONNECTION_TIMEOUT_MS = 15000;
+  // The driver gives an async scan no deadline of its own; without one a
+  // wedged scan hangs this screen until the power button.
+  static constexpr unsigned long SCAN_TIMEOUT_MS = 15000;
   unsigned long connectionStartTime = 0;
+  unsigned long scanStartTime = 0;
 
   void renderNetworkList(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderPasswordEntry(const Rect* screen, const ThemeMetrics* metrics) const;
@@ -94,6 +98,7 @@ class WifiSelectionActivity final : public Activity {
   void processWifiScanResults();
   void selectNetwork(int index);
   void attemptConnection();
+  void returnToNetworkList();
   void checkConnectionStatus();
   std::string getSignalStrengthIndicator(int32_t rssi) const;
 
