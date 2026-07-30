@@ -125,7 +125,7 @@ void XtcReaderActivity::render(RenderLock&&) {
   if (currentPage >= xtc->getPageCount()) {
     // Show end of book screen
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
+    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK));
     renderer.displayBuffer();
     return;
   }
@@ -229,7 +229,7 @@ void XtcReaderActivity::renderPage() {
   if (!pageBuffer) {
     LOG_ERR("XTR", "Failed to allocate page buffer (%lu bytes)", pageBufferSize);
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_MEMORY_ERROR), true, EpdFontFamily::BOLD);
+    GUI.drawReaderMessage(renderer, tr(STR_MEMORY_ERROR));
     renderer.displayBuffer();
     return;
   }
@@ -241,7 +241,7 @@ void XtcReaderActivity::renderPage() {
             bitDepth, xtc::errorToString(xtc->getLastError()));
     free(pageBuffer);
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
+    GUI.drawReaderMessage(renderer, tr(STR_PAGE_LOAD_ERROR));
     renderer.displayBuffer();
     return;
   }

@@ -87,7 +87,9 @@ void LanguageSelectActivity::render(RenderLock&&) {
 
   // Current language marker
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  // Shared with every other list screen, so a row's bottom margin no longer
+  // differs by 8 px between siblings.
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, false) - contentTop);
   const auto currentLang = static_cast<uint8_t>(I18N.getLanguage());
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, totalItems, selectedIndex,

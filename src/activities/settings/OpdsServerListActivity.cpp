@@ -1,6 +1,8 @@
 #include "OpdsServerListActivity.h"
 
 #include <GfxRenderer.h>
+
+#include <algorithm>
 #include <I18n.h>
 
 #include "MappedInputManager.h"
@@ -98,11 +100,13 @@ void OpdsServerListActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_OPDS_SERVERS));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  // Shared with every other list screen, so a row's bottom margin no longer
+  // differs by 8 px between siblings.
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, false) - contentTop);
   const int itemCount = getItemCount();
 
   if (itemCount == 0) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_NO_SERVERS));
+    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_SERVERS));
   } else {
     const auto& servers = OPDS_STORE.getServers();
     const auto serverCount = static_cast<int>(servers.size());

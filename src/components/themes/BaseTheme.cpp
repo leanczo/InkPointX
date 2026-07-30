@@ -564,13 +564,19 @@ void BaseTheme::drawDivider(const GfxRenderer& renderer, const int x1, const int
   renderer.drawLine(x1, y, x2, y, 1, true);
 }
 
-void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, const char* message) const {
+void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, const char* message,
+                               const char* detail) const {
   if (!message || message[0] == '\0' || content.height <= 0) return;
   const int maxWidth = std::max(0, content.width - BaseMetrics::values.contentSidePadding * 2);
-  const auto lines = renderer.wrappedText(UI_10_FONT_ID, message, maxWidth, 3);
+  auto lines = renderer.wrappedText(UI_10_FONT_ID, message, maxWidth, 3);
   if (lines.empty()) return;
 
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  if (detail && detail[0] != '\0') {
+    for (auto& line : renderer.wrappedText(UI_10_FONT_ID, detail, maxWidth, 2)) {
+      lines.push_back(line);
+    }
+  }
   const int blockHeight = static_cast<int>(lines.size()) * lineHeight;
   // Sit slightly above the middle: a block centred exactly reads as low on a tall
   // portrait panel with a header above it.
@@ -786,6 +792,23 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                       titleMarginLeftAdjusted + metrics.statusBarHorizontalMargin + orientedMarginLeft +
                           (availableTitleSpace - titleWidth) / 2,
                       textY, title.c_str());
+  }
+}
+
+void BaseTheme::drawReaderMessage(const GfxRenderer& renderer, const char* message) const {
+  if (!message || message[0] == '\0') return;
+  const int maxWidth = std::max(0, renderer.getScreenWidth() - BaseMetrics::values.contentSidePadding * 2);
+  const auto lines = renderer.wrappedText(UI_12_FONT_ID, message, maxWidth, 3, EpdFontFamily::BOLD);
+  if (lines.empty()) return;
+
+  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  // Measured against the live viewport, so this stays centred in every orientation
+  // and shifts with the reader's status bar instead of ignoring it.
+  const int available = renderer.getScreenHeight() - UITheme::getStatusBarHeight();
+  int y = std::max(0, (available - static_cast<int>(lines.size()) * lineHeight) / 2);
+  for (const auto& line : lines) {
+    renderer.drawCenteredText(UI_12_FONT_ID, y, line.c_str(), true, EpdFontFamily::BOLD);
+    y += lineHeight;
   }
 }
 

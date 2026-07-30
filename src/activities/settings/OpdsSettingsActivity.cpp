@@ -1,6 +1,8 @@
 #include "OpdsSettingsActivity.h"
 
 #include <GfxRenderer.h>
+
+#include <algorithm>
 #include <I18n.h>
 #include <Logging.h>
 
@@ -182,7 +184,9 @@ void OpdsSettingsActivity::render(RenderLock&&) {
                     tr(STR_CALIBRE_URL_HINT));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + metrics.subHeaderHeight;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  // Shared with every other list screen, so a row's bottom margin no longer
+  // differs by 8 px between siblings.
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, false) - contentTop);
   const int menuItems = getMenuItemCount();
 
   const StrId fieldNames[] = {StrId::STR_SERVER_NAME, StrId::STR_OPDS_SERVER_URL, StrId::STR_USERNAME,

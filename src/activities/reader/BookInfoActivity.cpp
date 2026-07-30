@@ -51,12 +51,14 @@ void BookInfoActivity::render(RenderLock&&) {
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   GUI.drawList(
       renderer,
-      Rect{0, top, width, height - top - metrics.buttonHintsHeight - metrics.verticalSpacing},
+      Rect{0, top, width, std::max(0, UITheme::getListContentBottom(renderer, false) - top)},
       static_cast<int>(labels.size()), -1,
       [&labels](const int index) { return std::string(labels[index]); }, nullptr, nullptr,
       [&values](const int index) { return values[index]; }, false);
 
-  const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_BACK), "", "");
+  // Only Back does anything here, so the second slot stays empty rather than
+  // naming two different buttons the same thing.
+  const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
   renderer.displayBuffer();
 }

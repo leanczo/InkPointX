@@ -141,8 +141,15 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   const char* headerTitle = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, headerTitle);
 
+  // These three states all say "nothing to show yet, here is why", so they use the
+  // shared centred block instead of pageHeight / 2 with per-state offsets of -40,
+  // -20, -10 and +10 that took neither the header nor the line height into account.
+  const int messageTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const Rect messageArea{0, messageTop, pageWidth,
+                         std::max(0, UITheme::getListContentBottom(renderer, false) - messageTop)};
+
   if (state == BrowserState::CHECK_WIFI || state == BrowserState::LOADING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, statusMessage.c_str());
+    GUI.drawEmptyState(renderer, messageArea, statusMessage.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -150,8 +157,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   }
 
   if (state == BrowserState::ERROR) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_ERROR_MSG));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, errorMessage.c_str());
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_ERROR_MSG), errorMessage.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -159,13 +165,18 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   }
 
   if (state == BrowserState::DOWNLOADING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 40, tr(STR_DOWNLOADING));
-    auto title = renderer.truncatedText(UI_10_FONT_ID, statusMessage.c_str(), pageWidth - 40);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 10, title.c_str());
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_DOWNLOADING), statusMessage.c_str());
     if (downloadTotal > 0) {
-      GUI.drawProgressBar(renderer, Rect{50, pageHeight / 2 + 20, pageWidth - 100, 20}, downloadProgress,
-                          downloadTotal);
+      // Under the message block rather than at a fixed offset from mid-screen, and
+      // inset to the content margin like every other full-width element.
+      const int barTop = messageArea.y + messageArea.height * 2 / 5 + renderer.getLineHeight(UI_10_FONT_ID) * 3;
+      GUI.drawProgressBar(renderer,
+                          Rect{metrics.contentSidePadding, barTop, pageWidth - metrics.contentSidePadding * 2,
+                               metrics.progressBarHeight},
+                          downloadProgress, downloadTotal);
     }
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
