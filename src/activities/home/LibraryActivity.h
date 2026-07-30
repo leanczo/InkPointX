@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "util/HoldGestures.h"
 
 class LibraryActivity final : public Activity {
  public:
@@ -32,7 +33,8 @@ class LibraryActivity final : public Activity {
 
   static constexpr size_t MAX_LIBRARY_BOOKS = 256;
   static constexpr size_t NAME_BUFFER_SIZE = 384;
-  static constexpr unsigned long FAVORITE_HOLD_MS = 900;
+  // Acting on the selected book, so the shared short hold.
+  static constexpr unsigned long FAVORITE_HOLD_MS = HoldGestures::SHORT_MS;
 
   Mode mode;
   std::vector<BookEntry> books;

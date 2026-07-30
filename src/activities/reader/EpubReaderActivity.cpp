@@ -33,6 +33,7 @@
 #include "MappedInputManager.h"
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
+#include "ReaderGesturesActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "activities/home/FileBrowserActivity.h"
@@ -780,6 +781,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::GESTURES:
+      startActivityForResult(std::make_unique<ReaderGesturesActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) { requestUpdate(); });
+      break;
     case EpubReaderMenuActivity::MenuAction::READING_SETTINGS: {
       startActivityForResult(std::make_unique<SettingsActivity>(renderer, mappedInput, 2, true),
                              [this](const ActivityResult&) {

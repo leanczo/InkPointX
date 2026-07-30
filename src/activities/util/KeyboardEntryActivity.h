@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "activities/Activity.h"
+#include "util/HoldGestures.h"
 #include "util/ButtonNavigator.h"
 
 struct KeyDef {
@@ -74,8 +75,10 @@ class KeyboardEntryActivity : public Activity {
   void onComplete(std::string text);
   void onCancel();
 
-  static constexpr uint16_t LONG_PRESS_MS = 500;
-  static constexpr uint16_t DEL_LONG_PRESS_MS = 1500;
+  // Entering cursor mode / reaching a key's alternate character acts on what is
+  // selected; clearing the whole field is a discard.
+  static constexpr uint16_t LONG_PRESS_MS = HoldGestures::SHORT_MS;
+  static constexpr uint16_t DEL_LONG_PRESS_MS = HoldGestures::LONG_MS;
 
   static constexpr int COLS = 10;
   static constexpr int ABC_ROWS = 4;

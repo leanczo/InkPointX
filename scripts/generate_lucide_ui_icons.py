@@ -19,6 +19,7 @@ ICONS = (
     ("LucideFolder24", "folder", 24),
     ("LucideImage24", "image", 24),
     ("LucideBookmark24", "bookmark", 24),
+    ("LucideStar24", "star", 24),
     ("LucideWifi24", "wifi", 24),
     ("LucideLibrary24", "library-big", 24),
     ("LucideHotspot24", "radio-tower", 24),

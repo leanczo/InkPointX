@@ -2,6 +2,117 @@
 
 final result: passed
 
+## UX pass — learnability and defaults — 2026-07-30
+
+The previous passes fixed defects. This one addresses findings from a review of
+the product as an interaction design rather than as an implementation: the system
+was consistent and legible, but it assumed a user who already knew it.
+
+### Typography default
+
+`paragraphAlignment` defaulted to JUSTIFIED while `hyphenationEnabled` defaulted
+to off. That is the one pairing that always reads badly — a justified line is
+filled by stretching word spaces, and without hyphenation that opens rivers of
+white space, worst of all in a language with long words. The firmware already
+embeds Liang pattern tries for nine languages including Russian and Ukrainian and
+wires them all the way through `Section::loadSectionFile`, so it was paying flash
+for a capability it shipped switched off. Hyphenation is now on by default.
+
+Safe to change: `hyphenationEnabled` is part of the section cache key, so a book
+laid out under the old default is re-paginated rather than mis-paginated, and an
+existing device keeps whatever is in its `settings.json` — only a fresh install or
+a reset sees the new default.
+
+### Learnability
+
+- The reading page shows no button legend, by design. Nothing compensated for it:
+  there was no help screen anywhere in the firmware, so every reader gesture had
+  no on-screen affordance. Added a "Controls" entry to the reader menu opening a
+  reference sheet for the gestures that cannot be found by pressing things — the
+  page turn, the bookmark hold, Home, and the hold that jumps to the file browser.
+  Chapter skip appears only when the user has enabled it.
+  - It needs no new translations: every row label is an existing string, and the
+    gesture column is built from the user's own button mapping plus ASCII digits,
+    so it also stays correct after a remap instead of naming the factory layout.
+  - The menu gesture is deliberately not listed. Opening the menu is how the
+    reader got to the screen.
+- Home's front legend can only speak for the four front buttons, so it advertised
+  page switching and Open while saying nothing about what moves the selection — on
+  the page that carries seven items. The side rockers now get their own legend
+  wherever there is a list to move through.
+  - `STR_HOME_BUTTON_HINT` ("< > Sections | ^ v Select | OK Open") already existed
+    in all 27 locales and was referenced nowhere: the gap had been recognised and
+    the fix dropped. Rather than revive it as a second, drifting description of the
+    same model, the string is removed and the affordance shows it directly.
+
+### Hold gestures
+
+Six distinct durations were spread across nine call sites — 400, 500, 700, 900,
+1000 and 1500 ms — so holding Confirm meant one thing in the reader, another in the
+bookmark list and another in the library, and no muscle memory could form. They now
+come from two shared values in `src/util/HoldGestures.h`: 400 ms to act on what is
+selected, 1000 ms to leave or discard.
+
+Chapter skip keeps its own 700 ms and says why in a comment. It shares a button
+with the page turn, the most frequent action in the product, so the gap has to stay
+wide enough that a firm page-turn press cannot reach it.
+
+### Layout and copy
+
+- All three Transfer descriptions on Home were cut mid-word in Russian, and a
+  sentence that stops before its point informs nobody. The rows are titles only
+  now, which also gives the section the same rhythm as the Library tiles above it
+  instead of 58 px menu rows followed by 76 px subtitle rows on one screen. The
+  titles carry the meaning on their own.
+- Favourites was shown with two different symbols: a bookmark in the navigation and
+  a star as the row marker. A bookmark reads as "saved position", a different
+  feature. Both are the star now. (The mismatch was introduced by the star added in
+  the first pass.)
+
+### Defect found and fixed during verification
+
+Adding the side legend exposed a collision: the sub-header hairline ends 8 px
+inside the legend strip, so the rule ran straight through the "Up" label. Confirmed
+by reading the captured framebuffer at that row, not by eye. The legend now clears
+its own strip before drawing, which fixes it at the one place responsible instead
+of tuning a header width per screen.
+
+### Evidence and verification
+
+- `docs/qa/ux-pass-2026-07-30/01-library-before.png` and `02-library-after.png` —
+  the same screen before and after, from the device's framebuffer: truncated
+  subtitles gone, star on Favourites, side legend present.
+- `03-release-home.png` — release build running on the device afterwards.
+- Development and release builds pass; release uses 91.0 % of the application
+  partition and 32.3 % of RAM. 117/117 host tests pass, localization validation
+  passes for 27 locales, `pio check` reports no high or medium findings.
+
+### Reviewed and deliberately not changed
+
+- Reader margins. The default `screenMargin` of 5 px looked too tight, but the
+  measure works out to roughly 58-66 characters, inside the 45-75 optimum. It is an
+  aesthetic question, not a legibility one, so it was left alone.
+- `UI_12` and `UI_14` resolving to the same family. That matches the documented type
+  scale, where list rows and book titles are both 14 px; the slot names simply do
+  not state pixel sizes.
+
+### Known remaining UX gaps
+
+- EPUB and FB2 chapter indexing shows a static "Indexing" popup with no progress,
+  while the PDF path reports "preparing page n/m". The repaint callback already
+  fires periodically, so a counter would be nearly free.
+- The image viewer's progress bar is decorative: it is set to 20 % and then 50 %
+  regardless of actual work.
+- Home resets the selection to the first item when the page changes, so stepping
+  away from a list and back loses your place.
+- Three separate confirmation patterns for destructive actions still exist (modal
+  card, full-screen warning state, in-list prompt), now at least agreeing on which
+  button confirms.
+- Revealing a typed Wi-Fi password takes three chained hidden gestures, and only
+  the second and third are hinted.
+
+final result: passed
+
 ## Physical device verification — 2026-07-30
 
 The two defect passes below were previously validated only by build, host tests

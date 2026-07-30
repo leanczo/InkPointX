@@ -228,7 +228,15 @@ class CrossPointSettings {
   uint8_t sleepTimeoutMinutes = 10;
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
-  uint8_t hyphenationEnabled = 0;
+  // On by default because paragraphAlignment defaults to JUSTIFIED, and justified
+  // text without hyphenation is the one pairing that always reads badly: the line
+  // is filled by stretching word spaces, which opens rivers of white space in any
+  // language with long words. The firmware already embeds Liang pattern tries for
+  // 9 languages including Russian and Ukrainian, and a book whose language has no
+  // trie simply gets no pattern breaks. hyphenationEnabled is part of the section
+  // cache key, so changing it re-lays out books rather than corrupting their
+  // pagination.
+  uint8_t hyphenationEnabled = 1;
   // Invert black/white only while rendering book pages.
   uint8_t readerInvertColors = 0;
 

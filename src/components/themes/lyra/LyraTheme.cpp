@@ -63,6 +63,11 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideHotspot24;
       case UIIcon::Bookmark:
         return LucideBookmark24;
+      // A star, matching the marker drawn on a favourited row. A bookmark glyph
+      // here meant one concept was shown with two different symbols: a bookmark
+      // reads as "saved position", which is a different feature.
+      case UIIcon::Favorite:
+        return LucideStar24;
       case UIIcon::Interface:
         return LucideInterface24;
       case UIIcon::Power:
@@ -378,6 +383,13 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
     // X4 layout: Both buttons stacked on right side
     const char* labels[] = {topBtn, bottomBtn};
     const int x = screenWidth - buttonWidth;
+
+    // Own the strip. The legend is chrome drawn on top of whatever the screen
+    // already painted, and a header hairline ends 8 px inside it — so without
+    // clearing first, that rule runs straight through the label.
+    const int stripTop = topHintButtonY;
+    const int stripHeight = buttonHeight * 2 + 5;
+    renderer.fillRect(x, stripTop, buttonWidth, stripHeight, false);
 
     if (topBtn != nullptr && topBtn[0] != '\0') {
       renderer.drawRoundedRect(x, topHintButtonY, buttonWidth, buttonHeight, 1, cornerRadius, true, false, true, false,

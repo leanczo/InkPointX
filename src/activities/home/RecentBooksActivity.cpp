@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "MappedInputManager.h"
+#include "util/HoldGestures.h"
 #include "RecentBooksStore.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
@@ -15,7 +16,8 @@
 
 namespace {
 // Hold threshold for the long-press "remove from list" action (firmware convention).
-constexpr unsigned long LONG_PRESS_MS = 1000;
+// Acting on the selected entry (offer to remove it), so the shared short hold.
+constexpr unsigned long LONG_PRESS_MS = HoldGestures::SHORT_MS;
 }  // namespace
 
 void RecentBooksActivity::loadRecentBooks() { recentBooks = RECENT_BOOKS.getBooks(); }

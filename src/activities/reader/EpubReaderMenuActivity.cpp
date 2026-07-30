@@ -38,6 +38,9 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
     items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
   }
   items.push_back({MenuAction::READING_SETTINGS, StrId::STR_READING_SETTINGS});
+  // What the buttons do. The reading page shows no legend by design, so this is the
+  // only place the hold gestures are stated.
+  items.push_back({MenuAction::GESTURES, StrId::STR_SETTINGS_CONTROLS});
   items.push_back({MenuAction::BOOK_INFO, StrId::STR_BOOK_INFO});
   items.push_back({MenuAction::OPEN_FROM_FILE, StrId::STR_OPEN_FROM_FILE});
   items.push_back(

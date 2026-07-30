@@ -9,12 +9,14 @@
 #include <algorithm>
 
 #include "MappedInputManager.h"
+#include "util/HoldGestures.h"
 #include "ProgressMapper.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
-constexpr int ENTER_DELETE_MODE_MS = 700;
+// Acting on the selected bookmark, so the shared short hold.
+constexpr unsigned long ENTER_DELETE_MODE_MS = HoldGestures::SHORT_MS;
 constexpr int DELETE_MODE_OFF = 0;
 constexpr int DELETE_MODE_DISPLAY = 1;
 constexpr int DELETE_MODE_CONFIRM = 2;

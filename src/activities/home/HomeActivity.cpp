@@ -508,13 +508,11 @@ void HomeActivity::render(RenderLock&&) {
     const char* header = pageIndex == 1 ? tr(STR_LIBRARY) : tr(STR_SETTINGS_TITLE);
     GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, header);
 
-    constexpr std::array<UIIcon, 4> libraryIcons = {UIIcon::Book, UIIcon::Folder, UIIcon::Image, UIIcon::Bookmark};
+    constexpr std::array<UIIcon, 4> libraryIcons = {UIIcon::Book, UIIcon::Folder, UIIcon::Image, UIIcon::Favorite};
     const std::array<const char*, 4> libraryLabels = {tr(STR_BOOKS), tr(STR_FILES), tr(STR_GALLERY), tr(STR_FAVORITES)};
     constexpr std::array<UIIcon, 3> transferIcons = {UIIcon::Wifi, UIIcon::Library, UIIcon::Hotspot};
     const std::array<const char*, 3> transferLabels = {tr(STR_JOIN_NETWORK), tr(STR_CALIBRE_WIRELESS),
                                                        tr(STR_CREATE_HOTSPOT)};
-    const std::array<const char*, 3> transferDescriptions = {tr(STR_JOIN_DESC), tr(STR_CALIBRE_DESC),
-                                                             tr(STR_HOTSPOT_DESC)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,   UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,
@@ -534,14 +532,18 @@ void HomeActivity::render(RenderLock&&) {
       const int transferHeaderTop = contentTop + 4 * (metrics.menuRowHeight + metrics.menuSpacing);
       GUI.drawHeader(renderer, Rect{0, transferHeaderTop, pageWidth, metrics.headerHeight},
                      tr(STR_TRANSFER_SECTION));
-      const int transferTop = transferHeaderTop + metrics.headerHeight + 4;
-      GUI.drawList(
-          renderer, Rect{0, transferTop, pageWidth, pageHeight - transferTop - 104}, 3,
+      const int transferTop = transferHeaderTop + metrics.headerHeight + metrics.verticalSpacing;
+      // Titles only. The one-line descriptions never fit a Cyrillic or other
+      // wide-script locale in the space a subtitle row leaves after the icon and
+      // the chevron -- all three were cut mid-word -- and a sentence that stops
+      // before its point informs nobody. Dropping them also gives this section the
+      // same row rhythm as the Library tiles above it, instead of 58 px menu rows
+      // followed by 76 px subtitle rows on one screen.
+      GUI.drawButtonMenu(
+          renderer, Rect{0, transferTop, pageWidth, pageHeight - transferTop - 96}, 3,
           selectedIndex >= 4 ? selectedIndex - 4 : -1,
           [&](const int index) { return std::string(transferLabels[index]); },
-          [&](const int index) { return std::string(transferDescriptions[index]); },
-          [&](const int index) { return transferIcons[index]; }, nullptr, false, nullptr,
-          [](const int) { return UIAccessory::Chevron; });
+          [&](const int index) { return transferIcons[index]; });
     } else {
       GUI.drawButtonMenu(
           renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96},
@@ -554,5 +556,12 @@ void HomeActivity::render(RenderLock&&) {
   GUI.drawPageDots(renderer, pageIndex, PAGE_COUNT);
   const auto labels = mappedInput.mapLabels("", tr(STR_OPEN), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  // The front legend can only speak for the four front buttons, so it advertised
+  // page switching and Open while saying nothing about what moves the selection --
+  // on the page that carries seven items. The side rockers get their own legend
+  // wherever there is a list to move through.
+  if (pageItemCount() > 1) {
+    GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  }
   renderer.displayBuffer();
 }

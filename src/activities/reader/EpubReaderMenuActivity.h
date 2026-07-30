@@ -29,7 +29,8 @@ class EpubReaderMenuActivity final : public Activity {
     READING_SETTINGS,
     BOOK_INFO,
     OPEN_FROM_FILE,
-    TOGGLE_FAVORITE
+    TOGGLE_FAVORITE,
+    GESTURES
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,

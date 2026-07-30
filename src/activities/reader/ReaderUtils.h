@@ -6,12 +6,17 @@
 #include <Logging.h>
 
 #include "MappedInputManager.h"
+#include "util/HoldGestures.h"
 
 namespace ReaderUtils {
 
-constexpr unsigned long GO_HOME_MS = 1000;
+constexpr unsigned long GO_HOME_MS = HoldGestures::LONG_MS;
+// Deliberately not one of the two shared timings. Chapter skip shares its button
+// with the page turn -- the most frequent action in the product -- so the gap has
+// to be wide enough that a firm page-turn press cannot reach it. It is also
+// opt-in: longPressButtonBehavior defaults to OFF.
 constexpr unsigned long SKIP_HOLD_MS = 700;
-constexpr unsigned long BOOKMARK_HOLD_MS = 400;
+constexpr unsigned long BOOKMARK_HOLD_MS = HoldGestures::SHORT_MS;
 constexpr unsigned long BOOKMARK_MESSAGE_DURATION_MS = 2500;
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {

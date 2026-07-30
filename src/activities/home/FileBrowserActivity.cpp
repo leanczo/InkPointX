@@ -17,6 +17,7 @@
 #include "FileInfoActivity.h"
 #include "FolderPickerActivity.h"
 #include "MappedInputManager.h"
+#include "util/HoldGestures.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -25,7 +26,7 @@
 #include "util/BookCacheUtils.h"
 
 namespace {
-constexpr unsigned long GO_HOME_MS = 1000;
+constexpr unsigned long GO_HOME_MS = HoldGestures::LONG_MS;
 constexpr size_t NAME_BUFFER_SIZE = 500;
 
 bool isPathInside(const std::string& path, const std::string& parent) {

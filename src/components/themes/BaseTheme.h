@@ -108,6 +108,7 @@ enum UIIcon {
   Wifi,
   Hotspot,
   Bookmark,
+  Favorite,
   Interface,
   Power,
   Reading,
