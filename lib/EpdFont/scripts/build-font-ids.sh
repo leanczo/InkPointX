@@ -84,6 +84,9 @@ for logical_size in 10 12 14 16 18; do
   case "$logical_size" in
     10) raster_size=12 ;;
     12) raster_size=14 ;;
+    14) raster_size=16 ;;
+    16) raster_size=16 ;;
+    18) raster_size=16 ;;
     *) raster_size=$logical_size ;;
   esac
   echo "#define UI_${logical_size}_FONT_ID ($(
@@ -98,15 +101,15 @@ done
 echo "#define HEADER_FONT_ID ($(
 ruby -rdigest -e 'puts ([
   "UI_HEADER",
-  File.read("./ui_18_semibold.h"),
+  File.read("./ui_16_semibold.h"),
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
 echo "#define SMALL_FONT_ID ($(
 ruby -rdigest -e 'puts ([
   "UI_SMALL",
-  File.read("./ui_8_medium.h"),
-  File.read("./ui_8_semibold.h"),
+  File.read("./ui_10_medium.h"),
+  File.read("./ui_10_semibold.h"),
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 

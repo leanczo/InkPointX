@@ -117,6 +117,10 @@ EpdFont ui8MediumFont(&ui_8_medium);
 EpdFont ui8SemiBoldFont(&ui_8_semibold);
 EpdFontFamily ui8FontFamily(&ui8MediumFont, &ui8SemiBoldFont);
 
+EpdFont ui10MediumFont(&ui_10_medium);
+EpdFont ui10SemiBoldFont(&ui_10_semibold);
+EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
+
 EpdFont ui12MediumFont(&ui_12_medium);
 EpdFont ui12SemiBoldFont(&ui_12_semibold);
 EpdFontFamily ui12FontFamily(&ui12MediumFont, &ui12SemiBoldFont);
@@ -129,11 +133,8 @@ EpdFont ui16MediumFont(&ui_16_medium);
 EpdFont ui16SemiBoldFont(&ui_16_semibold);
 EpdFontFamily ui16FontFamily(&ui16MediumFont, &ui16SemiBoldFont);
 
-EpdFont ui18MediumFont(&ui_18_medium);
-EpdFont ui18SemiBoldFont(&ui_18_semibold);
-EpdFontFamily ui18FontFamily(&ui18MediumFont, &ui18SemiBoldFont);
 // Screen headings sit at the top of the scale.
-EpdFontFamily uiHeaderFontFamily(&ui18SemiBoldFont);
+EpdFontFamily uiHeaderFontFamily(&ui16SemiBoldFont);
 
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
@@ -183,13 +184,16 @@ void applyInterfaceFont() {
   // MICRO exists for one job: the keyboard's secondary key labels. That grid is
   // structurally dense (10 columns of single characters) and does not benefit from
   // larger type, so it keeps the size the rest of the interface has outgrown.
+  // The whole scale sits one step below the previous build (user request):
+  // captions 12->10, labels 14->12, row titles 16->14, headings and book
+  // titles 18->16. MICRO keeps 8. The 18 pt family is no longer linked.
   renderer.insertFont(MICRO_FONT_ID, ui8FontFamily);   // 8 px  — keyboard only
-  renderer.insertFont(SMALL_FONT_ID, ui12FontFamily);  // 12 px — legends, captions
-  renderer.insertFont(UI_10_FONT_ID, ui14FontFamily);  // 14 px — labels, values
-  renderer.insertFont(UI_12_FONT_ID, ui16FontFamily);  // 16 px — list row titles
-  renderer.insertFont(UI_14_FONT_ID, ui18FontFamily);  // 18 px — book titles
-  renderer.insertFont(UI_16_FONT_ID, ui18FontFamily);  // 18 px
-  renderer.insertFont(UI_18_FONT_ID, ui18FontFamily);  // 18 px
+  renderer.insertFont(SMALL_FONT_ID, ui10FontFamily);  // 10 px — legends, captions
+  renderer.insertFont(UI_10_FONT_ID, ui12FontFamily);  // 12 px — labels, values
+  renderer.insertFont(UI_12_FONT_ID, ui14FontFamily);  // 14 px — list row titles
+  renderer.insertFont(UI_14_FONT_ID, ui16FontFamily);  // 16 px — book titles
+  renderer.insertFont(UI_16_FONT_ID, ui16FontFamily);  // 16 px
+  renderer.insertFont(UI_18_FONT_ID, ui16FontFamily);  // 16 px
 }
 
 void silentRestart() {
@@ -312,7 +316,7 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
 #endif  // OMIT_FONTS
   applyInterfaceFont();
-  renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 18 px semibold
+  renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 16 px semibold
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);

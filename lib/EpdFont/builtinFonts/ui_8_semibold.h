@@ -3,7 +3,7 @@
  * name: ui_8_semibold
  * size: 8
  * mode: 1-bit
- * Command used: /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/fontconvert.py ui_8_semibold 8 /var/folders/41/dmt5d0mj489fv_f_gdgb3lym0000gn/T/tmp7_ikqfje/Inter-semibold-8.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/builtinFonts/source/NotoSansHebrew/NotoSansHebrew-Bold.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/downloaded_fonts/Inter/NotoNaskhArabic[wght].ttf --codepoints-file /Users/vans/InkPoint X/InkPointX-dev/build/ui-fonts/ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
+ * Command used: /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/fontconvert.py ui_8_semibold 8 /var/folders/41/dmt5d0mj489fv_f_gdgb3lym0000gn/T/tmpx9qadxyx/Inter-semibold-8.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/builtinFonts/source/NotoSansHebrew/NotoSansHebrew-Bold.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/downloaded_fonts/Inter/NotoNaskhArabic[wght].ttf --codepoints-file /Users/vans/InkPoint X/InkPointX-dev/build/ui-fonts/ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
  */
 #pragma once
 #include "EpdFontData.h"

@@ -108,7 +108,7 @@ std::string filenameWithoutExtension(const std::string& path) {
 
 int calculateHomeCoverSlotHeight(const GfxRenderer& renderer, const int titleLineCount, const bool hasAuthor) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_12_FONT_ID);
+  const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_14_FONT_ID);
   const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int authorBlockHeight = hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + captionLineHeight : 0;
   const int detailTailHeight = HOME_COVER_TO_TITLE_GAP + titleBlockHeight + authorBlockHeight + HOME_METADATA_GAP +
@@ -393,9 +393,9 @@ void HomeActivity::render(RenderLock&&) {
     // One step down from the old 18 pt: the title stays the anchor of the
     // screen, but no longer competes with the header.
     const auto titleLines =
-        renderer.wrappedText(UI_12_FONT_ID, displayTitle.c_str(), textWidth, 2, EpdFontFamily::BOLD);
+        renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(), textWidth, 2, EpdFontFamily::BOLD);
     const bool hasAuthor = hasRecentBook ? !recentBook->author.empty() : true;
-    const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+    const int titleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
     const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const int titleBlockHeight = std::max(1, static_cast<int>(titleLines.size())) * titleLineHeight;
     const int coverSlotHeight =
@@ -429,7 +429,7 @@ void HomeActivity::render(RenderLock&&) {
 
     const int titleTop = HOME_COVER_TOP + coverSlotHeight + HOME_COVER_TO_TITLE_GAP;
     for (size_t line = 0; line < titleLines.size(); ++line) {
-      renderer.drawCenteredText(UI_12_FONT_ID, titleTop + static_cast<int>(line) * titleLineHeight,
+      renderer.drawCenteredText(UI_14_FONT_ID, titleTop + static_cast<int>(line) * titleLineHeight,
                                 titleLines[line].c_str(), true, EpdFontFamily::BOLD);
     }
     int detailCursorY = titleTop + titleBlockHeight;

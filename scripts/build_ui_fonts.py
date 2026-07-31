@@ -74,7 +74,7 @@ WEIGHTS = {"medium": 500, "semibold": 600}
 # static weights are paired with the two Inter weights.
 HEBREW_FALLBACKS = {"medium": "NotoSansHebrew-Regular.ttf", "semibold": "NotoSansHebrew-Bold.ttf"}
 
-SIZES = (8, 12, 14, 16, 18)
+SIZES = (8, 10, 12, 14, 16)
 
 # Invisible characters the renderer and bidi layer emit at runtime; they never
 # appear in a translation file but must still have a glyph slot.
@@ -197,7 +197,7 @@ def select_converter_python() -> str:
 def build_signature(codepoints: set[int], font_paths: dict[str, Path]) -> str:
     digest = hashlib.sha256()
     digest.update(b"inter-ui-subsets-v1\0")
-    digest.update(b"sizes=8,12,14,16,18;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
+    digest.update(b"sizes=8,10,12,14,16;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
                 b"wght=500/600;opsz=size;fallback=hebrew+arabic\0")
     for codepoint in sorted(codepoints):
         digest.update(codepoint.to_bytes(4, "little"))
