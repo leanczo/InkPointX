@@ -33,15 +33,17 @@ constexpr int HOME_COVER_SOURCE_HEIGHT = 402;
 constexpr int HOME_COVER_MAX_WIDTH = 280;
 constexpr int HOME_COVER_MIN_HEIGHT = 160;
 constexpr int HOME_COVER_RADIUS = 14;
-constexpr int HOME_COVER_TO_TITLE_GAP = 12;
-constexpr int HOME_TITLE_TO_AUTHOR_GAP = 3;
-constexpr int HOME_METADATA_GAP = 8;
-constexpr int HOME_PROGRESS_BAR_GAP = 6;
-constexpr int HOME_PROGRESS_BAR_THICKNESS = 2;
-constexpr int HOME_PROGRESS_TO_TIME_GAP = 11;
-constexpr int HOME_TIME_TO_ACTION_GAP = 12;
+// The gaps grew and the data rows shrank in the calm-down pass: the old
+// layout stacked five near-equal text rows with 3-12 px between them, which
+// read as one cramped block. Freed height goes to the cover.
+constexpr int HOME_COVER_TO_TITLE_GAP = 22;
+constexpr int HOME_TITLE_TO_AUTHOR_GAP = 6;
+constexpr int HOME_METADATA_GAP = 18;
+constexpr int HOME_PROGRESS_BAR_GAP = 8;
+constexpr int HOME_PROGRESS_BAR_THICKNESS = 6;
+constexpr int HOME_TIME_TO_ACTION_GAP = 22;
 constexpr int HOME_ACTION_SIDE_MARGIN = 20;
-constexpr int HOME_CONTINUE_HEIGHT = 66;
+constexpr int HOME_CONTINUE_HEIGHT = 56;
 constexpr int HOME_DOTS_TOP_OFFSET = 50;
 constexpr int HOME_DOTS_CLEARANCE = 22;
 constexpr int HOME_ACTION_EDGE_PADDING = 18;
@@ -50,24 +52,20 @@ constexpr int HOME_ACTION_ICON_GAP = 12;
 void drawHomeActionRow(const GfxRenderer& renderer, const Rect rect, const char* label) {
   GUI.drawSelection(renderer, rect);
 
-  constexpr int leadingIconSize = 32;
+  // Label centred in the pill, chevron at the trailing edge. The old leading
+  // book icon repeated what the cover above already says and added weight to
+  // an area the user reported as overloaded.
   constexpr int accessorySize = 24;
   const bool rtl = BidiUtils::startsWithRtl(label);
   const int centerY = rect.y + rect.height / 2;
-  const int leadingIconX =
-      rtl ? rect.x + rect.width - HOME_ACTION_EDGE_PADDING - leadingIconSize : rect.x + HOME_ACTION_EDGE_PADDING;
   const int accessoryX =
       rtl ? rect.x + HOME_ACTION_EDGE_PADDING : rect.x + rect.width - HOME_ACTION_EDGE_PADDING - accessorySize;
-  const int textLeft = rtl ? accessoryX + accessorySize + HOME_ACTION_ICON_GAP
-                           : leadingIconX + leadingIconSize + HOME_ACTION_ICON_GAP;
-  const int textRight = rtl ? leadingIconX - HOME_ACTION_ICON_GAP : accessoryX - HOME_ACTION_ICON_GAP;
-  const int textWidth = std::max(0, textRight - textLeft);
+  const int textWidth = std::max(0, rect.width - (HOME_ACTION_EDGE_PADDING + accessorySize + HOME_ACTION_ICON_GAP) * 2);
   const auto text = renderer.truncatedText(UI_10_FONT_ID, label, textWidth, EpdFontFamily::BOLD);
   const int renderedTextWidth = renderer.getTextWidth(UI_10_FONT_ID, text.c_str(), EpdFontFamily::BOLD);
-  const int textX = rtl ? textRight - renderedTextWidth : textLeft;
+  const int textX = rect.x + (rect.width - renderedTextWidth) / 2;
   const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
 
-  renderer.drawIcon(LucideBookOpen32, leadingIconX, centerY - leadingIconSize / 2, leadingIconSize, leadingIconSize);
   renderer.drawText(UI_10_FONT_ID, textX, textY, text.c_str(), true, EpdFontFamily::BOLD);
   renderer.drawIcon(rtl ? LucideChevronLeft24 : LucideChevronRight24, accessoryX, centerY - accessorySize / 2,
                     accessorySize, accessorySize);
@@ -110,13 +108,12 @@ std::string filenameWithoutExtension(const std::string& path) {
 
 int calculateHomeCoverSlotHeight(const GfxRenderer& renderer, const int titleLineCount, const bool hasAuthor) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_14_FONT_ID);
-  const int metadataLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int authorBlockHeight = hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + metadataLineHeight : 0;
-  const int detailTailHeight =
-      HOME_COVER_TO_TITLE_GAP + titleBlockHeight + authorBlockHeight + HOME_METADATA_GAP + metadataLineHeight +
-      HOME_PROGRESS_BAR_GAP + HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_TO_TIME_GAP + metadataLineHeight +
-      HOME_TIME_TO_ACTION_GAP + HOME_CONTINUE_HEIGHT;
+  const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_12_FONT_ID);
+  const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int authorBlockHeight = hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + captionLineHeight : 0;
+  const int detailTailHeight = HOME_COVER_TO_TITLE_GAP + titleBlockHeight + authorBlockHeight + HOME_METADATA_GAP +
+                               HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_BAR_GAP + captionLineHeight +
+                               HOME_TIME_TO_ACTION_GAP + HOME_CONTINUE_HEIGHT;
   const int dotsY = renderer.getScreenHeight() - metrics.buttonHintsHeight - HOME_DOTS_TOP_OFFSET;
   const int safeDetailsBottom = dotsY - HOME_DOTS_CLEARANCE;
   return std::max(HOME_COVER_MIN_HEIGHT,
@@ -393,11 +390,13 @@ void HomeActivity::render(RenderLock&&) {
             ? (recentBook->title.empty() ? filenameWithoutExtension(recentBook->path) : recentBook->title)
             : std::string(tr(STR_NO_OPEN_BOOK));
     const int textWidth = pageWidth - HOME_CONTENT_MARGIN * 2;
+    // One step down from the old 18 pt: the title stays the anchor of the
+    // screen, but no longer competes with the header.
     const auto titleLines =
-        renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(), textWidth, 2, EpdFontFamily::BOLD);
+        renderer.wrappedText(UI_12_FONT_ID, displayTitle.c_str(), textWidth, 2, EpdFontFamily::BOLD);
     const bool hasAuthor = hasRecentBook ? !recentBook->author.empty() : true;
-    const int titleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
-    const int metadataLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+    const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const int titleBlockHeight = std::max(1, static_cast<int>(titleLines.size())) * titleLineHeight;
     const int coverSlotHeight =
         calculateHomeCoverSlotHeight(renderer, static_cast<int>(titleLines.size()), hasAuthor);
@@ -430,16 +429,16 @@ void HomeActivity::render(RenderLock&&) {
 
     const int titleTop = HOME_COVER_TOP + coverSlotHeight + HOME_COVER_TO_TITLE_GAP;
     for (size_t line = 0; line < titleLines.size(); ++line) {
-      renderer.drawCenteredText(UI_14_FONT_ID, titleTop + static_cast<int>(line) * titleLineHeight,
+      renderer.drawCenteredText(UI_12_FONT_ID, titleTop + static_cast<int>(line) * titleLineHeight,
                                 titleLines[line].c_str(), true, EpdFontFamily::BOLD);
     }
     int detailCursorY = titleTop + titleBlockHeight;
     if (hasAuthor) {
       detailCursorY += HOME_TITLE_TO_AUTHOR_GAP;
       const char* authorLabel = hasRecentBook ? recentBook->author.c_str() : tr(STR_OPEN_LIBRARY_HINT);
-      const std::string author = renderer.truncatedText(UI_10_FONT_ID, authorLabel, textWidth);
-      renderer.drawCenteredText(UI_10_FONT_ID, detailCursorY, author.c_str());
-      detailCursorY += metadataLineHeight;
+      const std::string author = renderer.truncatedText(SMALL_FONT_ID, authorLabel, textWidth);
+      renderer.drawCenteredText(SMALL_FONT_ID, detailCursorY, author.c_str());
+      detailCursorY += captionLineHeight;
     }
     detailCursorY += HOME_METADATA_GAP;
 
@@ -455,55 +454,46 @@ void HomeActivity::render(RenderLock&&) {
                static_cast<unsigned long>(totalMinutes));
     }
 
-    // With no book yet, the progress figure, the rule and the reading-time line
-    // have nothing to report. Drawing "-", "-" and an empty 0% rule made the
-    // first screen a new device shows look broken; leave the bands empty instead
-    // so the vertical rhythm — and the action button's position — is unchanged.
-    char progressSummary[64] = "";
-    if (!recentBooks.empty() && readingSummary.totalPages > 0) {
-      snprintf(progressSummary, sizeof(progressSummary), "%u%%  ·  %lu / %lu", readingSummary.progressPercent,
-               static_cast<unsigned long>(readingSummary.currentPage),
-               static_cast<unsigned long>(readingSummary.totalPages));
-    } else if (!recentBooks.empty() && readingSummary.currentPage > 0) {
-      snprintf(progressSummary, sizeof(progressSummary), "%u%%  ·  %lu", readingSummary.progressPercent,
-               static_cast<unsigned long>(readingSummary.currentPage));
-    } else if (!recentBooks.empty()) {
-      snprintf(progressSummary, sizeof(progressSummary), "%u%%", readingSummary.progressPercent);
-    }
-    const std::string progressLine =
-        renderer.truncatedText(UI_10_FONT_ID, progressSummary, pageWidth - HOME_CONTENT_MARGIN * 2);
-    const int progressTextTop = detailCursorY;
-    renderer.drawCenteredText(UI_10_FONT_ID, progressTextTop, progressLine.c_str());
-
-    // Inset the rule to the same content margin as the title, author and action
-    // row above and below it, instead of a hardcoded 52 px that also assumed a
-    // 480 px panel.
+    // One data band instead of three near-title-sized rows: the bar carries
+    // the shape, one small caption row under it carries the numbers —
+    // progress on one side, invested time on the other. With no book yet the
+    // band stays empty so the action button's position is unchanged.
     const int progressX = HOME_ACTION_SIDE_MARGIN;
     const int progressWidth = pageWidth - HOME_ACTION_SIDE_MARGIN * 2;
-    const int progressBarTop = progressTextTop + metadataLineHeight + HOME_PROGRESS_BAR_GAP;
+    const int progressBarTop = detailCursorY;
     if (hasRecentBook) {
-      for (int x = progressX; x <= progressX + progressWidth; x += 2) {
-        renderer.drawPixel(x, progressBarTop, true);
-      }
+      renderer.fillRoundedRect(progressX, progressBarTop, progressWidth, HOME_PROGRESS_BAR_THICKNESS,
+                               HOME_PROGRESS_BAR_THICKNESS / 2, Color::LightGray);
       const int progressFillWidth =
           std::clamp(progressWidth * static_cast<int>(readingSummary.progressPercent) / 100, 0, progressWidth);
-      if (progressFillWidth > 0) {
-        renderer.drawLine(progressX, progressBarTop, progressX + progressFillWidth, progressBarTop,
-                          HOME_PROGRESS_BAR_THICKNESS, true);
+      if (progressFillWidth >= HOME_PROGRESS_BAR_THICKNESS) {
+        renderer.fillRoundedRect(progressX, progressBarTop, progressFillWidth, HOME_PROGRESS_BAR_THICKNESS,
+                                 HOME_PROGRESS_BAR_THICKNESS / 2, Color::Black);
       }
     }
 
-    char readingLine[96] = "";
-    if (!recentBooks.empty()) {
-      snprintf(readingLine, sizeof(readingLine), "%s: %s", tr(STR_READING_TIME), readingTimeText);
+    const int captionTop = progressBarTop + HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_BAR_GAP;
+    if (hasRecentBook) {
+      // All the numbers in one quiet centred line under the bar. The
+      // "Reading time:" label is dropped — after percent and pages, a
+      // duration reads unambiguously as time spent.
+      char caption[96] = "";
+      if (readingSummary.totalPages > 0) {
+        snprintf(caption, sizeof(caption), "%u%% · %lu / %lu · %s", readingSummary.progressPercent,
+                 static_cast<unsigned long>(readingSummary.currentPage),
+                 static_cast<unsigned long>(readingSummary.totalPages), readingTimeText);
+      } else if (readingSummary.currentPage > 0) {
+        snprintf(caption, sizeof(caption), "%u%% · %lu · %s", readingSummary.progressPercent,
+                 static_cast<unsigned long>(readingSummary.currentPage), readingTimeText);
+      } else {
+        snprintf(caption, sizeof(caption), "%u%% · %s", readingSummary.progressPercent, readingTimeText);
+      }
+      const std::string captionText = renderer.truncatedText(SMALL_FONT_ID, caption, progressWidth);
+      renderer.drawCenteredText(SMALL_FONT_ID, captionTop, captionText.c_str());
     }
-    const std::string readingText =
-        renderer.truncatedText(UI_10_FONT_ID, readingLine, pageWidth - HOME_CONTENT_MARGIN * 2);
-    const int readingTimeTop = progressBarTop + HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_TO_TIME_GAP;
-    renderer.drawCenteredText(UI_10_FONT_ID, readingTimeTop, readingText.c_str());
 
     const char* continueLabel = recentBooks.empty() ? tr(STR_START_READING) : tr(STR_CONTINUE_READING);
-    const int continueTop = readingTimeTop + metadataLineHeight + HOME_TIME_TO_ACTION_GAP;
+    const int continueTop = captionTop + captionLineHeight + HOME_TIME_TO_ACTION_GAP;
     const Rect continueRect{HOME_ACTION_SIDE_MARGIN, continueTop, pageWidth - HOME_ACTION_SIDE_MARGIN * 2,
                             HOME_CONTINUE_HEIGHT};
     drawHomeActionRow(renderer, continueRect, continueLabel);
