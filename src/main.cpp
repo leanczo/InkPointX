@@ -119,10 +119,11 @@ EpdFontFamily ui8FontFamily(&ui8MediumFont, &ui8SemiBoldFont);
 
 EpdFont ui10MediumFont(&ui_10_medium);
 EpdFont ui10SemiBoldFont(&ui_10_semibold);
-// The caption size carries the one italic face in the interface (Home's
-// author line). BOLD_ITALIC falls back to the same face.
-EpdFont ui10ItalicFont(&ui_10_mediumitalic);
-EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont, &ui10ItalicFont, &ui10ItalicFont);
+EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
+// Handwritten accent face (Caveat 600): the Home author line. Single face —
+// the script IS the emphasis, it has no bold/italic variants.
+EpdFont uiScriptFont(&ui_script_20);
+EpdFontFamily uiScriptFontFamily(&uiScriptFont);
 
 EpdFont ui12MediumFont(&ui_12_medium);
 EpdFont ui12SemiBoldFont(&ui_12_semibold);
@@ -320,6 +321,7 @@ void setupDisplayAndFonts(bool seamless = false) {
 #endif  // OMIT_FONTS
   applyInterfaceFont();
   renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 16 px semibold
+  renderer.insertFont(SCRIPT_FONT_ID, uiScriptFontFamily);  // 20 px handwritten — Home author line
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);

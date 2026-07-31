@@ -105,6 +105,13 @@ ruby -rdigest -e 'puts ([
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
+echo "#define SCRIPT_FONT_ID ($(
+ruby -rdigest -e 'puts ([
+  "UI_SCRIPT",
+  File.read("./ui_script_20.h"),
+].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
+))"
+
 echo "#define SMALL_FONT_ID ($(
 ruby -rdigest -e 'puts ([
   "UI_SMALL",
@@ -127,6 +134,6 @@ echo "// Guard against any hash accidentally producing 0."
 for font_id in \
   NOTOSERIF_12 NOTOSERIF_14 NOTOSERIF_16 NOTOSERIF_18 \
   NOTOSANS_12 NOTOSANS_14 NOTOSANS_16 NOTOSANS_18 \
-  UI_10 UI_12 UI_14 UI_16 UI_18 HEADER SMALL MICRO; do
+  UI_10 UI_12 UI_14 UI_16 UI_18 HEADER SMALL MICRO SCRIPT; do
   echo "static_assert(${font_id}_FONT_ID != 0, \"Font ID collision with sentinel\");"
 done

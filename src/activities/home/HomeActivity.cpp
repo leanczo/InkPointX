@@ -110,7 +110,8 @@ int calculateHomeCoverSlotHeight(const GfxRenderer& renderer, const int titleLin
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_14_FONT_ID);
   const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  const int authorBlockHeight = hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + captionLineHeight : 0;
+  const int authorBlockHeight =
+      hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + renderer.getLineHeight(SCRIPT_FONT_ID) : 0;
   const int detailTailHeight = HOME_COVER_TO_TITLE_GAP + titleBlockHeight + authorBlockHeight + HOME_METADATA_GAP +
                                HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_BAR_GAP + captionLineHeight +
                                HOME_TIME_TO_ACTION_GAP + HOME_CONTINUE_HEIGHT;
@@ -445,10 +446,9 @@ void HomeActivity::render(RenderLock&&) {
     if (hasAuthor) {
       detailCursorY += HOME_TITLE_TO_AUTHOR_GAP;
       const char* authorLabel = hasRecentBook ? recentBook->author.c_str() : tr(STR_OPEN_LIBRARY_HINT);
-      const std::string author =
-          renderer.truncatedText(SMALL_FONT_ID, authorLabel, textWidth, EpdFontFamily::ITALIC);
-      renderer.drawCenteredText(SMALL_FONT_ID, detailCursorY, author.c_str(), true, EpdFontFamily::ITALIC);
-      detailCursorY += captionLineHeight;
+      const std::string author = renderer.truncatedText(SCRIPT_FONT_ID, authorLabel, textWidth);
+      renderer.drawCenteredText(SCRIPT_FONT_ID, detailCursorY, author.c_str());
+      detailCursorY += renderer.getLineHeight(SCRIPT_FONT_ID);
     }
     detailCursorY += HOME_METADATA_GAP;
 

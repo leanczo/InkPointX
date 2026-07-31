@@ -9,14 +9,15 @@
 #define NOTOSANS_14_FONT_ID (1922852609)
 #define NOTOSANS_16_FONT_ID (-1573714306)
 #define NOTOSANS_18_FONT_ID (-561755375)
-#define UI_10_FONT_ID (-1992731280)
-#define UI_12_FONT_ID (-1000961060)
-#define UI_14_FONT_ID (35114480)
-#define UI_16_FONT_ID (-1544264745)
-#define UI_18_FONT_ID (517562511)
-#define HEADER_FONT_ID (-652916048)
-#define SMALL_FONT_ID (867117741)
-#define MICRO_FONT_ID (-835860914)
+#define UI_10_FONT_ID (1294041586)
+#define UI_12_FONT_ID (-696267928)
+#define UI_14_FONT_ID (301173557)
+#define UI_16_FONT_ID (-1278205668)
+#define UI_18_FONT_ID (783621588)
+#define HEADER_FONT_ID (1840443878)
+#define SCRIPT_FONT_ID (-488229807)
+#define SMALL_FONT_ID (1283580488)
+#define MICRO_FONT_ID (-1713818703)
 
 // Font ID 0 is reserved as the "not found" sentinel.
 // Guard against any hash accidentally producing 0.
@@ -36,3 +37,4 @@ static_assert(UI_18_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(HEADER_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(SMALL_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(MICRO_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(SCRIPT_FONT_ID != 0, "Font ID collision with sentinel");

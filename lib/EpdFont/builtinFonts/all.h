@@ -4,7 +4,7 @@
 #include <builtinFonts/ui_8_semibold.h>
 #include <builtinFonts/ui_10_medium.h>
 #include <builtinFonts/ui_10_semibold.h>
-#include <builtinFonts/ui_10_mediumitalic.h>
+#include <builtinFonts/ui_script_20.h>
 #include <builtinFonts/ui_12_medium.h>
 #include <builtinFonts/ui_12_semibold.h>
 #include <builtinFonts/ui_14_medium.h>
