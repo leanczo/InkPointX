@@ -424,7 +424,16 @@ void HomeActivity::render(RenderLock&&) {
     }
 
     if (!coverDrawn) {
-      renderer.drawIcon(LucideBookOpen32, pageWidth / 2 - 12, HOME_COVER_TOP + coverSlotHeight / 2 - 12, 24, 24);
+      // Ghost cover for books without one: the same footprint, corner radius
+      // and outline as a real thumbnail, so the page keeps its structure
+      // instead of showing a screen-sized void. The old fallback drew the
+      // 32 px icon scaled to 24 px, which misaligns the bitmap's rows and
+      // rendered as noise.
+      const int ghostHeight = coverSlotHeight;
+      const int ghostWidth = std::min(HOME_COVER_MAX_WIDTH, ghostHeight * 2 / 3);
+      const int ghostX = (pageWidth - ghostWidth) / 2;
+      renderer.drawRoundedRect(ghostX, HOME_COVER_TOP, ghostWidth, ghostHeight, 1, HOME_COVER_RADIUS, true);
+      renderer.drawIcon(LucideBookOpen32, pageWidth / 2 - 16, HOME_COVER_TOP + ghostHeight / 2 - 16, 32, 32);
     }
 
     const int titleTop = HOME_COVER_TOP + coverSlotHeight + HOME_COVER_TO_TITLE_GAP;
