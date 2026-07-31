@@ -1141,3 +1141,45 @@ Applied after the all-screens audit:
   Russian additionally got ~60 row/header/value strings shortened to their
   measured lanes. Other locales still ellipsize gracefully on a few rows —
   candidate for a follow-up sweep with the same script.
+
+## Release 2.0.0 and OTA verification — 2026-07-31
+
+Version bumped to 2.0.0, pushed to `dev`, and published as a GitHub release
+with a CI-built `firmware.bin`.
+
+### Why releases used to be manual
+
+Every workflow that builds firmware runs `scripts/build_ui_fonts.py` as a
+PlatformIO pre-build step, and none of them installed its dependencies:
+
+    RuntimeError: UI font generation requires freetype-py and fonttools.
+
+The release job therefore failed before compiling anything, which is why
+tags produced nothing and releases were created by hand. Fixed in the three
+jobs that build firmware; the release job now publishes the release itself
+(idempotently, since `gh release create` also creates the tag and re-fires
+the workflow).
+
+### OTA verified against the real release
+
+Staged a debug build labelled v1.9.0 on the device and triggered the updater
+through a new `PROFILE_OTA` serial route (LOG_LEVEL>=2 only). Live log:
+
+    [OTA] Checking for update (current: v1.9.0)
+    [OTA] Parser results: tag=yes firmware=yes
+    [OTA] Found update: tag=v2.0.0 size=5897216
+    [OTA] Firmware URL: .../releases/download/v2.0.0/firmware.bin
+
+The reported size matches the published asset byte for byte, and the
+semantic comparison correctly treats 2.0.0 as newer than 1.9.0. WiFi
+auto-connect from a saved credential worked without user input.
+
+The download-and-install leg stops at a deliberate confirmation prompt and
+needs a physical button press, so it was not exercised here. The published
+asset was instead downloaded and flashed over USB, and boots and renders
+correctly — so the exact bytes users receive are verified, just not the
+transport that delivers them.
+
+Note: the firmware is not byte-reproducible (ESP-IDF embeds a build
+timestamp), so the release asset is intentionally the CI-built binary rather
+than a local build.
