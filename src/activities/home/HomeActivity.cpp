@@ -513,8 +513,12 @@ void HomeActivity::render(RenderLock&&) {
                             HOME_CONTINUE_HEIGHT};
     drawHomeActionRow(renderer, continueRect, continueLabel);
   } else {
+    // All three Home pages speak with the same handwritten voice — the hub
+    // headers are part of "home", not navigation chrome. The actual Library
+    // and Settings screens keep their structural headers.
     const char* header = pageIndex == 1 ? tr(STR_LIBRARY) : tr(STR_SETTINGS_TITLE);
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, header);
+    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, nullptr);
+    renderer.drawText(SCRIPT_FONT_ID, metrics.contentSidePadding, metrics.topPadding + 4, header);
 
     constexpr std::array<UIIcon, 4> libraryIcons = {UIIcon::Book, UIIcon::Folder, UIIcon::Image, UIIcon::Favorite};
     const std::array<const char*, 4> libraryLabels = {tr(STR_BOOKS), tr(STR_FILES), tr(STR_GALLERY), tr(STR_FAVORITES)};
@@ -538,8 +542,8 @@ void HomeActivity::render(RenderLock&&) {
           [&](const int index) { return libraryIcons[index]; });
 
       const int transferHeaderTop = contentTop + 4 * (metrics.menuRowHeight + metrics.menuSpacing);
-      GUI.drawHeader(renderer, Rect{0, transferHeaderTop, pageWidth, metrics.headerHeight},
-                     tr(STR_TRANSFER_SECTION));
+      GUI.drawHeader(renderer, Rect{0, transferHeaderTop, pageWidth, metrics.headerHeight}, nullptr);
+      renderer.drawText(SCRIPT_FONT_ID, metrics.contentSidePadding, transferHeaderTop + 4, tr(STR_TRANSFER_SECTION));
       const int transferTop = transferHeaderTop + metrics.headerHeight + metrics.verticalSpacing;
       // Titles only. The one-line descriptions never fit a Cyrillic or other
       // wide-script locale in the space a subtitle row leaves after the icon and

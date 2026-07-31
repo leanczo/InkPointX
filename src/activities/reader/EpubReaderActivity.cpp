@@ -1103,7 +1103,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   // Show end of book screen
   if (currentSpineIndex == epub->getSpineItemsCount()) {
     renderer.clearScreen();
-    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK));
+    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK), /*script=*/true);
     // Not a reading page, so the no-legend rule does not apply — and one of
     // these buttons silently leaves the book, which deserves a warning.
     const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));

@@ -139,7 +139,8 @@ void RecentBooksActivity::render(RenderLock&&) {
 
   // Recent tab
   if (recentBooks.empty()) {
-    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_RECENT_BOOKS));
+    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_RECENT_BOOKS), nullptr,
+                       /*script=*/true);
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, recentBooks.size(), selectorIndex,

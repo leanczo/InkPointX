@@ -264,7 +264,8 @@ void LibraryActivity::render(RenderLock&&) {
   const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, !books.empty()) - contentTop);
   if (books.empty()) {
     GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight},
-                       mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND));
+                       mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND), nullptr,
+                       /*script=*/true);
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(books.size()),

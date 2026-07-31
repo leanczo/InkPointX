@@ -406,7 +406,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   if (atEndOfBook) {
     renderer.clearScreen();
-    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK));
+    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK), /*script=*/true);
     const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();

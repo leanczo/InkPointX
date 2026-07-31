@@ -572,26 +572,33 @@ void BaseTheme::drawDivider(const GfxRenderer& renderer, const int x1, const int
 }
 
 void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, const char* message,
-                               const char* detail) const {
+                               const char* detail, const bool script) const {
   if (!message || message[0] == '\0' || content.height <= 0) return;
+  const int messageFontId = script ? SCRIPT_FONT_ID : UI_10_FONT_ID;
   const int maxWidth = std::max(0, content.width - BaseMetrics::values.contentSidePadding * 2);
-  auto lines = renderer.wrappedText(UI_10_FONT_ID, message, maxWidth, 3);
-  if (lines.empty()) return;
+  auto messageLines = renderer.wrappedText(messageFontId, message, maxWidth, 3);
+  if (messageLines.empty()) return;
 
-  const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int messageLineHeight = renderer.getLineHeight(messageFontId);
+  const int detailLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  std::vector<std::string> detailLines;
   if (detail && detail[0] != '\0') {
-    for (auto& line : renderer.wrappedText(UI_10_FONT_ID, detail, maxWidth, 2)) {
-      lines.push_back(line);
-    }
+    detailLines = renderer.wrappedText(UI_10_FONT_ID, detail, maxWidth, 2);
   }
-  const int blockHeight = static_cast<int>(lines.size()) * lineHeight;
+  const int blockHeight = static_cast<int>(messageLines.size()) * messageLineHeight +
+                          static_cast<int>(detailLines.size()) * detailLineHeight;
   // Sit slightly above the middle: a block centred exactly reads as low on a tall
   // portrait panel with a header above it.
   int lineY = content.y + std::max(0, (content.height - blockHeight) * 2 / 5);
-  for (const auto& line : lines) {
+  for (const auto& line : messageLines) {
+    const int lineWidth = renderer.getTextWidth(messageFontId, line.c_str());
+    renderer.drawText(messageFontId, content.x + (content.width - lineWidth) / 2, lineY, line.c_str());
+    lineY += messageLineHeight;
+  }
+  for (const auto& line : detailLines) {
     const int lineWidth = renderer.getTextWidth(UI_10_FONT_ID, line.c_str());
     renderer.drawText(UI_10_FONT_ID, content.x + (content.width - lineWidth) / 2, lineY, line.c_str());
-    lineY += lineHeight;
+    lineY += detailLineHeight;
   }
 }
 
@@ -802,19 +809,22 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   }
 }
 
-void BaseTheme::drawReaderMessage(const GfxRenderer& renderer, const char* message) const {
+void BaseTheme::drawReaderMessage(const GfxRenderer& renderer, const char* message, const bool script) const {
   if (!message || message[0] == '\0') return;
+  // script styles the end-of-book moment; error messages stay structural.
+  const int fontId = script ? SCRIPT_FONT_ID : UI_12_FONT_ID;
+  const auto style = script ? EpdFontFamily::REGULAR : EpdFontFamily::BOLD;
   const int maxWidth = std::max(0, renderer.getScreenWidth() - BaseMetrics::values.contentSidePadding * 2);
-  const auto lines = renderer.wrappedText(UI_12_FONT_ID, message, maxWidth, 3, EpdFontFamily::BOLD);
+  const auto lines = renderer.wrappedText(fontId, message, maxWidth, 3, style);
   if (lines.empty()) return;
 
-  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int lineHeight = renderer.getLineHeight(fontId);
   // Measured against the live viewport, so this stays centred in every orientation
   // and shifts with the reader's status bar instead of ignoring it.
   const int available = renderer.getScreenHeight() - UITheme::getStatusBarHeight();
   int y = std::max(0, (available - static_cast<int>(lines.size()) * lineHeight) / 2);
   for (const auto& line : lines) {
-    renderer.drawCenteredText(UI_12_FONT_ID, y, line.c_str(), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(fontId, y, line.c_str(), true, style);
     y += lineHeight;
   }
 }

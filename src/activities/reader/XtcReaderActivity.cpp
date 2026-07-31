@@ -125,7 +125,7 @@ void XtcReaderActivity::render(RenderLock&&) {
   if (currentPage >= xtc->getPageCount()) {
     // Show end of book screen
     renderer.clearScreen();
-    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK));
+    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK), /*script=*/true);
     // Same legend as the EPUB end screen: forward leaves the book, back
     // returns to the last page — say so.
     const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));

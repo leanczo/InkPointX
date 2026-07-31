@@ -748,7 +748,8 @@ void FileBrowserActivity::render(RenderLock&&) {
       pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
   if (files.empty()) {
     const char* emptyMsg = (mode == Mode::PickFirmware) ? tr(STR_NO_BIN_FILES) : tr(STR_NO_FILES_FOUND);
-    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, emptyMsg);
+    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, emptyMsg, nullptr,
+                       /*script=*/mode != Mode::PickFirmware);
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,

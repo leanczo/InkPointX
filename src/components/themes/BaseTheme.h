@@ -253,12 +253,14 @@ class BaseTheme {
   // "Nothing here" and "something went wrong" are the same shape: a centred line,
   // optionally with an explanation under it. One primitive rather than each screen
   // centring on pageHeight / 2 with its own hand-picked offsets.
+  // script=true sets the message in the handwritten accent face — for empty
+  // collections ("no favorites yet"), never for errors.
   virtual void drawEmptyState(const GfxRenderer& renderer, Rect content, const char* message,
-                              const char* detail = nullptr) const;
+                              const char* detail = nullptr, bool script = false) const;
   // A single line the reader has to notice: end of book, empty chapter, page load
   // failure. Centred in the current viewport rather than at a fixed Y, which was
   // above centre in portrait and near the bottom edge in landscape.
-  void drawReaderMessage(const GfxRenderer& renderer, const char* message) const;
+  void drawReaderMessage(const GfxRenderer& renderer, const char* message, bool script = false) const;
 
   // Shared constants and helpers for battery drawing (used by all themes)
   static constexpr int batteryPercentSpacing = 4;
