@@ -119,7 +119,10 @@ EpdFontFamily ui8FontFamily(&ui8MediumFont, &ui8SemiBoldFont);
 
 EpdFont ui10MediumFont(&ui_10_medium);
 EpdFont ui10SemiBoldFont(&ui_10_semibold);
-EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
+// The caption size carries the one italic face in the interface (Home's
+// author line). BOLD_ITALIC falls back to the same face.
+EpdFont ui10ItalicFont(&ui_10_mediumitalic);
+EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont, &ui10ItalicFont, &ui10ItalicFont);
 
 EpdFont ui12MediumFont(&ui_12_medium);
 EpdFont ui12SemiBoldFont(&ui_12_semibold);

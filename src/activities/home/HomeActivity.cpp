@@ -445,8 +445,9 @@ void HomeActivity::render(RenderLock&&) {
     if (hasAuthor) {
       detailCursorY += HOME_TITLE_TO_AUTHOR_GAP;
       const char* authorLabel = hasRecentBook ? recentBook->author.c_str() : tr(STR_OPEN_LIBRARY_HINT);
-      const std::string author = renderer.truncatedText(SMALL_FONT_ID, authorLabel, textWidth);
-      renderer.drawCenteredText(SMALL_FONT_ID, detailCursorY, author.c_str());
+      const std::string author =
+          renderer.truncatedText(SMALL_FONT_ID, authorLabel, textWidth, EpdFontFamily::ITALIC);
+      renderer.drawCenteredText(SMALL_FONT_ID, detailCursorY, author.c_str(), true, EpdFontFamily::ITALIC);
       detailCursorY += captionLineHeight;
     }
     detailCursorY += HOME_METADATA_GAP;

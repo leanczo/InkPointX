@@ -57,6 +57,15 @@ INTER_SOURCE = {
     "filename": "Inter[opsz,wght].ttf",
 }
 
+INTER_ITALIC_SOURCE = {
+    "url": (
+        "https://raw.githubusercontent.com/google/fonts/"
+        f"{GOOGLE_FONTS_REVISION}/ofl/inter/Inter-Italic%5Bopsz%2Cwght%5D.ttf"
+    ),
+    "sha256": "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6",
+    "filename": "Inter-Italic[opsz,wght].ttf",
+}
+
 ARABIC_FALLBACK_SOURCE = {
     "url": (
         "https://raw.githubusercontent.com/google/fonts/"
@@ -197,7 +206,7 @@ def select_converter_python() -> str:
 def build_signature(codepoints: set[int], font_paths: dict[str, Path]) -> str:
     digest = hashlib.sha256()
     digest.update(b"inter-ui-subsets-v1\0")
-    digest.update(b"sizes=8,10,12,14,16;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
+    digest.update(b"sizes=8,10,12,14,16;italic=10;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
                 b"wght=500/600;opsz=size;fallback=hebrew+arabic\0")
     for codepoint in sorted(codepoints):
         digest.update(codepoint.to_bytes(4, "little"))
@@ -295,6 +304,8 @@ def main() -> None:
     download_verified(INTER_SOURCE["url"], inter_source, INTER_SOURCE["sha256"])
     arabic_source = FONT_CACHE_DIR / ARABIC_FALLBACK_SOURCE["filename"]
     download_verified(ARABIC_FALLBACK_SOURCE["url"], arabic_source, ARABIC_FALLBACK_SOURCE["sha256"])
+    inter_italic_source = FONT_CACHE_DIR / INTER_ITALIC_SOURCE["filename"]
+    download_verified(INTER_ITALIC_SOURCE["url"], inter_italic_source, INTER_ITALIC_SOURCE["sha256"])
 
     hebrew_sources = {weight: HEBREW_SOURCE_DIR / name for weight, name in HEBREW_FALLBACKS.items()}
     for path in hebrew_sources.values():
@@ -302,7 +313,7 @@ def main() -> None:
             raise RuntimeError(f"Missing in-tree Hebrew fallback: {path}")
 
     # Every input participates in the stamp so a changed source or axis rebuilds.
-    font_paths = {"inter": inter_source, "arabic": arabic_source, **hebrew_sources}
+    font_paths = {"inter": inter_source, "inter_italic": inter_italic_source, "arabic": arabic_source, **hebrew_sources}
 
     codepoints = collect_codepoints()
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
@@ -315,6 +326,7 @@ def main() -> None:
         for size in SIZES
         for weight in WEIGHTS
     ]
+    expected_outputs.append(FONT_OUTPUT_DIR / "ui_10_mediumitalic.h")
     current_stamp = STAMP_PATH.read_text(encoding="ascii").strip() if STAMP_PATH.exists() else ""
     if current_stamp != signature or not all(path.exists() for path in expected_outputs):
         python = select_converter_python()
@@ -333,6 +345,14 @@ def main() -> None:
             for size in SIZES:
                 for weight in WEIGHTS:
                     generate_font(python, weight, size, stack_for(weight, size))
+
+            # One italic face at the caption size: the Home screen sets the
+            # author line in it. Hebrew/Arabic fall back upright, as is
+            # conventional for scripts without italic tradition.
+            italic_instance = temporary / "Inter-Italic-medium-10.ttf"
+            instance_inter(inter_italic_source, WEIGHTS["medium"], 10, italic_instance)
+            generate_font(python, "mediumitalic", 10,
+                          [italic_instance, hebrew_sources["medium"], arabic_source])
         write_if_changed(STAMP_PATH, (signature + "\n").encode("ascii"))
     else:
         print("UI fonts: translation subsets are current")
