@@ -13,6 +13,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
+#include "util/BootDiag.h"
 
 void SdFirmwareUpdateActivity::onEnter() {
   Activity::onEnter();
@@ -42,6 +43,7 @@ void SdFirmwareUpdateActivity::onPickerResult(const ActivityResult& result) {
       GUI.drawPopup(renderer, tr(STR_RESTARTING_HINT));
       renderer.displayBuffer();
       delay(1200);
+      BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
       ESP.restart();
       return;
     }
@@ -190,6 +192,7 @@ void SdFirmwareUpdateActivity::performUpdate() {
   }
   requestUpdateAndWait();
   delay(1500);
+  BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
   ESP.restart();
 }
 

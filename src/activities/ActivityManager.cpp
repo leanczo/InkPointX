@@ -22,6 +22,7 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "components/UITheme.h"
+#include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
 
 void ActivityManager::begin() {
@@ -172,6 +173,10 @@ void ActivityManager::loop() {
 }
 
 void ActivityManager::prepareDisplayForActivity(const Activity& activity) {
+  // Every screen the user reaches passes through here, so this is where the
+  // post-mortem marker learns what was on screen. One small SD write per
+  // navigation; nothing during reading, where no activity is installed.
+  BootDiag::noteScreen(activity.name.c_str());
   const bool reader = activity.isReaderActivity();
   UITheme::getInstance().resetButtonHintsVisible();
   renderer.beginFrame();
@@ -385,8 +390,6 @@ RenderLock::RenderLock([[maybe_unused]] Activity&) {
   xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
   isLocked = true;
 }
-
-RenderLock::RenderLock(Try) { isLocked = xSemaphoreTake(activityManager.renderingMutex, 0) == pdTRUE; }
 
 RenderLock::~RenderLock() {
   if (isLocked) {

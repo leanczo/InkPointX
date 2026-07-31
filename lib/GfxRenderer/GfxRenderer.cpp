@@ -1465,13 +1465,14 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
   applyFrameOverlay();
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
-  // Always power the panel's analog rails down after the refresh. This used
-  // to be tied to the user's fadingFix setting (default off), which left the
-  // SSD1677 charge pump and source drivers energized indefinitely after any
-  // FAST refresh — e-ink holds the image at zero power, so that was pure
-  // battery drain for the entire time a page sat on screen. fadingFix still
-  // additionally selects the fade-compensating waveform behaviour upstream.
-  display.displayBuffer(refreshMode, true);
+  // Reverted in 2.0.2 to the OEM behaviour: the analog rails come down only
+  // when the user's fadingFix setting asks for it. Powering them off after
+  // *every* differential refresh did save the idle drain of an energized
+  // charge pump, and it also added a full power-down/up cycle to every page
+  // turn — 140 ms of extra BUSY wait each time, and an inrush transient on a
+  // pack whose voltage already sags under a refresh. On a device reported to
+  // die at random moments on battery, that trade is not worth defending.
+  display.displayBuffer(refreshMode, fadingFix);
 }
 
 void GfxRenderer::applyFrameOverlay(const bool force) const {

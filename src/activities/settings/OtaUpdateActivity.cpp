@@ -10,6 +10,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
+#include "util/BootDiag.h"
 
 const char* OtaUpdateActivity::failureText(const int result) {
   // The user could not previously tell "no network" from "bad image" — the
@@ -246,6 +247,7 @@ void OtaUpdateActivity::loop() {
   }
 
   if (state == SHUTTING_DOWN) {
+    BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
     ESP.restart();
   }
 }

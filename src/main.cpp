@@ -15,7 +15,6 @@
 #include <SPI.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
-#include <esp_sleep.h>
 #include <esp_task_wdt.h>
 #include <builtinFonts/all.h>
 
@@ -41,6 +40,7 @@
 #include "images/LoadingIcon.h"
 #include "activities/reader/ProgressFile.h"
 #include "util/BookCacheUtils.h"
+#include "util/BootDiag.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -208,6 +208,7 @@ void silentRestart() {
   silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=home)");
+  BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
   // E-ink retains the previous frame until Home's first paint lands (~2-3s).
   // Without an overlay, users don't see the reboot and fire input through to
   // Home. Select on the default selectorIndex=0 then opens the most-recent
@@ -222,6 +223,7 @@ void silentRestartToReader() {
   silentRebootTarget = SILENT_REBOOT_TARGET_READER;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=reader)");
+  BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
   ESP.restart();
@@ -293,6 +295,7 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   halTiltSensor.deepSleep();
   display.deepSleep();
+  BootDiag::markCleanShutdown(fromTimeout ? BootDiag::Shutdown::IdleTimeout : BootDiag::Shutdown::PowerButton);
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
@@ -371,6 +374,10 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+
+  // Before anything can reroute the boot (a wake that goes straight back to
+  // sleep, a silent reboot): report how the previous session ended.
+  BootDiag::begin();
 
   SETTINGS.loadFromFile();
   halClock.restoreFromStorage();
@@ -605,6 +612,13 @@ void loop() {
         logSerial.flush();
         logSerial.setTxTimeoutMs(1);
 #if LOG_LEVEL >= 2
+      } else if (cmd == "PROFILE_SLEEP") {
+        // Drives the power button's sleep path end to end without a finger on
+        // the button: the teardown, the sleep frame, the panel shutdown and
+        // esp_deep_sleep_start(). A panic anywhere in there would look exactly
+        // like "the power button rebooted the device instead of sleeping it".
+        LOG_INF("MAIN", "Profile route: deep sleep (power-button path)");
+        enterDeepSleep(false);
       } else if (cmd == "PROFILE_OTA") {
         // Verification route for the over-the-air update path: reaching it
         // through the UI needs several button presses this console cannot make.
@@ -699,27 +713,15 @@ void loop() {
     screenshotComboActive = false;
   }
 
-  // Force sleep before the brownout detector can reset the chip mid-write:
-  // below this point the pack cannot sustain an SD write plus a panel refresh,
-  // and an abrupt reset during a save is how settings files used to vanish.
-  // getBatteryPercentage() is internally cached (1.5 s), so this is cheap.
-  // Sustained for 5 s (at least three fresh ADC samples) before acting: the
-  // first conversion after a light-sleep wake can read garbage, and a single
-  // bad sample used to power the device off silently on a full battery.
-  {
-    static unsigned long batteryLowSinceMs = 0;
-    if (!gpio.isUsbConnected() && powerManager.getBatteryPercentage() <= 2) {
-      if (batteryLowSinceMs == 0) {
-        batteryLowSinceMs = millis();
-      } else if (millis() - batteryLowSinceMs >= 5000 && millis() > 15000) {
-        LOG_ERR("PWR", "Battery critically low - forcing deep sleep");
-        enterDeepSleep(true);
-        return;
-      }
-    } else {
-      batteryLowSinceMs = 0;
-    }
-  }
+  // Removed in 2.0.2: a critical-battery guard that force-slept the device
+  // below 2%. Its premise was sound (a brownout mid-write is how settings
+  // files used to vanish) but its input is not: on the X4 the reading is an
+  // ADC divider smoothed in software, and it sags under a panel refresh, at
+  // 10 MHz in power-saving mode, and after a sleep wake. Acting on it powers
+  // a working device off, which on e-ink is indistinguishable from a freeze —
+  // the panel keeps the last frame and the next press looks like a reboot.
+  // A guard that turns the device off must be at least as trustworthy as the
+  // failure it prevents. This one wasn't, and the failure is rarer.
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
@@ -796,39 +798,17 @@ void loop() {
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
-      // Light sleep instead of delay(): while the user reads a static page the
-      // core used to idle in WFI with PLL, flash and all peripheral clocks up —
-      // tens of mA to display an image that costs zero power to hold. A timer
-      // wakeup replaces the GPIO wake the hardware cannot provide (six of the
-      // seven buttons sit on ADC dividers), so input latency stays the same
-      // 50 ms as the delay it replaces.
-      //   - Skipped on USB: light sleep drops the CDC session mid-enumeration.
-      //   - Skipped with WiFi up: the modem needs its own sleep negotiation.
-      //   - RenderLock held across the nap: the clocks must never halt while
-      //     the render task is mid-SPI to the panel or the SD card. Blocking
-      //     here until an in-flight render finishes is exactly right, and a
-      //     render requested *during* the nap starts at most 50 ms late.
-      // Try-lock, never block: the blocking acquire here was a field-breaking
-      // regression. While a chapter indexes, the render task holds the lock
-      // for minutes — the main loop wedged on it, buttons went dead, the
-      // watchdog starved and panicked at its timeout, the reboot re-opened
-      // the book, and the re-index started over. If a render is in flight we
-      // simply stay awake this tick and keep polling.
-      RenderLock idleLock{RenderLock::Try{}};
-      if (idleLock.locked() && !gpio.isUsbConnected() && WiFi.getMode() == WIFI_MODE_NULL) {
-        esp_sleep_enable_timer_wakeup(50000);
-        esp_light_sleep_start();
-        // The timer source is global: left armed, it would wake the *deep*
-        // sleep path 50 ms after the user powers the device off.
-        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
-        idleLock.unlock();
-        // Give the SAR ADC a moment before the next gpio/battery sample —
-        // the first conversion after a light-sleep wake can read garbage.
-        delay(2);
-      } else {
-        idleLock.unlock();
-        delay(50);
-      }
+      // Removed in 2.0.2: timer-wakeup esp_light_sleep_start() in place of this
+      // delay. It saved real idle current, and it cost the firmware its
+      // reliability on battery — the only configuration it ran in, and the one
+      // configuration a USB-tethered bench cannot observe. Halting the clocks
+      // this deep touches the ADC ladder every button rides on, the panel's
+      // SPI state and the power rails, and each round of hardening produced a
+      // new field failure mode instead of a quiet device. A plain delay is
+      // 50 ms of WFI at 10 MHz: unglamorous, and correct on hardware I cannot
+      // instrument. It can come back the day it can be measured on battery
+      // with a current probe rather than reasoned about.
+      delay(50);
     } else {
       // Short delay to prevent tight loop while still being responsive
       delay(10);

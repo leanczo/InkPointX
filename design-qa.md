@@ -1208,3 +1208,60 @@ configuration the USB-tethered verification could never exercise.
 New debug routes (LOG_LEVEL>=2): PROFILE_REINDEX wipes the most recent
 book's cache, forges a mid-book position (spine 24) and reopens it — the
 deterministic way to exercise the long-index path from the serial console.
+
+## 2.0.2 — withdrawing the power optimizations — 2026-07-31
+
+Second field report, after 2.0.1: still "freezes at a random moment", and the
+power button "doesn't sleep the device, it seems to reboot it".
+
+The two symptoms are one story. On the X4, deep sleep opens the battery latch
+and removes power from the whole chip, and e-ink holds its last frame at zero
+power. A device that powers itself off therefore looks *exactly* like a frozen
+one: the page is still there, nothing responds. The next press of the power
+button then boots it — which reads as "the power button rebooted my reader"
+rather than "the reader had already been off for an hour". Anything that can
+silently power the device down produces both complaints at once.
+
+Three things introduced in 2.0 could do that, and all three run only on
+battery — the one configuration a USB-tethered bench cannot observe, because
+USB gates the light sleep and holds the latch closed:
+
+1. **The critical-battery guard.** It force-slept below 2%. Its input is an ADC
+   divider smoothed in software, and it sags under a panel refresh, at 10 MHz
+   in power-saving mode, and after a sleep wake. A guard that switches the
+   device off has to be more trustworthy than the failure it prevents; this one
+   was not, and atomic writes already made the failure survivable. Removed.
+2. **Idle light sleep.** Halting the clocks touches the ADC ladder every button
+   rides on, the panel's SPI state and the rails. Each hardening round produced
+   a new field failure instead of a quiet device. Removed; the idle loop is a
+   plain 50 ms delay at 10 MHz again. It can return when it can be measured on
+   battery with a current probe instead of reasoned about.
+3. **Panel-rail power-down after every refresh.** Reverted to the OEM
+   behaviour (the fade-compensation setting). It saved the idle drain of an
+   energized charge pump, and cost a full power-down/up cycle per page turn:
+   140 ms of extra BUSY wait and an inrush transient on a pack that already
+   sags during a refresh.
+
+What was verified this round, on the device: the power button's sleep path was
+driven end to end over serial (new PROFILE_SLEEP debug route) — activity
+teardown, sleep frame, panel shutdown, esp_deep_sleep_start — with no panic and
+a clean CDC drop. So "the power button reboots the device" is not a crash in
+that path, which is what the unexpected-power-off story predicts.
+
+New instrument, because the previous two rounds were spent guessing: BootDiag
+writes a marker on every screen change (which screen, uptime, battery) and
+flags whether a power-down was deliberate. Each boot pairs that with
+esp_reset_reason() and reports one line to the serial log and
+/.crosspoint/diag.log:
+
+  clean + power-on  -> the firmware chose to sleep (button, idle timeout)
+  dirty + power-on  -> power vanished: brownout, flat pack, latch glitch
+  dirty + task-wdt  -> the main loop wedged; the watchdog rebooted us
+  dirty + panic     -> a crash, with the screen it happened on
+
+The next report starts from that line instead of a theory.
+
+Known limit, stated plainly: pollBusy caps a stuck panel at 30 s, and the task
+watchdog covers a wedged main loop, but a render task that stalls inside an SD
+operation is still only visible as an unresponsive UI. If diag.log ever shows
+"dirty + task-wdt" on a screen with no long work, that is the thread to pull.

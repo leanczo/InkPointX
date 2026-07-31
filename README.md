@@ -73,15 +73,19 @@ element, and the result was verified by reading the device's own framebuffer rat
   no-ops and an application-level hang required force-powering the device.
 - **Real OTA rollback.** A pending image is confirmed only after the device boots and stays healthy, so an update
   that panics on start rolls back instead of bricking the slot.
-- **A critical-battery guard** that force-sleeps before the brownout detector can reset the device mid-write.
 - **Out-of-memory guards** across the pagination and parsing paths, where an unguarded allocation used to reboot
   the device instead of failing back to the library.
+- **Post-mortem breadcrumbs.** On battery the device has no console, so each boot reports how the previous session
+  ended — the screen that was up, how long it had run, and whether the firmware asked for the power-down — to the
+  serial log and to `/.crosspoint/diag.log`.
+
+Three power optimizations from the first 2.0 build were withdrawn in 2.0.2 after they proved unreliable in the
+field: idle light sleep, unconditional panel-rail power-down, and the critical-battery force-sleep. All three ran
+only on battery, which is the one configuration a USB-tethered bench cannot observe. See
+[design-qa.md](design-qa.md) for the post-mortem.
 
 ### Battery and performance
 
-- **Light sleep while reading.** The idle loop now sleeps between input polls instead of spinning; e-ink holds its
-  image at zero power, so this is most of the idle budget.
-- **The panel's analog rails power down** after every refresh — they used to stay energized indefinitely.
 - **Glyph caches survive page turns**, so body text is no longer re-inflated on every page.
 - **Progress screens repaint per percent**, not per 2 KB chunk, which removed roughly 120 full-panel refreshes per
   minute of downloading.
@@ -221,7 +225,6 @@ InkPoint X contains an X4-specific refresh policy built around the panel's actua
 - interactive navigation avoids full-screen black flashes;
 - explicit clean and full refresh paths are retained for recovery from accumulated ghosting;
 - the first update after controller initialization uses a stronger waveform;
-- the panel's analog rails are powered down after every refresh, not only when the fade-compensation option is on;
 - grayscale and 1-bit image paths use panel-aware conversion;
 - home-cover thumbnails are generated at their final layout size, avoiding a second rescale of an already-dithered
   image;
