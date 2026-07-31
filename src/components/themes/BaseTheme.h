@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include "fontIds.h"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -202,8 +203,10 @@ class BaseTheme {
 
   // Component drawing methods
   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
-  void drawBatteryLeft(const GfxRenderer& renderer, Rect rect,
-                       bool showPercentage = true) const;  // Left aligned (reader mode)
+  // Left aligned (reader mode). fontId sizes the percent digits and the
+  // icon's vertical centring — the reader's status bar passes MICRO.
+  void drawBatteryLeft(const GfxRenderer& renderer, Rect rect, bool showPercentage = true,
+                       int fontId = SMALL_FONT_ID) const;
   void drawBatteryRight(const GfxRenderer& renderer, Rect rect,
                         bool showPercentage = true) const;  // Right aligned (UI headers)
   virtual void fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage) const;

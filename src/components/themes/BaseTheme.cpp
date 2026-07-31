@@ -131,16 +131,17 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
   }
 }
 
-void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
+void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage,
+                                const int fontId) const {
   // Left aligned: icon on left, percentage on right (reader mode)
   const uint16_t percentage = powerManager.getBatteryPercentage();
-  // Centred on the digits' cap band, not the line-box top: at +6 the icon sat
-  // 4 px above the optical centre of the "96%" beside it.
-  const int y = rect.y + 10;
+  // Centred on the digits' cap band, not the line-box top — derived from the
+  // font so the reader's micro status bar and the UI's caption size both align.
+  const int y = rect.y + renderer.getLineHeight(fontId) * 2 / 5;
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
-    renderer.drawText(SMALL_FONT_ID, rect.x + batteryPercentSpacing + rect.width, rect.y, percentageText.c_str());
+    renderer.drawText(fontId, rect.x + batteryPercentSpacing + rect.width, rect.y, percentageText.c_str());
   }
 
   const Rect iconRect{rect.x, y, rect.width, rect.height};
@@ -693,8 +694,8 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage, pageCount);
     }
 
-    int progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressStr);
-    renderer.drawText(SMALL_FONT_ID, rightClusterX - progressTextWidth, textY, progressStr);
+    int progressTextWidth = renderer.getTextWidth(MICRO_FONT_ID, progressStr);
+    renderer.drawText(MICRO_FONT_ID, rightClusterX - progressTextWidth, textY, progressStr);
 
     rightClusterWidth += progressTextWidth;
   }
@@ -726,14 +727,14 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   if (SETTINGS.showBatteryIndicator && SETTINGS.statusBarBattery) {
     GUI.drawBatteryLeft(renderer,
                         Rect{leftClusterX + leftClusterWidth, textY, metrics.batteryWidth, metrics.batteryHeight},
-                        showBatteryPercentage);
+                        showBatteryPercentage, MICRO_FONT_ID);
     int batteryWidth = metrics.batteryWidth;
 
     if (showBatteryPercentage) {
       const uint16_t percentage = powerManager.getBatteryPercentage();
       // width of icon + spacing + text for layout purposes
       batteryWidth +=
-          batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, (std::to_string(percentage) + "%").c_str());
+          batteryPercentSpacing + renderer.getTextWidth(MICRO_FONT_ID, (std::to_string(percentage) + "%").c_str());
     }
 
     leftClusterWidth += batteryWidth;
@@ -743,7 +744,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   if (SETTINGS.statusBarClock && halClock.hasValidTime()) {
     char timeBuf[9];
     if (halClock.formatTime(timeBuf, sizeof(timeBuf), SETTINGS.clockUtcOffsetQ, SETTINGS.clockFormat == 1)) {
-      int clockTextWidth = renderer.getTextWidth(SMALL_FONT_ID, timeBuf);
+      int clockTextWidth = renderer.getTextWidth(MICRO_FONT_ID, timeBuf);
       int clockX = 0;
       // Position to the left or right of the progress text (with a small gap)
       if (SETTINGS.statusBarClock == CrossPointSettings::STATUS_BAR_CLOCK_LEFT) {
@@ -753,7 +754,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
         clockX = rightClusterX - rightClusterWidth - (rightClusterWidth > 0 ? 10 : 0) - clockTextWidth;
         rightClusterWidth += clockTextWidth + 10;
       }
-      renderer.drawText(SMALL_FONT_ID, clockX, textY, timeBuf);
+      renderer.drawText(MICRO_FONT_ID, clockX, textY, timeBuf);
     }
   }
 
@@ -761,7 +762,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   if (showStatusBarTextLane && isPageBookmarked) {
     const int bookmarkGap = leftClusterWidth > 0 ? bookmarkStatusIconGap : 0;
     const int bookmarkX = leftClusterX + leftClusterWidth + bookmarkGap;
-    const int bookmarkY = textY + 5;
+    const int bookmarkY = textY + 3;
     drawBookmarkStatusIcon(renderer, bookmarkX, bookmarkY);
     leftClusterWidth += bookmarkStatusIconWidth + bookmarkGap;
   }
@@ -783,18 +784,18 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     int availableTitleSpace = rendererableScreenWidth - 2 * titleMarginLeftAdjusted;
 
     int titleWidth;
-    titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
+    titleWidth = renderer.getTextWidth(MICRO_FONT_ID, title.c_str());
     if (titleWidth > availableTitleSpace) {
       // Not enough space to center on the screen, center it within the remaining space instead
       availableTitleSpace = rendererableScreenWidth - titleMarginLeft - titleMarginRight;
       titleMarginLeftAdjusted = titleMarginLeft;
     }
     if (titleWidth > availableTitleSpace) {
-      title = renderer.truncatedText(SMALL_FONT_ID, title.c_str(), availableTitleSpace);
-      titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
+      title = renderer.truncatedText(MICRO_FONT_ID, title.c_str(), availableTitleSpace);
+      titleWidth = renderer.getTextWidth(MICRO_FONT_ID, title.c_str());
     }
 
-    renderer.drawText(SMALL_FONT_ID,
+    renderer.drawText(MICRO_FONT_ID,
                       titleMarginLeftAdjusted + metrics.statusBarHorizontalMargin + orientedMarginLeft +
                           (availableTitleSpace - titleWidth) / 2,
                       textY, title.c_str());

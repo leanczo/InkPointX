@@ -507,12 +507,12 @@ void setup() {
   // The render task is deliberately not subscribed - it parks forever in
   // xTaskNotifyWait when idle, and a wedged render task starves the main loop
   // off the RenderLock anyway, which this watchdog then catches on the next
-  // lock acquisition. 120 s, not less: a button press during a long chapter
+  // lock acquisition. 300 s, not less: a button press during a long chapter
   // index legitimately blocks the main loop on the RenderLock for however
   // long the index takes, and that must not read as a hang.
   {
     esp_task_wdt_config_t wdtConfig = {};
-    wdtConfig.timeout_ms = 120000;
+    wdtConfig.timeout_ms = 300000;
     wdtConfig.idle_core_mask = 0;
     wdtConfig.trigger_panic = true;
     esp_task_wdt_reconfigure(&wdtConfig);
@@ -597,6 +597,15 @@ void loop() {
         logSerial.flush();
         logSerial.setTxTimeoutMs(1);
 #if LOG_LEVEL >= 2
+      } else if (cmd == "PROFILE_READER") {
+        // Opens the most recent book — the only way to reach a reading page
+        // from the console for framebuffer verification.
+        if (!RECENT_BOOKS.getBooks().empty()) {
+          activityManager.goToReader(RECENT_BOOKS.getBooks().front().path);
+          LOG_DBG("MAIN", "Profile route: Reader");
+        } else {
+          LOG_DBG("MAIN", "Profile route: Reader - no recent books");
+        }
       } else if (cmd == "PROFILE_REDRAW") {
         // Development-only latency probe. It exercises the exact active
         // activity render path without changing UI state.
