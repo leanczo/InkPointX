@@ -4,6 +4,9 @@ on:
     tags:
       - '*'
 
+permissions:
+  contents: write  # required to publish the release from this workflow
+
 jobs:
   build-release:
     runs-on: ubuntu-latest
@@ -45,3 +48,19 @@ jobs:
             .pio/build/gh_release/firmware.elf
             .pio/build/gh_release/firmware.map
             .pio/build/gh_release/partitions.bin
+
+      # The on-device updater reads releases/latest and looks for an asset
+      # named exactly firmware.bin (src/network/OtaUpdater.cpp). Publishing the
+      # release here is what makes a tag reach existing devices over the air —
+      # before this, releases were created by hand and a tag alone shipped
+      # nothing.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "InkPoint X ${{ github.ref_name }}" \
+            --notes "Firmware release for ${{ github.ref_name }}" \
+            .pio/build/gh_release/firmware.bin
