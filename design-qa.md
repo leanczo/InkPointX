@@ -1122,3 +1122,22 @@ Applied after the all-screens audit:
 - Keyboard mode keys ("abc", "#@!", "URL") stay untranslated as mode symbols;
   the alt-char hold stays at SHORT_MS for typing speed.
 - Footnote rows show markers only; a text preview needs target-chapter parsing.
+
+## User feedback round — 2026-07-31
+
+- Button legend is one size everywhere now: the compact caption (micro), by
+  the user's explicit choice. The adaptive-size logic is gone; the seam still
+  shifts for wide labels.
+- Side-button hints removed on all five screens that had them (user request);
+  the keyboard tips reclaim the full content width.
+- Boot/sleep wordmark: 36 px semibold line replaced by a letterspaced
+  uppercase caption ("INKPOINT X"); the 36 px font is no longer linked.
+- Battery icon re-centred on the digits' cap band (was 4 px high; verified
+  by pixel-reading: both centres now 37.5).
+- Toggles: 50x28, ON = solid track + inverted knob, OFF = outline + black
+  knob — states differ by fill, not just knob side.
+- Text-fit pass driven by the real glyph advance tables
+  (scratch measure_strings.py): all 27 locales' Home-hub tiles now fit 333 px;
+  Russian additionally got ~60 row/header/value strings shortened to their
+  measured lanes. Other locales still ellipsize gracefully on a few rows —
+  candidate for a follow-up sweep with the same script.

@@ -559,12 +559,5 @@ void HomeActivity::render(RenderLock&&) {
   GUI.drawPageDots(renderer, pageIndex, PAGE_COUNT);
   const auto labels = mappedInput.mapLabels("", tr(STR_OPEN), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  // The front legend can only speak for the four front buttons, so it advertised
-  // page switching and Open while saying nothing about what moves the selection --
-  // on the page that carries seven items. The side rockers get their own legend
-  // wherever there is a list to move through.
-  if (pageItemCount() > 1) {
-    GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  }
   renderer.displayBuffer();
 }

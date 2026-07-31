@@ -584,8 +584,6 @@ void WifiSelectionActivity::renderNetworkList(const Rect* screen, const ThemeMet
           return std::string(network.hasSavedPassword ? "+ " : "") + (network.isEncrypted ? "* " : "") +
                  getSignalStrengthIndicator(network.rssi);
         });
-    // The list scrolls with the side rockers — label them like Home does.
-    GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   }
 
   GUI.drawHelpText(renderer,

@@ -110,11 +110,6 @@ void IntervalSelectionActivity::render(RenderLock&&) {
   snprintf(increment, sizeof(increment), "+%d", smallStep);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), decrement, increment);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  char largeIncrement[12];
-  char largeDecrement[12];
-  snprintf(largeIncrement, sizeof(largeIncrement), "+%d", largeStep);
-  snprintf(largeDecrement, sizeof(largeDecrement), "-%d", largeStep);
-  GUI.drawSideButtonHints(renderer, largeIncrement, largeDecrement);
 
   renderer.displayBuffer();
 }

@@ -28,8 +28,11 @@ constexpr int mainMenuIconSize = 32;
 constexpr int listIconSize = 32;
 // Row accessories (chevron, check, star) scale with the type.
 constexpr int accessoryIconSize = 24;
-constexpr int toggleWidth = 36;
-constexpr int toggleHeight = 20;
+// Big enough to read at arm's length, and the two states differ by fill, not
+// just knob side: ON is a solid track with an inverted knob, OFF an outline
+// with a black knob.
+constexpr int toggleWidth = 50;
+constexpr int toggleHeight = 28;
 // Space kept clear on the right of every list and menu for the scroll indicator,
 // reserved unconditionally so a selection box does not shift when a list grows
 // past one page.
@@ -112,10 +115,16 @@ void drawAccessory(const GfxRenderer& renderer, const UIAccessory accessory, con
       break;
     case UIAccessory::ToggleOff:
     case UIAccessory::ToggleOn: {
-      renderer.drawRoundedRect(x, y, toggleWidth, toggleHeight, 1, toggleHeight / 2, true);
-      const int knobSize = toggleHeight - 6;
-      const int knobX = accessory == UIAccessory::ToggleOn ? x + toggleWidth - knobSize - 3 : x + 3;
-      renderer.fillRoundedRect(knobX, y + 3, knobSize, knobSize, knobSize / 2, Color::Black);
+      const bool on = accessory == UIAccessory::ToggleOn;
+      const int knobSize = toggleHeight - 8;
+      if (on) {
+        renderer.fillRoundedRect(x, y, toggleWidth, toggleHeight, toggleHeight / 2, Color::Black);
+        renderer.fillRoundedRect(x + toggleWidth - knobSize - 4, y + 4, knobSize, knobSize, knobSize / 2,
+                                 Color::White);
+      } else {
+        renderer.drawRoundedRect(x, y, toggleWidth, toggleHeight, 1, toggleHeight / 2, true);
+        renderer.fillRoundedRect(x + 4, y + 4, knobSize, knobSize, knobSize / 2, Color::Black);
+      }
       break;
     }
     case UIAccessory::None:
@@ -278,7 +287,11 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     const bool rowRtl = BidiUtils::startsWithRtl(itemName.c_str());
     const UIAccessory accessory = rowAccessory ? rowAccessory(i) : UIAccessory::None;
     const int accessoryW = accessory == UIAccessory::None ? 0 : accessoryWidth(accessory);
-    const int accessoryH = accessory == UIAccessory::None ? 0 : accessoryIconSize;
+    const int accessoryH =
+        accessory == UIAccessory::None
+            ? 0
+            : ((accessory == UIAccessory::ToggleOff || accessory == UIAccessory::ToggleOn) ? toggleHeight
+                                                                                           : accessoryIconSize);
     const int accessorySpace = accessory == UIAccessory::None ? 0 : accessoryW + hPaddingInSelection;
 
     const int iconX = rowRtl ? rowRight - iconSize : rowLeft;

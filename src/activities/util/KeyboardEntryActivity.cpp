@@ -528,7 +528,7 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   if (hintVisible && !text.empty()) {
     const int hintLh = renderer.getLineHeight(SMALL_FONT_ID);
     const int underlineY = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing;
-    const int hintMaxWidth = pageWidth - metrics.sideButtonHintsWidth * 2 - metrics.verticalSpacing * 2;
+    const int hintMaxWidth = pageWidth - metrics.contentSidePadding * 2;
     int hintLineY = underlineY + 4;
     const auto drawHint = [&](const char* hint) {
       for (const auto& line : renderer.wrappedText(SMALL_FONT_ID, hint, hintMaxWidth, 2)) {
@@ -568,10 +568,9 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 
   const int tipsLh = renderer.getLineHeight(SMALL_FONT_ID);
   const int underlineBottom = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing + 4;
-  // Tips wrap inside the side-hint gutters: the longest English tip is 579 px
-  // on a 480 px panel and used to be clipped at both ends (and to run through
-  // the side-hint boxes).
-  const int tipMaxWidth = pageWidth - metrics.sideButtonHintsWidth * 2 - metrics.verticalSpacing * 2;
+  // Tips wrap to the content width: the longest English tip is 579 px on a
+  // 480 px panel and used to be clipped at both ends.
+  const int tipMaxWidth = pageWidth - metrics.contentSidePadding * 2;
   std::vector<std::string> tipLines;
   const auto addTip = [&](const char* tip) {
     for (auto& tipLine : renderer.wrappedText(SMALL_FONT_ID, tip, tipMaxWidth, 2)) {
@@ -731,8 +730,6 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  // The rockers move between key rows; ">"/"<" implied horizontal movement.
-  GUI.drawSideButtonHints(renderer, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
 
   renderer.displayBuffer();
 }

@@ -134,7 +134,9 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
 void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Left aligned: icon on left, percentage on right (reader mode)
   const uint16_t percentage = powerManager.getBatteryPercentage();
-  const int y = rect.y + 6;
+  // Centred on the digits' cap band, not the line-box top: at +6 the icon sat
+  // 4 px above the optical centre of the "96%" beside it.
+  const int y = rect.y + 10;
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
@@ -150,7 +152,8 @@ void BaseTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const b
   // Right aligned: percentage on left, icon on right (UI headers)
   // rect.x is already positioned for the icon (drawHeader calculated it)
   const uint16_t percentage = powerManager.getBatteryPercentage();
-  const int y = rect.y + 6;
+  // Same vertical correction as drawBatteryLeft: centre on the digits.
+  const int y = rect.y + 10;
 
   if (showPercentage) {
     const auto percentageText = std::to_string(percentage) + "%";
@@ -201,56 +204,31 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
     if (label && *label) hintText.append(label).push_back('\n');
   }
   if (auto* cache = renderer.getFontCacheManager()) {
-    cache->warmGlyphCache(SMALL_FONT_ID, hintText.c_str(), 1U << EpdFontFamily::REGULAR);
+    cache->warmGlyphCache(MICRO_FONT_ID, hintText.c_str(), 1U << EpdFontFamily::REGULAR);
   }
 
   // The X4 has two long physical rockers, each split into two independently
   // clickable sections. Reproduce that silhouette on-screen so the label-to-
   // hardware mapping is readable at a glance.
-  // The legend names what each button does, so a truncated label is worse than a
-  // smaller one. A label slightly wider than its half borrows room from its
-  // neighbour by shifting the group's seam (each side keeps at least 30% so the
-  // two-button shape stays readable). Before this, one wide label ("Download")
-  // dropped the whole legend to the micro size — and because the labels change
-  // with the selection, the entire bar jumped between 12 px and 8 px as the
-  // user scrolled. Only when a pair cannot fit even with the seam shifted does
-  // the legend fall back to micro, and then as a whole, never as a mix.
-  const auto labelWidth = [&](const int fontId, const char* label) {
-    return (label && label[0] != '\0') ? renderer.getTextWidth(fontId, label, EpdFontFamily::REGULAR) + 6 : 0;
+  // Always the compact caption size: adapting the size to the labels made the
+  // bar change between two sizes from screen to screen, which read as an
+  // accident. A label slightly wider than its half still borrows room from
+  // its neighbour by shifting the group's seam (each side keeps at least 30%
+  // so the two-button shape stays readable).
+  constexpr int hintFontId = MICRO_FONT_ID;
+  const auto labelWidth = [&](const char* label) {
+    return (label && label[0] != '\0') ? renderer.getTextWidth(hintFontId, label, EpdFontFamily::REGULAR) + 6 : 0;
   };
-  int hintFontId = SMALL_FONT_ID;
-  int seams[2];
-  for (int groupIndex = 0; groupIndex < 2; ++groupIndex) {
-    const Rect group = buttonHintGroupRect(renderer, groupIndex);
-    const int minSection = group.width * 3 / 10;
-    const int need0 = labelWidth(SMALL_FONT_ID, labels[groupIndex * 2]);
-    const int need1 = labelWidth(SMALL_FONT_ID, labels[groupIndex * 2 + 1]);
-    int seam = group.width / 2;
-    if (need0 > seam || need1 > group.width - seam) {
-      if (need0 + need1 <= group.width && need0 <= group.width - minSection && need1 <= group.width - minSection) {
-        seam = std::clamp(need0 > seam ? need0 : group.width - need1, minSection, group.width - minSection);
-      } else {
-        hintFontId = MICRO_FONT_ID;
-      }
-    }
-    seams[groupIndex] = seam;
-  }
-  if (hintFontId == MICRO_FONT_ID) {
-    seams[0] = seams[1] = 0;  // recomputed per group below at the micro size
-  }
 
   for (int groupIndex = 0; groupIndex < 2; ++groupIndex) {
     const Rect group = buttonHintGroupRect(renderer, groupIndex);
     renderer.fillRect(group.x, group.y, group.width, group.height, false);
-    int seam = seams[groupIndex];
-    if (seam == 0) {
-      const int minSection = group.width * 3 / 10;
-      const int need0 = labelWidth(MICRO_FONT_ID, labels[groupIndex * 2]);
-      const int need1 = labelWidth(MICRO_FONT_ID, labels[groupIndex * 2 + 1]);
-      seam = group.width / 2;
-      if ((need0 > seam || need1 > group.width - seam) && need0 + need1 <= group.width) {
-        seam = std::clamp(need0 > seam ? need0 : group.width - need1, minSection, group.width - minSection);
-      }
+    const int minSection = group.width * 3 / 10;
+    const int need0 = labelWidth(labels[groupIndex * 2]);
+    const int need1 = labelWidth(labels[groupIndex * 2 + 1]);
+    int seam = group.width / 2;
+    if ((need0 > seam || need1 > group.width - seam) && need0 + need1 <= group.width) {
+      seam = std::clamp(need0 > seam ? need0 : group.width - need1, minSection, group.width - minSection);
     }
 
     for (int sectionIndex = 0; sectionIndex < 2; ++sectionIndex) {

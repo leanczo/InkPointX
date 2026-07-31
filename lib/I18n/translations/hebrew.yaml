@@ -93,7 +93,7 @@ STR_CONNECT_WIFI_HINT: "חבר את המכשיר שלך לרשת אלחוטית 
 STR_OPEN_URL_HINT: "פתח כתובת זו בדפדפן"
 STR_OR_HTTP_PREFIX: "או http://"
 STR_SCAN_QR_HINT: "או סרוק את קוד ה-QR עם הטלפון:"
-STR_CALIBRE_WIRELESS: "חיבור אלחוטי ל-Calibre"
+STR_CALIBRE_WIRELESS: "Calibre אלחוטי"
 STR_NETWORK_LEGEND: "* = מאובטח | + = שמור"
 STR_MAC_ADDRESS: "כתובת MAC:"
 STR_CHECKING_WIFI: "בודק חיבור אלחוטי..."

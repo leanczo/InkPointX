@@ -143,9 +143,6 @@ void ButtonRemapActivity::render(RenderLock&&) {
                      errorMessage.c_str());
   }
 
-  // The side rockers are the only exits from this screen — label them in the
-  // side gutter like Home does, and keep the body text as the explanation.
-  GUI.drawSideButtonHints(renderer, tr(STR_RESET_SETTINGS), tr(STR_CANCEL));
   const int helpTop = topOffset + 4 * metrics.listRowHeight + 4 * metrics.verticalSpacing;
   GUI.drawHelpText(renderer, Rect{0, helpTop, pageWidth, 20}, tr(STR_REMAP_RESET_HINT));
   GUI.drawHelpText(renderer, Rect{0, helpTop + metrics.verticalSpacing + 20, pageWidth, 20},

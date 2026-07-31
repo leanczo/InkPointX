@@ -132,8 +132,6 @@ EpdFontFamily ui18FontFamily(&ui18MediumFont, &ui18SemiBoldFont);
 // Screen headings sit at the top of the scale.
 EpdFontFamily uiHeaderFontFamily(&ui18SemiBoldFont);
 
-EpdFont uiWordmarkFont(&ui_wordmark_36_semibold);
-EpdFontFamily uiWordmarkFontFamily(&uiWordmarkFont, &uiWordmarkFont);
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -312,7 +310,6 @@ void setupDisplayAndFonts(bool seamless = false) {
 #endif  // OMIT_FONTS
   applyInterfaceFont();
   renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 18 px semibold
-  renderer.insertFont(WORDMARK_FONT_ID, uiWordmarkFontFamily);
 
   // Discover and load SD card fonts
   sdFontSystem.begin(renderer);
