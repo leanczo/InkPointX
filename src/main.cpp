@@ -39,6 +39,8 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "activities/reader/ProgressFile.h"
+#include "util/BookCacheUtils.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -608,6 +610,23 @@ void loop() {
         // through the UI needs several button presses this console cannot make.
         activityManager.replaceActivity(std::make_unique<OtaUpdateActivity>(renderer, mappedInputManager));
         LOG_DBG("MAIN", "Profile route: OTA update");
+      } else if (cmd == "PROFILE_REINDEX") {
+        // Wipes the most recent book's cache and reopens it — forces the full
+        // chapter re-index path, which is where the light-sleep RenderLock
+        // regression wedged the main loop.
+        if (!RECENT_BOOKS.getBooks().empty()) {
+          const auto path = RECENT_BOOKS.getBooks().front().path;
+          // Force the position to a mid-book chapter after the wipe: reopening
+          // at the one-page cover chapter indexes in seconds and never
+          // exercises the long re-index path this route exists for.
+          const std::string cacheDir = getBookCachePath(path);
+          clearBookCache(path);
+          Storage.ensureDirectoryExists(cacheDir.c_str());
+          const uint8_t forced[6] = {24, 0, 1, 0, 0, 0};  // spine=24, page=1
+          ProgressFile::writeAtomic(cacheDir, forced, sizeof(forced));
+          activityManager.goToReader(path);
+          LOG_DBG("MAIN", "Profile route: reindex %s", path.c_str());
+        }
       } else if (cmd == "PROFILE_READER") {
         // Opens the most recent book — the only way to reach a reading page
         // from the console for framebuffer verification.
@@ -684,10 +703,22 @@ void loop() {
   // below this point the pack cannot sustain an SD write plus a panel refresh,
   // and an abrupt reset during a save is how settings files used to vanish.
   // getBatteryPercentage() is internally cached (1.5 s), so this is cheap.
-  if (!gpio.isUsbConnected() && powerManager.getBatteryPercentage() <= 2) {
-    LOG_ERR("PWR", "Battery critically low - forcing deep sleep");
-    enterDeepSleep(true);
-    return;
+  // Sustained for 5 s (at least three fresh ADC samples) before acting: the
+  // first conversion after a light-sleep wake can read garbage, and a single
+  // bad sample used to power the device off silently on a full battery.
+  {
+    static unsigned long batteryLowSinceMs = 0;
+    if (!gpio.isUsbConnected() && powerManager.getBatteryPercentage() <= 2) {
+      if (batteryLowSinceMs == 0) {
+        batteryLowSinceMs = millis();
+      } else if (millis() - batteryLowSinceMs >= 5000 && millis() > 15000) {
+        LOG_ERR("PWR", "Battery critically low - forcing deep sleep");
+        enterDeepSleep(true);
+        return;
+      }
+    } else {
+      batteryLowSinceMs = 0;
+    }
   }
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
@@ -777,14 +808,25 @@ void loop() {
       //     the render task is mid-SPI to the panel or the SD card. Blocking
       //     here until an in-flight render finishes is exactly right, and a
       //     render requested *during* the nap starts at most 50 ms late.
-      if (!gpio.isUsbConnected() && WiFi.getMode() == WIFI_MODE_NULL) {
-        RenderLock renderLock;
+      // Try-lock, never block: the blocking acquire here was a field-breaking
+      // regression. While a chapter indexes, the render task holds the lock
+      // for minutes — the main loop wedged on it, buttons went dead, the
+      // watchdog starved and panicked at its timeout, the reboot re-opened
+      // the book, and the re-index started over. If a render is in flight we
+      // simply stay awake this tick and keep polling.
+      RenderLock idleLock{RenderLock::Try{}};
+      if (idleLock.locked() && !gpio.isUsbConnected() && WiFi.getMode() == WIFI_MODE_NULL) {
         esp_sleep_enable_timer_wakeup(50000);
         esp_light_sleep_start();
         // The timer source is global: left armed, it would wake the *deep*
         // sleep path 50 ms after the user powers the device off.
         esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+        idleLock.unlock();
+        // Give the SAR ADC a moment before the next gpio/battery sample —
+        // the first conversion after a light-sleep wake can read garbage.
+        delay(2);
       } else {
+        idleLock.unlock();
         delay(50);
       }
     } else {

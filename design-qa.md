@@ -1183,3 +1183,28 @@ transport that delivers them.
 Note: the firmware is not byte-reproducible (ESP-IDF embeds a build
 timestamp), so the release asset is intentionally the CI-built binary rather
 than a local build.
+
+## Hotfix 2.0.1 — light-sleep regressions — 2026-07-31
+
+Field report after 2.0.0 on battery: books "index forever" and the device
+"freezes dead at a random moment on any screen". Both were regressions from
+the light-sleep work, and both only manifest off USB — which is exactly the
+configuration the USB-tethered verification could never exercise.
+
+1. The idle light-sleep branch acquired the RenderLock with a blocking wait.
+   While a chapter indexes, the render task holds that lock for minutes, so
+   the main loop wedged: buttons dead, serial dead, task watchdog starved,
+   panic at the timeout, reboot, book reopens, re-index restarts — "indexing
+   forever". Fixed with a non-blocking try-acquire (RenderLock::Try): if a
+   render is in flight the loop simply stays awake that tick.
+   Proof on device: a forced 151-page chapter re-index (133 s) with the
+   main loop's 10 s heap heartbeat ticking throughout, max gap 10.4 s.
+2. The critical-battery guard acted on a single sample ≤2%. The first SAR
+   ADC conversion after a light-sleep wake can read garbage, so a full
+   battery could silently trigger deep sleep — "frozen dead on any screen".
+   Now requires the condition to hold for 5 s (≥3 fresh samples through the
+   1.5 s cache), plus a 2 ms post-wake ADC settle.
+
+New debug routes (LOG_LEVEL>=2): PROFILE_REINDEX wipes the most recent
+book's cache, forges a mid-book position (spine 24) and reopens it — the
+deterministic way to exercise the long-index path from the serial console.
