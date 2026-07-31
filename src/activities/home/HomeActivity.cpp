@@ -382,7 +382,12 @@ void HomeActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   if (pageIndex == 0) {
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_NOW_READING));
+    // The greeting is the one header set in the handwritten accent face —
+    // it is a warm phrase, not navigation. The empty-title drawHeader still
+    // paints the battery cluster and the rule; the script baseline is aligned
+    // to where the structural header's baseline would sit.
+    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, nullptr);
+    renderer.drawText(SCRIPT_FONT_ID, metrics.contentSidePadding, metrics.topPadding + 4, tr(STR_NOW_READING));
 
     const bool hasRecentBook = !recentBooks.empty();
     const RecentBook* recentBook = hasRecentBook ? &recentBooks.front() : nullptr;
