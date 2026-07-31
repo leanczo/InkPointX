@@ -34,6 +34,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -602,6 +603,11 @@ void loop() {
         logSerial.flush();
         logSerial.setTxTimeoutMs(1);
 #if LOG_LEVEL >= 2
+      } else if (cmd == "PROFILE_OTA") {
+        // Verification route for the over-the-air update path: reaching it
+        // through the UI needs several button presses this console cannot make.
+        activityManager.replaceActivity(std::make_unique<OtaUpdateActivity>(renderer, mappedInputManager));
+        LOG_DBG("MAIN", "Profile route: OTA update");
       } else if (cmd == "PROFILE_READER") {
         // Opens the most recent book — the only way to reach a reading page
         // from the console for framebuffer verification.

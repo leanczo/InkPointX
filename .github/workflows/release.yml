@@ -28,6 +28,13 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
+      - name: Install font pipeline requirements
+        # scripts/build_ui_fonts.py generates the UI font subsets during the
+        # build and needs freetype-py + fonttools. Without this the pre-build
+        # script aborts, which is why release builds only ever succeeded
+        # locally and releases had to be cut by hand.
+        run: uv pip install --system -r lib/EpdFont/scripts/requirements.txt
+
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
