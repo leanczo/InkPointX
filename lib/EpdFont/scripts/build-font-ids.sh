@@ -118,19 +118,12 @@ ruby -rdigest -e 'puts ([
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
-echo "#define WORDMARK_FONT_ID ($(
-ruby -rdigest -e 'puts ([
-  "UI_WORDMARK",
-  File.read("./ui_wordmark_36_semibold.h"),
-].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
-))"
-
 echo ""
 echo "// Font ID 0 is reserved as the \"not found\" sentinel."
 echo "// Guard against any hash accidentally producing 0."
 for font_id in \
   NOTOSERIF_12 NOTOSERIF_14 NOTOSERIF_16 NOTOSERIF_18 \
   NOTOSANS_12 NOTOSANS_14 NOTOSANS_16 NOTOSANS_18 \
-  UI_10 UI_12 UI_14 UI_16 UI_18 HEADER SMALL MICRO WORDMARK; do
+  UI_10 UI_12 UI_14 UI_16 UI_18 HEADER SMALL MICRO; do
   echo "static_assert(${font_id}_FONT_ID != 0, \"Font ID collision with sentinel\");"
 done

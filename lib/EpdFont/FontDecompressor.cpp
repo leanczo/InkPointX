@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <esp_heap_caps.h>
 
 FontDecompressor::~FontDecompressor() { deinit(); }
 
@@ -52,6 +53,20 @@ void FontDecompressor::freeGlyphCache() {
   glyphCacheWriteOffset = 0;
   glyphCacheClock = 0;
 }
+
+namespace {
+// vector::resize() aborts on OOM under -fno-exceptions, so the .empty()
+// checks that used to follow it were unreachable. Probe the heap first:
+// allocation happens on a single task, so the probe is not racy in practice,
+// and it turns a guaranteed panic into the graceful nullptr path below.
+bool tryResize(std::vector<uint8_t>& v, const size_t n) {
+  if (v.capacity() < n && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < n + 64) {
+    return false;
+  }
+  v.resize(n);
+  return true;
+}
+}  // namespace
 
 const uint8_t* FontDecompressor::findCachedGlyph(const EpdFontData* fontData, const uint32_t glyphIndex) {
   if (!glyphCacheBuffer) return nullptr;
@@ -240,8 +255,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     stats.cacheMisses++;
     const EpdFontGroup& group = fontData->groups[groupIndex];
 
-    hotGroup.resize(group.uncompressedSize);
-    if (hotGroup.empty()) {
+    if (!tryResize(hotGroup, group.uncompressedSize)) {
       LOG_ERR("FDC", "Failed to allocate %u bytes for hot group %u", group.uncompressedSize, groupIndex);
       hotGroupFont = nullptr;
       hotGroupIndex = UINT16_MAX;
@@ -274,10 +288,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
 
   // Allocation failure fallback: compact just the requested glyph into the
   // original scratch buffer. Rendering remains functional under low memory.
-  if (glyph->dataLength > hotGlyphBuf.size()) {
-    hotGlyphBuf.resize(glyph->dataLength);
-  }
-  if (hotGlyphBuf.empty()) {
+  if (glyph->dataLength > hotGlyphBuf.size() && !tryResize(hotGlyphBuf, glyph->dataLength)) {
     stats.getBitmapTimeUs += micros() - tStart;
     return nullptr;
   }

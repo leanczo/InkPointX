@@ -189,20 +189,14 @@ def main() -> int:
                 f"{display_codepoints(missing_codepoints)}"
             )
 
-    wordmark_path = args.fonts_dir / "ui_wordmark_36_semibold.h"
-    if wordmark_path.exists():
-        wordmark_missing = {
-            ord(character)
-            for character in "InkPoint X"
-            if not is_covered(ord(character), font_intervals(wordmark_path))
-        }
-        if wordmark_missing:
-            errors.append(
-                f"{wordmark_path.name}: missing wordmark glyphs: "
-                f"{display_codepoints(wordmark_missing)}"
-            )
-    else:
-        errors.append(f"wordmark font missing: {wordmark_path}")
+    # The boot wordmark renders in the shared UI_12 face now (uppercase,
+    # letterspaced); the dedicated 36 px wordmark font was removed. Verify the
+    # glyphs it needs are covered by the UI subsets like any other string.
+    for character in "INKPOINT X":
+        codepoint = ord(character)
+        for path in font_paths:
+            if not is_covered(codepoint, font_intervals(path)):
+                errors.append(f"{path.name}: missing wordmark glyph U+{codepoint:04X}")
 
     print(
         f"Locales: {len(locales)}; strings per locale: {len(english_keys)}; "

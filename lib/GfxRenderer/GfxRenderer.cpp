@@ -1465,7 +1465,13 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
   applyFrameOverlay();
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
-  display.displayBuffer(refreshMode, fadingFix);
+  // Always power the panel's analog rails down after the refresh. This used
+  // to be tied to the user's fadingFix setting (default off), which left the
+  // SSD1677 charge pump and source drivers energized indefinitely after any
+  // FAST refresh — e-ink holds the image at zero power, so that was pure
+  // battery drain for the entire time a page sat on screen. fadingFix still
+  // additionally selects the fade-compensating waveform behaviour upstream.
+  display.displayBuffer(refreshMode, true);
 }
 
 void GfxRenderer::applyFrameOverlay(const bool force) const {
@@ -1490,9 +1496,15 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
   }
 
   // A string exactly maxWidth wide fits — the early return above uses <=, so
-  // this loop has to as well, otherwise one more character than necessary is
-  // dropped from every truncated label in the UI.
-  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) > maxWidth) {
+  // this comparison has to as well, otherwise one more character than
+  // necessary is dropped from every truncated label in the UI.
+  // The ellipsis width is measured once and subtracted from the budget: the
+  // previous form built a fresh heap string (item + ellipsis) and re-measured
+  // the whole thing on every iteration — the single largest source of
+  // alloc/free churn in the UI (up to ~3 heap pairs per list row per frame).
+  const int ellipsisWidth = getTextWidth(fontId, ellipsis, style);
+  const int budget = maxWidth - ellipsisWidth;
+  while (!item.empty() && getTextWidth(fontId, item.c_str(), style) > budget) {
     utf8RemoveLastChar(item);
   }
 

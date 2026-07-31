@@ -41,7 +41,9 @@ class FontDownloadActivity : public Activity {
            // during downloading.
            state_ == COMPLETE || state_ == ERROR;
   }
-  bool skipLoopDelay() override { return true; }
+  // Only the transfer states need the fast loop; browsing the family list is
+  // an ordinary menu and was busy-spinning at full clock.
+  bool skipLoopDelay() override { return state_ == LOADING_MANIFEST || state_ == DOWNLOADING; }
 
  private:
   enum State {
@@ -83,6 +85,7 @@ class FontDownloadActivity : public Activity {
   size_t currentFileTotal_ = 0;
   size_t fileProgress_ = 0;
   size_t fileTotal_ = 0;
+  int lastNotifiedPercent_ = -1;
   int downloadingFamilyIndex_ = -1;
   // What the ERROR screen's Retry should re-run.
   enum class FailedOp { None, Manifest, Download, Delete };

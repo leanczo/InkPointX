@@ -509,3 +509,4 @@ STR_SYNC_ERR_SERVER: "Сервер қатесі — кейінірек қайт�
 STR_FONT_LIST_FAILED: "Қаріптер тізімін алу мүмкін болмады"
 STR_FONT_DOWNLOAD_FAILED: "Қаріпті жүктеу сәтсіз аяқталды"
 STR_FONT_DELETE_FAILED: "Қаріпті жою мүмкін болмады"
+STR_SD_CARD_ERROR: "SD карта қатесі"

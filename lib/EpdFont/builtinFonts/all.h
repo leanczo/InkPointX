@@ -10,7 +10,6 @@
 #include <builtinFonts/ui_16_semibold.h>
 #include <builtinFonts/ui_18_medium.h>
 #include <builtinFonts/ui_18_semibold.h>
-#include <builtinFonts/ui_wordmark_36_semibold.h>
 #include <builtinFonts/notoserif_12_bold.h>
 #include <builtinFonts/notoserif_12_bolditalic.h>
 #include <builtinFonts/notoserif_12_italic.h>

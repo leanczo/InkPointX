@@ -276,6 +276,12 @@ void EpubReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
 
+  // Flush the coalesced reading position; the per-render save now skips most
+  // page turns, so exit is the write of record.
+  if (epub && section) {
+    saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+  }
+
   // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
   // pre-footnote position so the book reopens at the link origin, not the footnote.
   if (footnoteDepth > 0 && epub) {
@@ -1274,7 +1280,20 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
   silentIndexNextChapterIfNeeded(viewportWidth, viewportHeight);
-  saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
+  // Coalesced: this used to persist on every page render — four FAT directory
+  // operations per turn (~1,200 for a 300-page book) to store 6 bytes. A
+  // chapter change saves immediately; within a chapter, every 5th turn or 30 s
+  // of dwell. onExit() flushes the final position, so an abrupt power cut
+  // loses a few page turns of position at most, never data.
+  const bool chapterChanged = currentSpineIndex != lastSavedSpineIndex;
+  pagesSinceProgressSave++;
+  if (chapterChanged || pagesSinceProgressSave >= 5 || millis() - lastProgressSaveMs >= 30000) {
+    if (saveProgress(currentSpineIndex, section->currentPage, section->pageCount)) {
+      lastSavedSpineIndex = currentSpineIndex;
+      pagesSinceProgressSave = 0;
+      lastProgressSaveMs = millis();
+    }
+  }
 
   showPendingSyncSaveError();
 

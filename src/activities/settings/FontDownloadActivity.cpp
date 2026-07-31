@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <esp_task_wdt.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
@@ -258,10 +259,12 @@ bool FontDownloadActivity::computeFileCrc32(const char* path, uint32_t& outCrc) 
   if (!Storage.openFileForRead("FONT", path, f)) {
     return false;
   }
-  constexpr size_t BUF_SIZE = 128;
-  uint8_t buf[BUF_SIZE];
+  // 2 KB: at 128 B a 2 MB font cost ~16k mutex-guarded reads to verify.
+  constexpr size_t BUF_SIZE = 2048;
+  static uint8_t buf[BUF_SIZE];
   uint32_t crc = 0;
   while (f.available()) {
+    esp_task_wdt_reset();  // verifying a large font exceeds the 30 s TWDT window
     const int n = f.read(buf, BUF_SIZE);
     if (n <= 0) break;
     crc = esp_rom_crc32_le(crc, buf, static_cast<uint32_t>(n));
@@ -332,7 +335,14 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family, const bool fin
               mappedInput.wasPressed(MappedInputManager::Button::Back)) {
             cancelRequested_ = true;
           }
-          requestUpdate(true);
+          // Repaint only on a whole-percent change: the callback fires every
+          // 2 KB, and ungated it drove the panel at its maximum refresh rate
+          // for the entire download (~120 full refreshes per minute).
+          const int percent = total > 0 ? static_cast<int>(downloaded * 100 / total) : 0;
+          if (percent != lastNotifiedPercent_) {
+            lastNotifiedPercent_ = percent;
+            requestUpdate(true);
+          }
         },
         &cancelRequested_);
 

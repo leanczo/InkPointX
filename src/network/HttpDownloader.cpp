@@ -10,6 +10,7 @@
 #include <cstring>
 #include <functional>
 #include <string>
+#include <esp_task_wdt.h>
 
 namespace {
 // RX holds the response headers. 4096 fits real OPDS servers; GitHub's release
@@ -114,6 +115,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
   }
 
   while (true) {
+    esp_task_wdt_reset();  // loopTask is on the TWDT; a multi-minute download must feed it
     if (sink.cancelFlag && *sink.cancelFlag) {
       esp_http_client_cleanup(client);
       return HttpDownloader::ABORTED;

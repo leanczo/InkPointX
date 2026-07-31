@@ -34,6 +34,9 @@ class FontDecompressor {
 
   // Free all cached data (page buffer + hot group).
   void clearCache();
+  // Frees only the per-page prewarm slots; the LRU glyph cache and hot group
+  // survive for cross-page reuse.
+  void freePageBuffer();
 
   // Pre-scan UTF-8 text and extract needed glyph bitmaps into a flat page buffer.
   // Each group is decompressed once into a temp buffer; only needed glyphs are kept.
@@ -98,7 +101,7 @@ class FontDecompressor {
   uint16_t glyphCacheWriteOffset = 0;
   uint32_t glyphCacheClock = 0;
 
-  void freePageBuffer();
+
   void freeHotGroup();
   void freeGlyphCache();
   const uint8_t* findCachedGlyph(const EpdFontData* fontData, uint32_t glyphIndex);

@@ -14,6 +14,9 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <esp_ota_ops.h>
+#include <esp_sleep.h>
+#include <esp_task_wdt.h>
 #include <builtinFonts/all.h>
 
 #include <algorithm>
@@ -351,7 +354,7 @@ void setup() {
   if (!Storage.begin()) {
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts(isSilentReboot);
-    activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
+    activityManager.goToFullScreenMessage(tr(STR_SD_CARD_ERROR), EpdFontFamily::BOLD);
     return;
   }
 
@@ -494,10 +497,51 @@ void setup() {
     gpio.update();
   }
 
+  // Watchdog: the config arms the TWDT but nothing ever subscribed, so the 25
+  // esp_task_wdt_reset() calls scattered through the network code were no-ops
+  // and an application-level hang required the user to force-power the device.
+  // The render task is deliberately not subscribed - it parks forever in
+  // xTaskNotifyWait when idle, and a wedged render task starves the main loop
+  // off the RenderLock anyway, which this watchdog then catches on the next
+  // lock acquisition. 120 s, not less: a button press during a long chapter
+  // index legitimately blocks the main loop on the RenderLock for however
+  // long the index takes, and that must not read as a hang.
+  {
+    esp_task_wdt_config_t wdtConfig = {};
+    wdtConfig.timeout_ms = 120000;
+    wdtConfig.idle_core_mask = 0;
+    wdtConfig.trigger_panic = true;
+    esp_task_wdt_reconfigure(&wdtConfig);
+    enableLoopWDT();
+  }
+
   // Ensure we're not still holding the power button before leaving setup
   waitForPowerRelease();
   allowSleepAt = millis() + 2000;
 }
+
+// Arduino's default marks a pending OTA image valid before setup() even runs,
+// which makes bootloader rollback useless: a firmware that boots and panics
+// immediately can never roll back. Returning true here defers the decision to
+// markOtaValidOnceHealthy() below.
+extern "C" bool verifyRollbackLater() { return true; }
+
+namespace {
+// 10 s of uptime without a panic is the health criterion: every crash loop we
+// have seen fires well inside that. Until this runs, a reset returns the
+// device to the previous slot.
+void markOtaValidOnceHealthy() {
+  static bool done = false;
+  if (done || millis() < 10000) return;
+  done = true;
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    LOG_INF("OTA", "Image marked valid after healthy boot");
+  }
+}
+}  // namespace
 
 void loop() {
   static unsigned long maxLoopDuration = 0;
@@ -506,6 +550,7 @@ void loop() {
 
   gpio.update();
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
+  markOtaValidOnceHealthy();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
@@ -611,6 +656,16 @@ void loop() {
     screenshotComboActive = false;
   }
 
+  // Force sleep before the brownout detector can reset the chip mid-write:
+  // below this point the pack cannot sustain an SD write plus a panel refresh,
+  // and an abrupt reset during a save is how settings files used to vanish.
+  // getBatteryPercentage() is internally cached (1.5 s), so this is cheap.
+  if (!gpio.isUsbConnected() && powerManager.getBatteryPercentage() <= 2) {
+    LOG_ERR("PWR", "Battery critically low - forcing deep sleep");
+    enterDeepSleep(true);
+    return;
+  }
+
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
@@ -655,7 +710,12 @@ void loop() {
   const bool frontButtonReleased =
       gpio.wasReleased(HalGPIO::BTN_BACK) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
       gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_RIGHT);
-  if (frontButtonReleased && SETTINGS.showButtonHints && UITheme::getInstance().hasVisibleButtonHints()) {
+  // Only when the last rendered frame actually shows a pressed pill: the
+  // unconditional version queued a second full-panel refresh on every list
+  // step (action paints on the press edge, this fired on the release edge),
+  // doubling both the visible flashing and the panel energy per keypress.
+  if (frontButtonReleased && SETTINGS.showButtonHints && UITheme::getInstance().hasVisibleButtonHints() &&
+      UITheme::getInstance().hasPressedButtonHints()) {
     activityManager.requestUpdate();
   }
 
@@ -681,7 +741,28 @@ void loop() {
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
-      delay(50);
+      // Light sleep instead of delay(): while the user reads a static page the
+      // core used to idle in WFI with PLL, flash and all peripheral clocks up —
+      // tens of mA to display an image that costs zero power to hold. A timer
+      // wakeup replaces the GPIO wake the hardware cannot provide (six of the
+      // seven buttons sit on ADC dividers), so input latency stays the same
+      // 50 ms as the delay it replaces.
+      //   - Skipped on USB: light sleep drops the CDC session mid-enumeration.
+      //   - Skipped with WiFi up: the modem needs its own sleep negotiation.
+      //   - RenderLock held across the nap: the clocks must never halt while
+      //     the render task is mid-SPI to the panel or the SD card. Blocking
+      //     here until an in-flight render finishes is exactly right, and a
+      //     render requested *during* the nap starts at most 50 ms late.
+      if (!gpio.isUsbConnected() && WiFi.getMode() == WIFI_MODE_NULL) {
+        RenderLock renderLock;
+        esp_sleep_enable_timer_wakeup(50000);
+        esp_light_sleep_start();
+        // The timer source is global: left armed, it would wake the *deep*
+        // sleep path 50 ms after the user powers the device off.
+        esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+      } else {
+        delay(50);
+      }
     } else {
       // Short delay to prevent tight loop while still being responsive
       delay(10);

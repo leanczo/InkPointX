@@ -3,7 +3,7 @@
  * name: ui_12_medium
  * size: 12
  * mode: 1-bit
- * Command used: /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/fontconvert.py ui_12_medium 12 /var/folders/41/dmt5d0mj489fv_f_gdgb3lym0000gn/T/tmp3ibl9d7g/Inter-medium-12.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/builtinFonts/source/NotoSansHebrew/NotoSansHebrew-Regular.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/downloaded_fonts/Inter/NotoNaskhArabic[wght].ttf --codepoints-file /Users/vans/InkPoint X/InkPointX-dev/build/ui-fonts/ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
+ * Command used: /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/fontconvert.py ui_12_medium 12 /var/folders/41/dmt5d0mj489fv_f_gdgb3lym0000gn/T/tmp7_ikqfje/Inter-medium-12.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/builtinFonts/source/NotoSansHebrew/NotoSansHebrew-Regular.ttf /Users/vans/InkPoint X/InkPointX-dev/lib/EpdFont/scripts/downloaded_fonts/Inter/NotoNaskhArabic[wght].ttf --codepoints-file /Users/vans/InkPoint X/InkPointX-dev/build/ui-fonts/ui-codepoints.txt --force-autohint --pnum --mono-threshold 6
  */
 #pragma once
 #include "EpdFontData.h"

@@ -38,6 +38,9 @@ class EpubReaderActivity final : public Activity {
   // Normalized 0.0-1.0 progress within the target spine item, computed from book percentage.
   float pendingSpineProgress = 0.0f;
   bool pendingScreenshot = false;
+  int lastSavedSpineIndex = -1;
+  uint8_t pagesSinceProgressSave = 0;
+  unsigned long lastProgressSaveMs = 0;
   bool pendingSyncSaveError = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;

@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <HalStorage.h>
+#include <esp_task_wdt.h>
 #include <I18n.h>
 #include <Logging.h>
 
@@ -109,6 +110,7 @@ void ClearCacheActivity::clearCache() {
 
   // Iterate through all entries in the directory
   for (auto file = root.openNextFile(); file; file = root.openNextFile()) {
+    esp_task_wdt_reset();  // one book cache can hold hundreds of files; feed per entry
     file.getName(name, sizeof(name));
     String itemName(name);
 

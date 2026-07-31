@@ -41,7 +41,6 @@ FONT_CACHE_DIR = ROOT / "lib/EpdFont/scripts/downloaded_fonts/Inter"
 HEBREW_SOURCE_DIR = ROOT / "lib/EpdFont/builtinFonts/source/NotoSansHebrew"
 BUILD_DIR = ROOT / "build/ui-fonts"
 CODEPOINTS_PATH = BUILD_DIR / "ui-codepoints.txt"
-WORDMARK_CODEPOINTS_PATH = BUILD_DIR / "ui-wordmark-codepoints.txt"
 STAMP_PATH = BUILD_DIR / "ui-subset.sha256"
 FONT_IDS_PATH = ROOT / "src/fontIds.h"
 
@@ -76,8 +75,6 @@ WEIGHTS = {"medium": 500, "semibold": 600}
 HEBREW_FALLBACKS = {"medium": "NotoSansHebrew-Regular.ttf", "semibold": "NotoSansHebrew-Bold.ttf"}
 
 SIZES = (8, 12, 14, 16, 18)
-WORDMARK_SIZE = 36
-WORDMARK_TEXT = "InkPoint X"
 
 # Invisible characters the renderer and bidi layer emit at runtime; they never
 # appear in a translation file but must still have a glyph slot.
@@ -200,7 +197,7 @@ def select_converter_python() -> str:
 def build_signature(codepoints: set[int], font_paths: dict[str, Path]) -> str:
     digest = hashlib.sha256()
     digest.update(b"inter-ui-subsets-v1\0")
-    digest.update(b"sizes=8,12,14,16,18;wordmark=36;mono=1;threshold=6;autohint=1;compressed=0;"
+    digest.update(b"sizes=8,12,14,16,18;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
                 b"wght=500/600;opsz=size;fallback=hebrew+arabic\0")
     for codepoint in sorted(codepoints):
         digest.update(codepoint.to_bytes(4, "little"))
@@ -311,8 +308,6 @@ def main() -> None:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     manifest = "".join(f"U+{codepoint:04X}\n" for codepoint in sorted(codepoints))
     write_if_changed(CODEPOINTS_PATH, manifest.encode("utf-8"))
-    wordmark_manifest = "".join(f"U+{codepoint:04X}\n" for codepoint in sorted(set(map(ord, WORDMARK_TEXT))))
-    write_if_changed(WORDMARK_CODEPOINTS_PATH, wordmark_manifest.encode("utf-8"))
 
     signature = build_signature(codepoints, font_paths)
     expected_outputs = [
@@ -320,7 +315,6 @@ def main() -> None:
         for size in SIZES
         for weight in WEIGHTS
     ]
-    expected_outputs.append(FONT_OUTPUT_DIR / "ui_wordmark_36_semibold.h")
     current_stamp = STAMP_PATH.read_text(encoding="ascii").strip() if STAMP_PATH.exists() else ""
     if current_stamp != signature or not all(path.exists() for path in expected_outputs):
         python = select_converter_python()
@@ -339,14 +333,20 @@ def main() -> None:
             for size in SIZES:
                 for weight in WEIGHTS:
                     generate_font(python, weight, size, stack_for(weight, size))
-            generate_font(
-                python,
-                "semibold",
-                WORDMARK_SIZE,
-                stack_for("semibold", WORDMARK_SIZE),
-                font_name="ui_wordmark_36_semibold",
-                codepoints_path=WORDMARK_CODEPOINTS_PATH,
-            )
+        write_if_changed(STAMP_PATH, (signature + "\n").encode("ascii"))
+    else:
+        print("UI fonts: translation subsets are current")
+
+    regenerate_font_ids()
+
+
+if __name__ == "__main__":
+    main()
+else:
+    try:
+        Import("env")
+        main()
+    except NameError:
         write_if_changed(STAMP_PATH, (signature + "\n").encode("ascii"))
     else:
         print("UI fonts: translation subsets are current")

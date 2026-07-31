@@ -19,6 +19,14 @@ void FontCacheManager::clearCache() {
   }
 }
 
+void FontCacheManager::releasePageBuffers() {
+  // Frees only the per-page prewarm slots. The LRU glyph ring and the hot
+  // group survive, so glyphs shared between consecutive pages (which in body
+  // text is nearly all of them) do not have to be re-inflated on every page
+  // turn the way the old clear-everything flow forced.
+  if (fontDecompressor_) fontDecompressor_->freePageBuffer();
+}
+
 void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask) {
   // SD card font prewarm path: prewarm all requested styles in one call
   auto it = sdCardFonts_.find(fontId);
@@ -95,7 +103,9 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
 
 FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manager_(&manager) {
   manager_->scanMode_ = ScanMode::Scanning;
-  manager_->clearCache();
+  // Page-scoped release only: destroying the whole glyph cache here meant a
+  // full 16 KB free/re-inflate cycle per page turn with zero reuse.
+  manager_->releasePageBuffers();
   manager_->resetStats();
   manager_->scanText_.clear();
   manager_->scanText_.reserve(2048);  // Pre-allocate to avoid heap fragmentation from repeated concat
@@ -124,7 +134,7 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 FontCacheManager::PrewarmScope::~PrewarmScope() {
   if (active_) {
     endScanAndPrewarm();  // no-op if already called (scanText_ is empty)
-    manager_->clearCache();
+    manager_->releasePageBuffers();
   }
 }
 

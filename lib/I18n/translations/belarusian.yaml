@@ -509,3 +509,4 @@ STR_SYNC_ERR_SERVER: "Памылка сервера — паспрабуйце �
 STR_FONT_LIST_FAILED: "Не ўдалося атрымаць спіс шрыфтоў"
 STR_FONT_DOWNLOAD_FAILED: "Не ўдалося спампаваць шрыфт"
 STR_FONT_DELETE_FAILED: "Не ўдалося выдаліць шрыфт"
+STR_SD_CARD_ERROR: "Памылка SD-карты"

@@ -39,6 +39,7 @@ class OpdsBookBrowserActivity final : public Activity {
   std::string statusMessage;
   size_t downloadProgress = 0;
   bool cancelRequested = false;
+  int lastNotifiedPercent = -1;
   size_t downloadTotal = 0;
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
@@ -52,5 +53,11 @@ class OpdsBookBrowserActivity final : public Activity {
   void downloadBook(const OpdsEntry& book);
   void launchSearch();
   void performSearch(const std::string& query);
-  bool preventAutoSleep() override { return true; }
+  bool preventAutoSleep() override {
+    // Only while a transfer is actually in flight. Unconditional, this pinned
+    // the CPU at 160 MHz with the radio up for as long as the browser sat
+    // open — a battery-to-zero screen.
+    return state == BrowserState::LOADING || state == BrowserState::DOWNLOADING ||
+           state == BrowserState::CHECK_WIFI;
+  }
 };

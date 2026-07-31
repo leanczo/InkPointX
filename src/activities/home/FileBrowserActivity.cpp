@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <esp_task_wdt.h>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -37,6 +38,11 @@ bool isPathInside(const std::string& path, const std::string& parent) {
 
 void FileBrowserActivity::loadFiles() {
   files.clear();
+  // A directory with thousands of entries would otherwise grow this vector
+  // unbounded — emplace_back is a throwing allocation, and under
+  // -fno-exceptions OOM here is a reboot, not an error screen.
+  constexpr size_t MAX_LISTED_FILES = 1024;
+  files.reserve(64);
 
   auto root = Storage.open(basepath.c_str());
   if (!root || !root.isDirectory()) {
@@ -52,6 +58,11 @@ void FileBrowserActivity::loadFiles() {
   }
 
   for (auto file = root.openNextFile(); file; file = root.openNextFile()) {
+    if (files.size() >= MAX_LISTED_FILES) {
+      LOG_ERR("FileBrowser", "Directory truncated to %u entries", (unsigned)MAX_LISTED_FILES);
+      file.close();
+      break;
+    }
     file.getName(fileNameBuffer.get(), NAME_BUFFER_SIZE);
     if (strcmp(fileNameBuffer.get(), ".crosspoint") == 0 || (!SETTINGS.showHiddenFiles && fileNameBuffer[0] == '.') ||
         strcmp(fileNameBuffer.get(), "System Volume Information") == 0) {
@@ -254,8 +265,10 @@ bool FileBrowserActivity::copyFile(const std::string& sourcePath, const std::str
   }
 
   bool success = true;
-  std::array<uint8_t, 1024> buffer{};
+  // 4 KB: at 1 KB a megabyte cost ~1000 mutex-guarded read+write round trips.
+  std::array<uint8_t, 4096> buffer{};
   while (true) {
+    esp_task_wdt_reset();  // copying a large book exceeds the 30 s TWDT window
     const int count = source.read(buffer.data(), buffer.size());
     if (count < 0) {
       success = false;

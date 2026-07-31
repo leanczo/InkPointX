@@ -509,3 +509,4 @@ STR_SYNC_ERR_SERVER: "Помилка сервера — спробуйте пі�
 STR_FONT_LIST_FAILED: "Не вдалося отримати список шрифтів"
 STR_FONT_DOWNLOAD_FAILED: "Не вдалося завантажити шрифт"
 STR_FONT_DELETE_FAILED: "Не вдалося видалити шрифт"
+STR_SD_CARD_ERROR: "Помилка SD-карти"

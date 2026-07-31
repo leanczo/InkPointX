@@ -304,6 +304,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   // callback — the same pattern the font downloader uses. Without it the
   // download was uncancellable and the whole screen unresponsive.
   cancelRequested = false;
+  lastNotifiedPercent = -1;
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,
       [this](const size_t downloaded, const size_t total) {
@@ -314,7 +315,13 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
             mappedInput.wasPressed(MappedInputManager::Button::Back)) {
           cancelRequested = true;
         }
-        requestUpdate(true);
+        // Whole-percent gate — see FontDownloadActivity: ungated, this drove
+        // the panel at its maximum refresh rate for the whole transfer.
+        const int percent = total > 0 ? static_cast<int>(downloaded * 100 / total) : 0;
+        if (percent != lastNotifiedPercent) {
+          lastNotifiedPercent = percent;
+          requestUpdate(true);
+        }
       },
       &cancelRequested, server.username, server.password);
 

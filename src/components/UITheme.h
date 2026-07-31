@@ -47,11 +47,16 @@ class UITheme {
   void markButtonHintsVisible() { buttonHintsVisible.store(true, std::memory_order_release); }
   void resetButtonHintsVisible() { buttonHintsVisible.store(false, std::memory_order_release); }
   bool hasVisibleButtonHints() const { return buttonHintsVisible.load(std::memory_order_acquire); }
+  // Whether the most recent legend render sampled any front button as held —
+  // i.e. a pressed pill is latched on the panel. Set per drawButtonHints call.
+  void markButtonHintsPressed(const bool pressed) { buttonHintsPressed.store(pressed, std::memory_order_release); }
+  bool hasPressedButtonHints() const { return buttonHintsPressed.load(std::memory_order_acquire); }
 
  private:
   ThemeMetrics currentMetrics = BaseMetrics::values;
   std::unique_ptr<BaseTheme> currentTheme;
   std::atomic_bool buttonHintsVisible{false};
+  std::atomic_bool buttonHintsPressed{false};
 };
 
 // Helper macro to access current theme

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <esp_task_wdt.h>
 
 #include "OtaBootSwitch.h"
 
@@ -270,6 +271,7 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
   size_t streamPos = 0;
   size_t erasedUpto = 0;
   while (streamPos < firmwareSize) {
+    esp_task_wdt_reset();  // erase+write of a ~6 MB image exceeds the 30 s TWDT window
     if (streamPos >= erasedUpto) {
       size_t eraseLen = std::min<size_t>(BLK, dest->size - streamPos);
       eraseLen = (eraseLen + SEC - 1) & ~(SEC - 1);
