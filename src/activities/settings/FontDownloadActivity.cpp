@@ -448,8 +448,10 @@ void FontDownloadActivity::loop() {
 
     const int listSize = listItemCount();
     // hasSubtitle=true: the rows are 86 px, so the old 62 px page count
-    // paged three rows past what the screen shows.
-    const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, true);
+    // paged three rows past what the screen shows. The extra reserve matches
+    // the footer counter render() now draws.
+    const int pageItems =
+        UITheme::getNumberOfItemsPerPage(renderer, true, false, true, true, BaseTheme::footerCounterTopOffset);
 
     buttonNavigator_.onNextPress([this, listSize] {
       selectedIndex_ = ButtonNavigator::nextIndex(selectedIndex_, listSize);
@@ -583,7 +585,7 @@ void FontDownloadActivity::render(RenderLock&&) {
     } else {
       GUI.drawList(
           renderer,
-          Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
+          Rect{0, contentTop, pageWidth, std::max(0, UITheme::getListContentBottom(renderer, true) - contentTop)},
           listItemCount(), selectedIndex_,
           [this](int index) -> std::string {
             if (isDownloadAllRow(index)) {
@@ -613,6 +615,7 @@ void FontDownloadActivity::render(RenderLock&&) {
             return f.installed && !f.hasUpdate;
           });
 
+      GUI.drawFooterCounter(renderer, selectedIndex_, listItemCount());
       const auto labels = mappedInput.mapLabels(tr(STR_BACK),
                                                 isSelectedFamilyDeletable()      ? tr(STR_DELETE)
                                                 : isUpdateAllRow(selectedIndex_) ? tr(STR_UPDATE)

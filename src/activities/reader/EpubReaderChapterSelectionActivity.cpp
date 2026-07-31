@@ -28,7 +28,14 @@ void EpubReaderChapterSelectionActivity::onEnter() {
 void EpubReaderChapterSelectionActivity::onExit() { Activity::onExit(); }
 
 void EpubReaderChapterSelectionActivity::loop() {
-  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  // Mirror the render() list height (which reserves the footer counter), or a
+  // held rocker pages past rows that were never shown.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight =
+      (screen.y + screen.height) - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
+  const int pageItems = std::max(1, GUI.getListPageItems(contentHeight, false));
   const int totalItems = getTotalItems();
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -83,7 +90,8 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
   // Measure from the safe area's bottom edge: contentTop already includes
   // screen.y, so subtracting it from screen.height dropped rows in
   // Portrait-Inverted, where screen.y is non-zero.
-  const int contentHeight = (screen.y + screen.height) - contentTop - metrics.verticalSpacing;
+  const int contentHeight =
+      (screen.y + screen.height) - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
 
   const int totalItems = getTotalItems();
   if (totalItems == 0) {
@@ -107,6 +115,7 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
                  return indent + item.title;
                });
 
+  GUI.drawFooterCounter(renderer, selectorIndex, totalItems);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

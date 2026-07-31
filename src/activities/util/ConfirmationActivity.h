@@ -17,7 +17,7 @@ class ConfirmationActivity : public Activity {
   const int headingFontId = HEADER_FONT_ID;
   const int bodyFontId = UI_10_FONT_ID;
 
-  std::string safeHeading;
+  std::vector<std::string> safeHeadingLines;
   std::vector<std::string> safeBodyLines;
   int cardX = 0;
   int cardY = 0;

@@ -13,7 +13,8 @@ int XtcReaderChapterSelectionActivity::getPageItems() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.y + screen.height - contentTop - metrics.verticalSpacing;
+  const int contentHeight =
+      screen.y + screen.height - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
   return std::max(1, GUI.getListPageItems(contentHeight, false));
 }
 
@@ -92,7 +93,8 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
                  tr(STR_SELECT_CHAPTER));
 
   const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.y + screen.height - contentTop - metrics.verticalSpacing;
+  const int contentHeight =
+      screen.y + screen.height - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
 
   const auto& chapters = xtc->getChapters();
   if (chapters.empty()) {
@@ -109,6 +111,7 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
       [&chapters](int index) { return chapters[index].name.empty() ? std::string(tr(STR_UNNAMED)) : chapters[index].name; },
       nullptr, nullptr, nullptr, false, nullptr, [](int) { return UIAccessory::Chevron; });
 
+  GUI.drawFooterCounter(renderer, selectorIndex, static_cast<int>(chapters.size()));
   // drawButtonHints renders in a forced-portrait pass and getScreenSafeArea
   // already insets the content for it, so the old "skip in Landscape-CW"
   // guard only removed the legend from this one screen.

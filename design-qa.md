@@ -1085,3 +1085,40 @@ flashing the connected X4. It is not a browser or hand-built mock.
   consistency across every supported locale.
 
 final result: passed
+
+## Polish pass — 2026-07-31
+
+Applied after the all-screens audit:
+
+- **Button legend**: a label slightly wider than its half now borrows room by
+  shifting the group's seam (each side keeps ≥30%); the whole-legend drop to
+  the micro size happens only when a pair cannot fit at all. The bar no longer
+  jumps between 12 px and 8 px as the selection changes.
+- **Position counters** ("N / M") added to every long list that lacked one:
+  language select, reader menu, both chapter selections, font browser.
+  `drawFooterCounter` renders in forced portrait, like the hints bar it sits
+  above.
+- **Confirmation card** headings wrap to two lines instead of truncating.
+- **Stats bar charts** print the formatted duration at the end of each bar —
+  bars used to convey relative shape only.
+- **Both sliders** (reader percent, interval picker) sit at the same 2/5
+  optical centre; the interval screen no longer crowds the top third.
+- **Keyboard keys** truncate/shrink their own label instead of spilling over
+  the outline ("SHIFT", Turkish "Tamam").
+- **Network mode descriptions** shortened in all 27 locales to fit the
+  subtitle lane (they lost ~35% to ellipsis before).
+- **English casing** normalized to sentence case for the audit's outliers.
+- **OPDS server list** marks URL-less servers with "Not set".
+
+### Known-open (deliberate or deferred)
+
+- ClearCache keeps its full-screen warning: a destructive action over every
+  book merits more than a row-level modal. Bookmarks keep the in-list delete
+  prompt: it shows the exact bookmark being deleted, and the hold-release
+  swallowing depends on staying in-activity.
+- Interface font picker has one entry until a second UI family ships.
+- Home's action row still owns private layout tokens; `getScreenSafeArea`
+  still ignores `hasSideButtonHints`; CrashActivity body is LTR-only.
+- Keyboard mode keys ("abc", "#@!", "URL") stay untranslated as mode symbols;
+  the alt-char hold stays at SHORT_MS for typing speed.
+- Footnote rows show markers only; a text preview needs target-chapter parsing.

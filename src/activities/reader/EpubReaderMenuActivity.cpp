@@ -131,7 +131,8 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   // contentTop already includes screen.y, so the remaining height is measured from
   // the safe area's bottom edge. Subtracting it from screen.height instead lost
   // screen.y worth of list rows in Portrait-Inverted.
-  const int contentHeight = (screen.y + screen.height) - contentTop - metrics.verticalSpacing;
+  const int contentHeight =
+      (screen.y + screen.height) - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
 
   GUI.drawList(
       renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, menuItems.size(), selectedIndex,
@@ -151,6 +152,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
       true);
 
   // Footer / Hints
+  GUI.drawFooterCounter(renderer, selectedIndex, static_cast<int>(menuItems.size()));
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

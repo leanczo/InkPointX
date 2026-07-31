@@ -37,7 +37,8 @@ void LanguageSelectActivity::loop() {
     return;
   }
 
-  const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false);
+  const int pageItems =
+      UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, BaseTheme::footerCounterTopOffset);
 
   // Handle navigation
   buttonNavigator.onNextPress([this] {
@@ -89,7 +90,7 @@ void LanguageSelectActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   // Shared with every other list screen, so a row's bottom margin no longer
   // differs by 8 px between siblings.
-  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, false) - contentTop);
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, true) - contentTop);
   const auto currentLang = static_cast<uint8_t>(I18N.getLanguage());
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, totalItems, selectedIndex,
@@ -99,6 +100,7 @@ void LanguageSelectActivity::render(RenderLock&&) {
       });
 
   // Button hints
+  GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), totalItems);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

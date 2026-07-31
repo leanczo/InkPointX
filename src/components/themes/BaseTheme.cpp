@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "I18n.h"
@@ -40,14 +41,6 @@ Rect buttonHintGroupRect(const GfxRenderer& renderer, const int groupIndex) {
   const int groupWidth = (pageWidth - 2 * buttonHintSideMargin - buttonHintGroupGap) / 2;
   return Rect{buttonHintSideMargin + groupIndex * (groupWidth + buttonHintGroupGap),
               renderer.getScreenHeight() - buttonHintBottomMargin - buttonHintHeight, groupWidth, buttonHintHeight};
-}
-
-Rect buttonHintSectionRect(const Rect& group, const int sectionIndex) {
-  const int firstSectionWidth = group.width / 2;
-  if (sectionIndex == 0) {
-    return Rect{group.x, group.y, firstSectionWidth, group.height};
-  }
-  return Rect{group.x + firstSectionWidth, group.y, group.width - firstSectionWidth, group.height};
 }
 
 bool pointInsideRoundedRect(const int x, const int y, const Rect& rect, const int radius) {
@@ -215,28 +208,55 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
   // clickable sections. Reproduce that silhouette on-screen so the label-to-
   // hardware mapping is readable at a glance.
   // The legend names what each button does, so a truncated label is worse than a
-  // smaller one. Use the normal caption size when every label fits, and drop the
-  // whole legend to the micro size only when one would not -- never a mix, which
-  // would read as an accident.
+  // smaller one. A label slightly wider than its half borrows room from its
+  // neighbour by shifting the group's seam (each side keeps at least 30% so the
+  // two-button shape stays readable). Before this, one wide label ("Download")
+  // dropped the whole legend to the micro size — and because the labels change
+  // with the selection, the entire bar jumped between 12 px and 8 px as the
+  // user scrolled. Only when a pair cannot fit even with the seam shifted does
+  // the legend fall back to micro, and then as a whole, never as a mix.
+  const auto labelWidth = [&](const int fontId, const char* label) {
+    return (label && label[0] != '\0') ? renderer.getTextWidth(fontId, label, EpdFontFamily::REGULAR) + 6 : 0;
+  };
   int hintFontId = SMALL_FONT_ID;
-  {
-    const int sectionTextWidth = buttonHintSectionRect(buttonHintGroupRect(renderer, 0), 0).width - 6;
-    for (const char* label : labels) {
-      if (!label || label[0] == '\0') continue;
-      if (renderer.getTextWidth(SMALL_FONT_ID, label, EpdFontFamily::REGULAR) > sectionTextWidth) {
+  int seams[2];
+  for (int groupIndex = 0; groupIndex < 2; ++groupIndex) {
+    const Rect group = buttonHintGroupRect(renderer, groupIndex);
+    const int minSection = group.width * 3 / 10;
+    const int need0 = labelWidth(SMALL_FONT_ID, labels[groupIndex * 2]);
+    const int need1 = labelWidth(SMALL_FONT_ID, labels[groupIndex * 2 + 1]);
+    int seam = group.width / 2;
+    if (need0 > seam || need1 > group.width - seam) {
+      if (need0 + need1 <= group.width && need0 <= group.width - minSection && need1 <= group.width - minSection) {
+        seam = std::clamp(need0 > seam ? need0 : group.width - need1, minSection, group.width - minSection);
+      } else {
         hintFontId = MICRO_FONT_ID;
-        break;
       }
     }
+    seams[groupIndex] = seam;
+  }
+  if (hintFontId == MICRO_FONT_ID) {
+    seams[0] = seams[1] = 0;  // recomputed per group below at the micro size
   }
 
   for (int groupIndex = 0; groupIndex < 2; ++groupIndex) {
     const Rect group = buttonHintGroupRect(renderer, groupIndex);
     renderer.fillRect(group.x, group.y, group.width, group.height, false);
+    int seam = seams[groupIndex];
+    if (seam == 0) {
+      const int minSection = group.width * 3 / 10;
+      const int need0 = labelWidth(MICRO_FONT_ID, labels[groupIndex * 2]);
+      const int need1 = labelWidth(MICRO_FONT_ID, labels[groupIndex * 2 + 1]);
+      seam = group.width / 2;
+      if ((need0 > seam || need1 > group.width - seam) && need0 + need1 <= group.width) {
+        seam = std::clamp(need0 > seam ? need0 : group.width - need1, minSection, group.width - minSection);
+      }
+    }
 
     for (int sectionIndex = 0; sectionIndex < 2; ++sectionIndex) {
       const int physicalButtonIndex = groupIndex * 2 + sectionIndex;
-      const Rect section = buttonHintSectionRect(group, sectionIndex);
+      const Rect section = sectionIndex == 0 ? Rect{group.x, group.y, seam, group.height}
+                                             : Rect{group.x + seam, group.y, group.width - seam, group.height};
       const bool pressed = gpio.isPressed(static_cast<uint8_t>(physicalButtonIndex));
 
       // Visual-only pressed state: sample the hardware while composing the
@@ -256,10 +276,10 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       }
     }
 
-    // Draw the shared outline and center seam last so both remain crisp when
+    // Draw the shared outline and seam last so both remain crisp when
     // either half is shown in its pressed state.
     renderer.drawRoundedRect(group.x, group.y, group.width, group.height, 1, buttonHintCornerRadius, true);
-    const int dividerX = group.x + group.width / 2;
+    const int dividerX = group.x + seam;
     renderer.drawLine(dividerX, group.y + 3, dividerX, group.y + group.height - 4, true);
   }
 
@@ -546,11 +566,15 @@ void BaseTheme::drawPageDots(const GfxRenderer& renderer, const int selectedPage
   }
 }
 
-void BaseTheme::drawFooterCounter(const GfxRenderer& renderer, const int selectedIndex, const int itemCount) const {
+void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex, const int itemCount) const {
   if (itemCount <= 0) return;
   char counter[24];
   snprintf(counter, sizeof(counter), "%d / %d", selectedIndex + 1, itemCount);
   const auto& metrics = UITheme::getInstance().getMetrics();
+  // Forced portrait, like the button hints directly below it: the counter
+  // belongs to the physical bottom edge, not to the rotated content.
+  const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   const int y = renderer.getScreenHeight() - metrics.buttonHintsHeight - footerCounterTopOffset;
   // Follows the interface language, not the counter's own digits, which are
   // direction-neutral and would always have resolved to left.
@@ -558,6 +582,7 @@ void BaseTheme::drawFooterCounter(const GfxRenderer& renderer, const int selecte
                                    renderer.getTextWidth(SMALL_FONT_ID, counter)
                              : metrics.contentSidePadding;
   renderer.drawText(SMALL_FONT_ID, x, y, counter);
+  renderer.setOrientation(origOrientation);
 }
 
 void BaseTheme::drawDivider(const GfxRenderer& renderer, const int x1, const int x2, const int y) const {
@@ -904,11 +929,22 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
   // Pinned one slot below the shifted scale, and the secondary label to MICRO: a
   // 10-column grid of single characters gains nothing from larger type and has no
   // room for it.
-  const int itemWidth = renderer.getTextWidth(UI_10_FONT_ID, label);
-  const int textX = rect.x + (rect.width - itemWidth) / 2;
-  const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+  // A word key can be wider than its cap ("SHIFT", Turkish "Tamam"): drop just
+  // that key's label to MICRO before letting it spill over the outline.
+  int keyFontId = UI_10_FONT_ID;
+  int itemWidth = renderer.getTextWidth(keyFontId, label);
+  if (itemWidth > rect.width - 4) {
+    keyFontId = MICRO_FONT_ID;
+    itemWidth = renderer.getTextWidth(keyFontId, label);
+  }
+  const auto fitted = renderer.truncatedText(keyFontId, label, rect.width - 4);
+  if (fitted.size() != strlen(label)) {
+    itemWidth = renderer.getTextWidth(keyFontId, fitted.c_str());
+  }
+  const int textX = rect.x + std::max(2, (rect.width - itemWidth) / 2);
+  const int textY = rect.y + (rect.height - renderer.getLineHeight(keyFontId)) / 2;
 
-  renderer.drawText(UI_10_FONT_ID, textX, textY, label, true);
+  renderer.drawText(keyFontId, textX, textY, fitted.c_str(), true);
 
   if (hasSecondary) {
     const int secWidth = renderer.getTextWidth(MICRO_FONT_ID, secondaryLabel);

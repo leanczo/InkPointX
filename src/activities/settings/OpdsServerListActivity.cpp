@@ -124,7 +124,10 @@ void OpdsServerListActivity::render(RenderLock&&) {
         },
         [&servers, serverCount](int index) {
           if (index < serverCount && !servers[index].name.empty()) {
-            return servers[index].url;
+            // A server saved without a URL is otherwise indistinguishable
+            // from a working one until the browser fails to load it.
+            return servers[index].url.empty() ? std::string(I18n::getInstance().get(StrId::STR_NOT_SET))
+                                              : servers[index].url;
           }
           return std::string("");
         });

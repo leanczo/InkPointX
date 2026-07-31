@@ -227,7 +227,7 @@ class BaseTheme {
                               const std::function<UIIcon(int index)>& rowIcon) const;
   void drawSelection(const GfxRenderer& renderer, Rect rect) const;
   virtual void drawPageDots(const GfxRenderer& renderer, int selectedPage, int pageCount) const;
-  virtual void drawFooterCounter(const GfxRenderer& renderer, int selectedIndex, int itemCount) const;
+  virtual void drawFooterCounter(GfxRenderer& renderer, int selectedIndex, int itemCount) const;
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,

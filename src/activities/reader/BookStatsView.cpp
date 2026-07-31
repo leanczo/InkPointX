@@ -288,14 +288,29 @@ void drawHorizontalBars(GfxRenderer& renderer, const int x, const int y, const i
   const int labelColumnW = std::max(layout.chartLabelW, labelLeftPadding + maxLabelW + labelRightPadding);
   const int barX = x + labelColumnW + barLeftGap;
   const int barW = std::max(0, w - labelColumnW - barLeftGap - rightPadding);
+  // Reserve a value lane on the right: bars without numbers gave relative
+  // shape only — "Evening" could have been 5 minutes or 5 hours.
+  int maxValueW = 0;
+  std::array<std::string, N> valueTexts;
+  for (size_t i = 0; i < N; ++i) {
+    if (values[i] > 0) {
+      char buf[16];
+      formatCompactEstimate(values[i], buf, sizeof(buf));
+      valueTexts[i] = buf;
+      maxValueW = std::max(maxValueW, renderer.getTextWidth(layout.chartLabelFontId, buf));
+    }
+  }
+  const int valueLaneW = maxValueW > 0 ? maxValueW + barLeftGap : 0;
+  const int barWithValueW = std::max(0, barW - valueLaneW);
   for (size_t i = 0; i < N; ++i) {
     const int rowTop = contentTop + static_cast<int>(i) * rowStride;
     const int labelY = rowTop + (rowContentH - labelLineH) / 2;
     const int barY = rowTop + (rowContentH - layout.barH) / 2;
     renderer.drawText(layout.chartLabelFontId, x + labelLeftPadding, labelY, I18N.get(labels[i]));
     if (maxValue > 0 && values[i] > 0) {
-      const int fillW = std::max(2, static_cast<int>((static_cast<uint64_t>(barW) * values[i]) / maxValue));
+      const int fillW = std::max(2, static_cast<int>((static_cast<uint64_t>(barWithValueW) * values[i]) / maxValue));
       renderer.fillRect(barX, barY, fillW, layout.barH, true);
+      renderer.drawText(layout.chartLabelFontId, barX + fillW + barLeftGap, labelY, valueTexts[i].c_str());
     }
   }
 }

@@ -71,13 +71,24 @@ void IntervalSelectionActivity::render(RenderLock&&) {
   } else {
     snprintf(formattedValue, sizeof(formattedValue), "%d", value);
   }
-  const int valueY = metrics.topPadding + metrics.headerHeight + 54;
+  // The value/slider/hint block sits at the content's optical centre (2/5),
+  // like the shared empty state — it used to crowd the top third and leave
+  // ~490 px of void below.
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentBottom =
+      renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  const int valueLineHeight = renderer.getLineHeight(UI_18_FONT_ID);
+  const int hintLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  constexpr int barHeight = 8;
+  constexpr int knobSize = 16;
+  const int blockHeight = valueLineHeight + metrics.verticalSpacing * 2 + knobSize + metrics.verticalSpacing * 2 +
+                          hintLineHeight;
+  const int valueY = contentTop + std::max(0, (contentBottom - contentTop - blockHeight) * 2 / 5);
   renderer.drawCenteredText(UI_18_FONT_ID, valueY, formattedValue, true, EpdFontFamily::BOLD);
 
   const int barWidth = std::min(360, std::max(0, screenWidth - 40));
-  constexpr int barHeight = 8;
   const int barX = std::max(0, (screenWidth - barWidth) / 2);
-  const int barY = valueY + 74;
+  const int barY = valueY + valueLineHeight + metrics.verticalSpacing * 2 + (knobSize - barHeight) / 2;
 
   renderer.fillRoundedRect(barX, barY, barWidth, barHeight, barHeight / 2, Color::LightGray);
 
@@ -87,11 +98,11 @@ void IntervalSelectionActivity::render(RenderLock&&) {
     renderer.fillRoundedRect(barX, barY, fillWidth, barHeight, barHeight / 2, Color::Black);
   }
 
-  constexpr int knobSize = 16;
   const int knobX = std::clamp(barX + fillWidth - knobSize / 2, barX, barX + barWidth - knobSize);
   renderer.fillRoundedRect(knobX, barY - (knobSize - barHeight) / 2, knobSize, knobSize, knobSize / 2, Color::Black);
 
-  renderer.drawCenteredText(SMALL_FONT_ID, barY + 34, I18N.get(stepHintId), true);
+  renderer.drawCenteredText(SMALL_FONT_ID, barY + barHeight + (knobSize - barHeight) / 2 + metrics.verticalSpacing * 2,
+                            I18N.get(stepHintId), true);
 
   char decrement[12];
   char increment[12];

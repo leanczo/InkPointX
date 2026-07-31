@@ -20,21 +20,25 @@ void ConfirmationActivity::onEnter() {
   const int maxTextWidth = maxCardWidth - margin * 2;
 
   if (!heading.empty()) {
-    safeHeading = renderer.truncatedText(headingFontId, heading.c_str(), maxTextWidth, EpdFontFamily::BOLD);
+    // Wrapped, not truncated: this is the question being asked, and several
+    // locales' headings ("Remove from Recent Books?") are wider than the card.
+    safeHeadingLines = renderer.wrappedText(headingFontId, heading.c_str(), maxTextWidth, 2, EpdFontFamily::BOLD);
   }
   if (!body.empty()) {
     safeBodyLines = renderer.wrappedText(bodyFontId, body.c_str(), maxTextWidth, 5);
   }
 
-  int widestText = safeHeading.empty() ? 0 : renderer.getTextWidth(headingFontId, safeHeading.c_str(),
-                                                                   EpdFontFamily::BOLD);
+  int widestText = 0;
+  for (const auto& line : safeHeadingLines) {
+    widestText = std::max(widestText, renderer.getTextWidth(headingFontId, line.c_str(), EpdFontFamily::BOLD));
+  }
   for (const auto& line : safeBodyLines) {
     widestText = std::max(widestText, renderer.getTextWidth(bodyFontId, line.c_str()));
   }
   cardWidth = std::min(maxCardWidth, std::max(300, widestText + margin * 2));
   cardHeight = margin * 2;
-  if (!safeHeading.empty()) cardHeight += headingLineHeight;
-  if (!safeHeading.empty() && !safeBodyLines.empty()) cardHeight += spacing;
+  cardHeight += static_cast<int>(safeHeadingLines.size()) * headingLineHeight;
+  if (!safeHeadingLines.empty() && !safeBodyLines.empty()) cardHeight += spacing;
   cardHeight += static_cast<int>(safeBodyLines.size()) * bodyLineHeight;
 
   cardX = (renderer.getScreenWidth() - cardWidth) / 2;
@@ -52,13 +56,13 @@ void ConfirmationActivity::render(RenderLock&& lock) {
   renderer.drawRoundedRect(cardX, cardY, cardWidth, cardHeight, 1, radius, true);
 
   int currentY = cardY + margin;
-  if (!safeHeading.empty()) {
-    const int headingWidth =
-        renderer.getTextWidth(headingFontId, safeHeading.c_str(), EpdFontFamily::BOLD);
-    renderer.drawText(headingFontId, cardX + (cardWidth - headingWidth) / 2, currentY, safeHeading.c_str(), true,
+  for (const auto& line : safeHeadingLines) {
+    const int headingWidth = renderer.getTextWidth(headingFontId, line.c_str(), EpdFontFamily::BOLD);
+    renderer.drawText(headingFontId, cardX + (cardWidth - headingWidth) / 2, currentY, line.c_str(), true,
                       EpdFontFamily::BOLD);
-    currentY += headingLineHeight + spacing;
+    currentY += headingLineHeight;
   }
+  if (!safeHeadingLines.empty() && !safeBodyLines.empty()) currentY += spacing;
 
   for (const auto& line : safeBodyLines) {
     const int lineWidth = renderer.getTextWidth(bodyFontId, line.c_str());

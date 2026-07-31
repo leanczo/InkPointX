@@ -69,7 +69,14 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
                  tr(STR_GO_TO_PERCENT));
 
-  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 4;
+  // Same optical centring as IntervalSelection, so the firmware's two sliders
+  // sit at the same place on screen.
+  const int areaTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int areaBottom = screen.y + screen.height - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  const int valueLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int hintLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int blockHeight = valueLineHeight + metrics.verticalSpacing + 24 + metrics.verticalSpacing * 2 + hintLineHeight;
+  const int contentTop = areaTop + std::max(0, (areaBottom - areaTop - blockHeight) * 2 / 5);
 
   const std::string percentText = std::to_string(percent) + "%";
   UITheme::drawCenteredText(renderer, screen, UI_12_FONT_ID, contentTop, percentText.c_str(), true,
@@ -81,7 +88,7 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
   constexpr int barWidth = 360;
   constexpr int barHeight = 16;
   const int barX = screen.x + (screen.width - barWidth) / 2;
-  const int barY = contentTop + renderer.getLineHeight(UI_12_FONT_ID) + metrics.verticalSpacing;
+  const int barY = contentTop + valueLineHeight + metrics.verticalSpacing;
 
   renderer.drawRect(barX, barY, barWidth, barHeight);
 
