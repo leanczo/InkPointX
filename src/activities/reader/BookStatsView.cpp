@@ -231,10 +231,25 @@ void drawStatCell(const GfxRenderer& renderer, const int x, const int w, const i
                   const char* label) {
   const int valueLineH = renderer.getLineHeight(UI_12_FONT_ID);
   const int labelLineH = renderer.getLineHeight(SMALL_FONT_ID);
-  const int totalTextH = valueLineH + 4 + labelLineH;
-  const int textY = y + (h - totalTextH) / 2;
-  drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, textY, value, true);
-  drawCenteredLabel(renderer, SMALL_FONT_ID, x, w, textY + valueLineH + 4, label);
+  // Both lines are confined to the cell: several English labels ("Reading
+  // Streak") and most German ones are wider than a third-width cell and used
+  // to spill into their neighbours. Wrap the label to two lines when the cell
+  // is tall enough, else truncate.
+  const int maxTextW = std::max(0, w - 8);
+  const auto fittedValue = renderer.truncatedText(UI_12_FONT_ID, value, maxTextW, EpdFontFamily::BOLD);
+  auto labelLines = renderer.wrappedText(SMALL_FONT_ID, label, maxTextW, 2);
+  if (labelLines.empty()) labelLines.emplace_back("");
+  if (labelLines.size() > 1 && valueLineH + 4 + static_cast<int>(labelLines.size()) * labelLineH > h - 4) {
+    labelLines.assign(1, renderer.truncatedText(SMALL_FONT_ID, label, maxTextW));
+  }
+  const int totalTextH = valueLineH + 4 + static_cast<int>(labelLines.size()) * labelLineH;
+  const int textY = y + std::max(0, (h - totalTextH) / 2);
+  drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, textY, fittedValue.c_str(), true);
+  int labelY = textY + valueLineH + 4;
+  for (const auto& line : labelLines) {
+    drawCenteredLabel(renderer, SMALL_FONT_ID, x, w, labelY, line.c_str());
+    labelY += labelLineH;
+  }
 }
 
 void drawSectionCard(const GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
@@ -273,14 +288,29 @@ void drawHorizontalBars(GfxRenderer& renderer, const int x, const int y, const i
   const int labelColumnW = std::max(layout.chartLabelW, labelLeftPadding + maxLabelW + labelRightPadding);
   const int barX = x + labelColumnW + barLeftGap;
   const int barW = std::max(0, w - labelColumnW - barLeftGap - rightPadding);
+  // Reserve a value lane on the right: bars without numbers gave relative
+  // shape only — "Evening" could have been 5 minutes or 5 hours.
+  int maxValueW = 0;
+  std::array<std::string, N> valueTexts;
+  for (size_t i = 0; i < N; ++i) {
+    if (values[i] > 0) {
+      char buf[16];
+      formatCompactEstimate(values[i], buf, sizeof(buf));
+      valueTexts[i] = buf;
+      maxValueW = std::max(maxValueW, renderer.getTextWidth(layout.chartLabelFontId, buf));
+    }
+  }
+  const int valueLaneW = maxValueW > 0 ? maxValueW + barLeftGap : 0;
+  const int barWithValueW = std::max(0, barW - valueLaneW);
   for (size_t i = 0; i < N; ++i) {
     const int rowTop = contentTop + static_cast<int>(i) * rowStride;
     const int labelY = rowTop + (rowContentH - labelLineH) / 2;
     const int barY = rowTop + (rowContentH - layout.barH) / 2;
     renderer.drawText(layout.chartLabelFontId, x + labelLeftPadding, labelY, I18N.get(labels[i]));
     if (maxValue > 0 && values[i] > 0) {
-      const int fillW = std::max(2, static_cast<int>((static_cast<uint64_t>(barW) * values[i]) / maxValue));
+      const int fillW = std::max(2, static_cast<int>((static_cast<uint64_t>(barWithValueW) * values[i]) / maxValue));
       renderer.fillRect(barX, barY, fillW, layout.barH, true);
+      renderer.drawText(layout.chartLabelFontId, barX + fillW + barLeftGap, labelY, valueTexts[i].c_str());
     }
   }
 }
@@ -434,10 +464,10 @@ void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const 
 void drawDateField(const GfxRenderer& renderer, const int x, const int y, const int w, const char* text,
                    const bool selected) {
   const int h = renderer.getLineHeight(UI_12_FONT_ID) + 10;
-  renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
-  renderer.drawRect(x, y, w, h, true);
   if (selected) {
-    renderer.drawRect(x + 1, y + 1, w - 2, h - 2, true);
+    GUI.drawSelection(renderer, Rect{x, y, w, h});
+  } else {
+    renderer.drawRoundedRect(x, y, w, h, 1, 8, true);
   }
   drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, y + 5, text);
 }
@@ -565,7 +595,10 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_HOME), "", showMoreButton ? tr(STR_MORE) : "");
+    // Confirm is only a hidden alias of Back here, and where it used to say
+    // "« Home" it went home only on the home-screen path — leave it blank
+    // rather than promise the wrong destination.
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), "", "", showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 }
@@ -647,7 +680,8 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   const int totalFieldW = monthW + gap + dayW + gap + yearW;
   const int fieldStartX = cardX + (cardW - totalFieldW) / 2;
 
-  char monthBuf[8];
+  // Wide enough for multibyte month tokens (Arabic month names reach 14 bytes).
+  char monthBuf[16];
   char dayBuf[8];
   char yearBuf[8];
 
@@ -679,6 +713,11 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   drawDateField(renderer, fieldStartX, row2Y, monthW, monthBuf, selectedField == 3);
   drawDateField(renderer, fieldStartX + monthW + gap, row2Y, dayW, dayBuf, selectedField == 4);
   drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row2Y, yearW, yearBuf, selectedField == 5);
+
+  // Stepping a field past its range clears the whole date (and un-completes
+  // the book) — that used to happen with no warning anywhere on the screen.
+  drawCenteredLabel(renderer, SMALL_FONT_ID, 0, pageWidth, cardY + cardH + metrics.verticalSpacing * 2,
+                    tr(STR_DATE_ROLL_CLEARS));
 
   if (showButtonHints && mappedInput) {
     const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_NEXT_FIELD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

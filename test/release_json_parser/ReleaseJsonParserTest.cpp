@@ -66,6 +66,7 @@ const char* kRealisticPretty = R"({
       "content_type": "application/octet-stream",
       "state": "uploaded",
       "size": 1572864,
+      "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "download_count": 187,
       "created_at": "2026-04-28T10:16:00Z",
       "updated_at": "2026-04-28T10:16:45Z",
@@ -132,6 +133,7 @@ TEST(ReleaseJsonParser, RealisticPrettyPrinted) {
   EXPECT_STREQ(p.getFirmwareUrl(),
                "https://github.com/crosspoint-reader/crosspoint-reader/releases/download/v2.4.1/firmware.bin");
   EXPECT_EQ(p.getFirmwareSize(), 1572864u);
+  EXPECT_STREQ(p.getFirmwareDigest(), "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 }
 
 TEST(ReleaseJsonParser, RealisticMinified) {
@@ -218,6 +220,24 @@ TEST(ReleaseJsonParser, FieldOrderSizeBeforeUrl) {
   EXPECT_TRUE(p.foundFirmware());
   EXPECT_STREQ(p.getFirmwareUrl(), "https://example.com/fw2.bin");
   EXPECT_EQ(p.getFirmwareSize(), 3333u);
+}
+
+TEST(ReleaseJsonParser, FirmwareDigestSurvivesAnyAssetFieldOrder) {
+  const char* json = R"({
+      "tag_name": "v3.2",
+      "assets": [{
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size": 4444,
+        "browser_download_url": "https://example.com/fw3.bin",
+        "name": "firmware.bin"
+      }]
+    })";
+
+  ReleaseJsonParser p;
+  p.feed(json, strlen(json));
+
+  ASSERT_TRUE(p.foundFirmware());
+  EXPECT_STREQ(p.getFirmwareDigest(), "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 }
 
 TEST(ReleaseJsonParser, FieldOrderNameFirst) {
@@ -506,6 +526,7 @@ TEST(ReleaseJsonParser, ResetClearsState) {
   EXPECT_FALSE(p.foundFirmware());
   EXPECT_STREQ(p.getTagName(), "");
   EXPECT_STREQ(p.getFirmwareUrl(), "");
+  EXPECT_STREQ(p.getFirmwareDigest(), "");
   EXPECT_EQ(p.getFirmwareSize(), 0u);
 }
 

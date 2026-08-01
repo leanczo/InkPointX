@@ -14,23 +14,34 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <esp_ota_ops.h>
+#include <esp_task_wdt.h>
 #include <builtinFonts/all.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "FavoriteBooksStore.h"
+#include "InterfaceFont.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
+#include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
+#include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "activities/reader/ProgressFile.h"
+#include "util/BookCacheUtils.h"
+#include "util/BootDiag.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -101,26 +112,41 @@ EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, 
 
 #endif  // OMIT_FONTS
 
-EpdFont smallFont(&notosans_8_regular);
-EpdFontFamily smallFontFamily(&smallFont);
+// Inter's Medium and SemiBold weights, instanced from its variable axes and
+// rasterized to compact 1-bit translation subsets. Medium keeps body labels open on
+// the X4 panel; SemiBold supplies headings and selected/emphasized states. Hebrew
+// and Arabic code points come from Noto fallbacks in the same subsets -- see
+// scripts/build_ui_fonts.py.
+EpdFont ui8MediumFont(&ui_8_medium);
+EpdFont ui8SemiBoldFont(&ui_8_semibold);
+EpdFontFamily ui8FontFamily(&ui8MediumFont, &ui8SemiBoldFont);
 
-EpdFont ui10RegularFont(&ubuntu_10_regular);
-EpdFont ui10BoldFont(&ubuntu_10_bold);
-EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
+EpdFont ui10MediumFont(&ui_10_medium);
+EpdFont ui10SemiBoldFont(&ui_10_semibold);
+EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
+// Handwritten accent voice (Caveat 600). The smaller cut keeps the Home author
+// subordinate to the title; both are single-face families because the script
+// itself supplies the emphasis.
+EpdFont uiScriptSmallFont(&ui_script_18);
+EpdFontFamily uiScriptSmallFontFamily(&uiScriptSmallFont);
+EpdFont uiScriptFont(&ui_script_20);
+EpdFontFamily uiScriptFontFamily(&uiScriptFont);
 
-EpdFont ui12RegularFont(&ubuntu_12_regular);
-EpdFont ui12BoldFont(&ubuntu_12_bold);
-EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+EpdFont ui12MediumFont(&ui_12_medium);
+EpdFont ui12SemiBoldFont(&ui_12_semibold);
+EpdFontFamily ui12FontFamily(&ui12MediumFont, &ui12SemiBoldFont);
 
-// Compact OFL-licensed Inter subsets used exclusively by the sleep lock screen.
-EpdFont lockScreenClockFont(&locksans_clock_72_light);
-EpdFontFamily lockScreenClockFontFamily(&lockScreenClockFont);
-EpdFont lockScreenDateFont(&locksans_date_11_medium);
-EpdFontFamily lockScreenDateFontFamily(&lockScreenDateFont);
+EpdFont ui14MediumFont(&ui_14_medium);
+EpdFont ui14SemiBoldFont(&ui_14_semibold);
+EpdFontFamily ui14FontFamily(&ui14MediumFont, &ui14SemiBoldFont);
 
-// measurement of power button press duration calibration value
-unsigned long t1 = 0;
-unsigned long t2 = 0;
+EpdFont ui16MediumFont(&ui_16_medium);
+EpdFont ui16SemiBoldFont(&ui_16_semibold);
+EpdFontFamily ui16FontFamily(&ui16MediumFont, &ui16SemiBoldFont);
+
+// Screen headings sit at the top of the scale.
+EpdFontFamily uiHeaderFontFamily(&ui16SemiBoldFont);
+
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -146,11 +172,89 @@ enum class BootResume : uint8_t {
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
+void drawSystemFrameOverlay(const GfxRenderer& target) {
+  UITheme::getInstance().drawSystemBatteryOverlay(target);
+}
+
+void applyInterfaceFont() {
+  // Swapping the interface faces unregisters seven font IDs and frees the
+  // decompressed glyph cache. The render task reads both while it draws, and
+  // the two settings screens that change the face call this straight from
+  // their loop() on the main task — so without the lock the map is mutated
+  // mid-lookup and the cache is freed under a glyph that is being blitted.
+  // Held for the whole swap: a half-applied font map is not a valid state to
+  // render from either. begin() creates the mutex before setup() reaches the
+  // first call here, so this is also safe during boot.
+  RenderLock lock;
+  renderer.removeFont(MICRO_FONT_ID);
+  renderer.removeFont(SMALL_FONT_ID);
+  renderer.removeFont(UI_10_FONT_ID);
+  renderer.removeFont(UI_12_FONT_ID);
+  renderer.removeFont(UI_14_FONT_ID);
+  renderer.removeFont(UI_16_FONT_ID);
+  renderer.removeFont(UI_18_FONT_ID);
+  renderer.removeFont(SCRIPT_SMALL_FONT_ID);
+  renderer.removeFont(SCRIPT_FONT_ID);
+  if (renderer.getFontCacheManager()) renderer.getFontCacheManager()->clearCache();
+
+  // The UI_nn identifiers are slot names, not pixel sizes. The whole scale sits one
+  // step higher than the slot names suggest, so the interface reads comfortably at
+  // arm's length on a 480 x 800 panel rather than merely fitting on it. Row heights,
+  // the header, the legend bar and the footer counter are sized from these line
+  // heights in LyraMetrics, so the two move together.
+  //
+  // MICRO exists for one job: the keyboard's secondary key labels. That grid is
+  // structurally dense (10 columns of single characters) and does not benefit from
+  // larger type, so it keeps the size the rest of the interface has outgrown.
+  // The whole scale sits one step below the previous build (user request):
+  // captions 12->10, labels 14->12, row titles 16->14, headings and book
+  // titles 18->16. MICRO keeps 8. The 18 pt family is no longer linked.
+  // A family on the card can stand in for the whole scale. Each slot takes the
+  // closest size it ships, and every slot it cannot cover keeps the built-in
+  // face — a card font with only two sizes is still usable, and a card that
+  // was pulled out falls back to a complete interface rather than a blank one.
+  static constexpr SdCardFontSystem::InterfaceSlot uiSlots[] = {
+      {MICRO_FONT_ID, 8, 2},  {SMALL_FONT_ID, 10, 2}, {UI_10_FONT_ID, 12, 2}, {UI_12_FONT_ID, 14, 2},
+      {UI_14_FONT_ID, 16, 2}, {UI_16_FONT_ID, 16, 2}, {UI_18_FONT_ID, 16, 2},
+  };
+  static constexpr SdCardFontSystem::InterfaceSlot accentSlots[] = {
+      {SCRIPT_SMALL_FONT_ID, 18, 6},
+      {SCRIPT_FONT_ID, 20, 6},
+  };
+
+  sdFontSystem.unloadInterfaceFaces(renderer);
+  if (SETTINGS.uiSdFontFamilyName[0] != '\0') {
+    sdFontSystem.loadInterfaceFaces(SETTINGS.uiSdFontFamilyName, renderer, uiSlots, std::size(uiSlots));
+  }
+  if (SETTINGS.scriptSdFontFamilyName[0] != '\0') {
+    sdFontSystem.loadInterfaceFaces(SETTINGS.scriptSdFontFamilyName, renderer, accentSlots, std::size(accentSlots));
+  }
+
+  const auto fillSlot = [](const int fontId, const EpdFontFamily& family) {
+    if (renderer.getFontMap().count(fontId) == 0) renderer.insertFont(fontId, family);
+  };
+  fillSlot(MICRO_FONT_ID, ui8FontFamily);   // 8 pt  — keyboard, captions
+  fillSlot(SMALL_FONT_ID, ui10FontFamily);  // 10 pt — legends
+  fillSlot(UI_10_FONT_ID, ui12FontFamily);  // 12 pt — labels, values
+  fillSlot(UI_12_FONT_ID, ui14FontFamily);  // 14 pt — list row titles
+  fillSlot(UI_14_FONT_ID, ui16FontFamily);  // 16 pt — book titles
+  fillSlot(UI_16_FONT_ID, ui16FontFamily);
+  fillSlot(UI_18_FONT_ID, ui16FontFamily);
+  fillSlot(SCRIPT_SMALL_FONT_ID, uiScriptSmallFontFamily);  // quieter author line
+  fillSlot(SCRIPT_FONT_ID, uiScriptFontFamily);  // the handwritten accent
+  LOG_DBG("MAIN", "Interface slots: script=%d/%d sd=%d/%d | rows sd=%d asc=%d",
+          renderer.getFontAscenderSize(SCRIPT_SMALL_FONT_ID), renderer.getFontAscenderSize(SCRIPT_FONT_ID),
+          (int)renderer.isSdCardFont(SCRIPT_SMALL_FONT_ID),
+          (int)renderer.isSdCardFont(SCRIPT_FONT_ID), (int)renderer.isSdCardFont(UI_12_FONT_ID),
+          renderer.getFontAscenderSize(UI_12_FONT_ID));
+}
+
 void silentRestart() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=home)");
+  BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
   // E-ink retains the previous frame until Home's first paint lands (~2-3s).
   // Without an overlay, users don't see the reboot and fire input through to
   // Home. Select on the default selectorIndex=0 then opens the most-recent
@@ -165,54 +269,12 @@ void silentRestartToReader() {
   silentRebootTarget = SILENT_REBOOT_TARGET_READER;
   silentRebootMagic = SILENT_REBOOT_MAGIC;
   LOG_DBG("MAIN", "Silent restart (target=reader)");
+  BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
   ESP.restart();
 }
 
-// Verify power button press duration on wake-up from deep sleep
-// Pre-condition: isWakeupByPowerButton() == true
-void verifyPowerButtonDuration() {
-  if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) {
-    // Fast path for short press
-    // Needed because inputManager.isPressed() may take up to ~500ms to return the correct state
-    return;
-  }
-
-  // Give the user up to 1000ms to start holding the power button, and must hold for SETTINGS.getPowerButtonDuration()
-  const auto start = millis();
-  bool abort = false;
-  // Subtract the current time, because inputManager only starts counting the HeldTime from the first update()
-  // This way, we remove the time we already took to reach here from the duration,
-  // assuming the button was held until now from millis()==0 (i.e. device start time).
-  const uint16_t calibration = start;
-  const uint16_t calibratedPressDuration =
-      (calibration < SETTINGS.getPowerButtonDuration()) ? SETTINGS.getPowerButtonDuration() - calibration : 1;
-
-  gpio.update();
-  // Needed because inputManager.isPressed() may take up to ~500ms to return the correct state
-  while (!gpio.isPressed(HalGPIO::BTN_POWER) && millis() - start < 1000) {
-    delay(10);  // only wait 10ms each iteration to not delay too much in case of short configured duration.
-    gpio.update();
-  }
-
-  t2 = millis();
-  if (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    do {
-      delay(10);
-      gpio.update();
-    } while (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.getPowerButtonHeldTime() < calibratedPressDuration);
-    abort = gpio.getPowerButtonHeldTime() < calibratedPressDuration;
-  } else {
-    abort = true;
-  }
-
-  if (abort) {
-    // Button released too early. Returning to sleep.
-    // IMPORTANT: Re-arm the wakeup trigger before sleeping again
-    powerManager.startDeepSleep(gpio);
-  }
-}
 void waitForPowerRelease() {
   gpio.update();
   while (gpio.isPressed(HalGPIO::BTN_POWER)) {
@@ -279,6 +341,7 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   halTiltSensor.deepSleep();
   display.deepSleep();
+  BootDiag::markCleanShutdown(fromTimeout ? BootDiag::Shutdown::IdleTimeout : BootDiag::Shutdown::PowerButton);
   LOG_DBG("MAIN", "Entering deep sleep");
 
   powerManager.startDeepSleep(gpio);
@@ -287,6 +350,7 @@ void enterDeepSleep(bool fromTimeout = false) {
 void setupDisplayAndFonts(bool seamless = false) {
   display.begin(seamless);
   renderer.begin();
+  renderer.setFrameOverlayHook(drawSystemFrameOverlay);
   activityManager.begin();
   LOG_DBG("MAIN", "Display initialized");
 
@@ -307,21 +371,19 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
 #endif  // OMIT_FONTS
-  renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
-  renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
-  renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
-  renderer.insertFont(LOCKSCREEN_CLOCK_FONT_ID, lockScreenClockFontFamily);
-  renderer.insertFont(LOCKSCREEN_DATE_FONT_ID, lockScreenDateFontFamily);
-
-  // Discover and load SD card fonts
+  // Before applyInterfaceFont(): the interface can be drawn in a face from the
+  // card, and it can only be bound once the registry knows the card's families.
+  // The other way round the whole UI silently fell back to the built-in face
+  // for the rest of the session, however the user had set it.
   sdFontSystem.begin(renderer);
+
+  applyInterfaceFont();
+  renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 16 pt semibold
 
   LOG_DBG("MAIN", "Fonts setup");
 }
 
 void setup() {
-  t1 = millis();
-
 #ifdef ENABLE_SERIAL_LOG
   // Earliest possible Serial setup. The 250 ms stall before begin() lets the
   // USB Serial/JTAG peripheral finish power-on and lets the host complete USB
@@ -355,19 +417,29 @@ void setup() {
   if (!Storage.begin()) {
     LOG_ERR("MAIN", "SD card initialization failed");
     setupDisplayAndFonts(isSilentReboot);
-    activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
+    activityManager.goToFullScreenMessage(tr(STR_SD_CARD_ERROR), EpdFontFamily::BOLD);
     return;
   }
 
   HalSystem::checkPanic();
 
+  // Before anything can reroute the boot (a wake that goes straight back to
+  // sleep, a silent reboot): report how the previous session ended.
+  BootDiag::begin();
+
   SETTINGS.loadFromFile();
   halClock.restoreFromStorage();
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
+  FAVORITE_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
+  // Load here, not lazily in the Wi-Fi picker: the store persists its whole
+  // in-memory vector, so any path that saves before a load (the web server's
+  // Wi-Fi API in hotspot mode) would rewrite wifi.json from an empty list and
+  // discard every saved network.
+  WIFI_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
@@ -375,8 +447,10 @@ void setup() {
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
-      gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
-                                   SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
+      if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
+                                        SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
+        powerManager.startDeepSleep(gpio);
+      }
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
@@ -412,13 +486,13 @@ void setup() {
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
   LOG_DBG("MAIN", "Starting InkPoint X version " CROSSPOINT_VERSION);
 
-  // Resolve the single boot-presentation decision. Skipping the splash also
-  // skips the panel-clearing pass and the X3 initial-full-sync arming (see
-  // HalDisplay::begin), so the first paint is FAST_REFRESH (~500ms) over the
-  // retained frame and input dispatches against a visible UI.
+  // Resolve the single boot-presentation decision. Seamless paths skip the
+  // splash but still run one controller-safe fast-full update: begin() resets
+  // controller RAM while the physical e-ink panel retains its old frame.
   const BootResume resume = isSilentReboot              ? BootResume::Silent
                             : !APP_STATE.showBootScreen ? BootResume::QuickResume
                                                         : BootResume::Splash;
+  bool allowFastInitialReaderRefresh = false;
 
   setupDisplayAndFonts(resume != BootResume::Splash);
 
@@ -434,10 +508,20 @@ void setup() {
       APP_STATE.showBootScreen = true;
       APP_STATE.saveToFile();
       if (loadSleepFrameBuffer()) {
-        // Frame restored: swap the sleep moon for the loading icon.
+        const bool useDifferentialRefresh = gpio.deviceIsX3();
+        if (useDifferentialRefresh) {
+          // begin() clears controller RAM; restore the saved frame as the X3
+          // differential baseline before replacing the moon icon.
+          renderer.cleanupGrayscaleWithFrameBuffer();
+        }
         const auto pageHeight = renderer.getScreenHeight();
         renderer.drawImage(LoadingIcon, 0, pageHeight - LOADINGICON_HEIGHT, LOADINGICON_WIDTH, LOADINGICON_HEIGHT);
-        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+        if (useDifferentialRefresh) {
+          renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+          allowFastInitialReaderRefresh = true;
+        } else {
+          renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+        }
       } else {
         activityManager.goToBoot();  // frame file missing, fall back to the splash
       }
@@ -473,7 +557,7 @@ void setup() {
     APP_STATE.openEpubPath = "";
     APP_STATE.readerActivityLoadCount++;
     APP_STATE.saveToFile();
-    activityManager.goToReader(path);
+    activityManager.goToReader(path, allowFastInitialReaderRefresh);
   }
 
   if (resume == BootResume::Silent) {
@@ -484,19 +568,60 @@ void setup() {
     // selectorIndex=0 opens the most-recent book.
     activityManager.requestUpdateAndWait();
     // Absorb any button held at this point into currentState as a non-edge:
-    // two gpio.update() calls separated by > InputManager's 5ms debounce
+    // two gpio.update() calls separated by > InputManager's 20ms debounce
     // transition the held bit through lastDebounceTime into currentState
     // without setting pressedEvents, so the first loop()'s own gpio.update()
     // sees state == currentState and emits nothing.
     gpio.update();
-    delay(10);
+    delay(25);
     gpio.update();
+  }
+
+  // Watchdog: the config arms the TWDT but nothing ever subscribed, so the 25
+  // esp_task_wdt_reset() calls scattered through the network code were no-ops
+  // and an application-level hang required the user to force-power the device.
+  // The render task is deliberately not subscribed - it parks forever in
+  // xTaskNotifyWait when idle, and a wedged render task starves the main loop
+  // off the RenderLock anyway, which this watchdog then catches on the next
+  // lock acquisition. 300 s, not less: a button press during a long chapter
+  // index legitimately blocks the main loop on the RenderLock for however
+  // long the index takes, and that must not read as a hang.
+  {
+    esp_task_wdt_config_t wdtConfig = {};
+    wdtConfig.timeout_ms = 300000;
+    wdtConfig.idle_core_mask = 0;
+    wdtConfig.trigger_panic = true;
+    esp_task_wdt_reconfigure(&wdtConfig);
+    enableLoopWDT();
   }
 
   // Ensure we're not still holding the power button before leaving setup
   waitForPowerRelease();
   allowSleepAt = millis() + 2000;
 }
+
+// Arduino's default marks a pending OTA image valid before setup() even runs,
+// which makes bootloader rollback useless: a firmware that boots and panics
+// immediately can never roll back. Returning true here defers the decision to
+// markOtaValidOnceHealthy() below.
+extern "C" bool verifyRollbackLater() { return true; }
+
+namespace {
+// 10 s of uptime without a panic is the health criterion: every crash loop we
+// have seen fires well inside that. Until this runs, a reset returns the
+// device to the previous slot.
+void markOtaValidOnceHealthy() {
+  static bool done = false;
+  if (done || millis() < 10000) return;
+  done = true;
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    LOG_INF("OTA", "Image marked valid after healthy boot");
+  }
+}
+}  // namespace
 
 void loop() {
   static unsigned long maxLoopDuration = 0;
@@ -505,6 +630,7 @@ void loop() {
 
   gpio.update();
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
+  markOtaValidOnceHealthy();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
@@ -522,11 +648,118 @@ void loop() {
       String cmd = line.substring(4);
       cmd.trim();
       if (cmd == "SCREENSHOT") {
+        // Snapshot the framebuffer under the same lock used by the render task.
+        // Without this, an activity redraw can replace the buffer while the
+        // relatively slow USB transfer is in progress, producing a torn image
+        // containing parts of two different screens.
+        RenderLock renderLock;
         const uint32_t bufferSize = display.getBufferSize();
-        logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
+        logSerial.setTxTimeoutMs(1000);
+        logSerial.printf("SCREENSHOT_START:%u\n", (unsigned)bufferSize);
         uint8_t* buf = display.getFrameBuffer();
-        logSerial.write(buf, bufferSize);
+        uint32_t bytesSent = 0;
+        while (bytesSent < bufferSize) {
+          const size_t chunkSize = std::min<uint32_t>(64, bufferSize - bytesSent);
+          const size_t written = logSerial.write(buf + bytesSent, chunkSize);
+          if (written == 0) {
+            delay(1);
+            continue;
+          }
+          bytesSent += written;
+          delay(1);
+        }
+        logSerial.flush();
         logSerial.printf("SCREENSHOT_END\n");
+        logSerial.flush();
+        logSerial.setTxTimeoutMs(1);
+#if LOG_LEVEL >= 2
+      } else if (cmd.startsWith("PROFILE_UIFONT")) {
+        // CMD:PROFILE_UIFONT[:Family] — bind the interface to a card family
+        // (no argument returns to the built-in face). Buttons cannot be
+        // pressed over serial, and this is the only way to exercise the whole
+        // path: registry lookup, face load, slot binding, repaint.
+        const int sep = cmd.indexOf(':');
+        const String family = sep < 0 ? String() : cmd.substring(sep + 1);
+        strncpy(SETTINGS.uiSdFontFamilyName, family.c_str(), CrossPointSettings::SD_FONT_NAME_MAX - 1);
+        SETTINGS.uiSdFontFamilyName[CrossPointSettings::SD_FONT_NAME_MAX - 1] = '\0';
+        applyInterfaceFont();
+        SETTINGS.saveToFile();  // as the picker does, so a sleep-wake keeps it
+        LOG_INF("MAIN", "Profile route: interface font = '%s'", SETTINGS.uiSdFontFamilyName);
+        activityManager.goHome();
+      } else if (cmd.startsWith("PROFILE_ACCENTFONT")) {
+        const int sep = cmd.indexOf(':');
+        const String family = sep < 0 ? String() : cmd.substring(sep + 1);
+        strncpy(SETTINGS.scriptSdFontFamilyName, family.c_str(), CrossPointSettings::SD_FONT_NAME_MAX - 1);
+        SETTINGS.scriptSdFontFamilyName[CrossPointSettings::SD_FONT_NAME_MAX - 1] = '\0';
+        applyInterfaceFont();
+        SETTINGS.saveToFile();  // as the picker does, so a sleep-wake keeps it
+        LOG_INF("MAIN", "Profile route: accent font = '%s'", SETTINGS.scriptSdFontFamilyName);
+        activityManager.goHome();
+      } else if (cmd == "PROFILE_SLEEP") {
+        // Drives the power button's sleep path end to end without a finger on
+        // the button: the teardown, the sleep frame, the panel shutdown and
+        // esp_deep_sleep_start(). A panic anywhere in there would look exactly
+        // like "the power button rebooted the device instead of sleeping it".
+        LOG_INF("MAIN", "Profile route: deep sleep (power-button path)");
+        enterDeepSleep(false);
+      } else if (cmd == "PROFILE_OTA") {
+        // Verification route for the over-the-air update path: reaching it
+        // through the UI needs several button presses this console cannot make.
+        activityManager.replaceActivity(std::make_unique<OtaUpdateActivity>(renderer, mappedInputManager));
+        LOG_DBG("MAIN", "Profile route: OTA update");
+      } else if (cmd == "PROFILE_REINDEX") {
+        // Wipes the most recent book's cache and reopens it — forces the full
+        // chapter re-index path, which is where the light-sleep RenderLock
+        // regression wedged the main loop.
+        if (!RECENT_BOOKS.getBooks().empty()) {
+          const auto path = RECENT_BOOKS.getBooks().front().path;
+          // Force the position to a mid-book chapter after the wipe: reopening
+          // at the one-page cover chapter indexes in seconds and never
+          // exercises the long re-index path this route exists for.
+          const std::string cacheDir = getBookCachePath(path);
+          clearBookCache(path);
+          Storage.ensureDirectoryExists(cacheDir.c_str());
+          const uint8_t forced[6] = {24, 0, 1, 0, 0, 0};  // spine=24, page=1
+          ProgressFile::writeAtomic(cacheDir, forced, sizeof(forced));
+          activityManager.goToReader(path);
+          LOG_DBG("MAIN", "Profile route: reindex %s", path.c_str());
+        }
+      } else if (cmd == "PROFILE_READER") {
+        // Opens the most recent book — the only way to reach a reading page
+        // from the console for framebuffer verification.
+        if (!RECENT_BOOKS.getBooks().empty()) {
+          activityManager.goToReader(RECENT_BOOKS.getBooks().front().path);
+          LOG_DBG("MAIN", "Profile route: Reader");
+        } else {
+          LOG_DBG("MAIN", "Profile route: Reader - no recent books");
+        }
+      } else if (cmd == "PROFILE_REDRAW") {
+        // Development-only latency probe. It exercises the exact active
+        // activity render path without changing UI state.
+        activityManager.requestUpdate();
+        LOG_DBG("MAIN", "Profile redraw requested");
+      } else if (cmd == "PROFILE_LIBRARY") {
+        activityManager.goHome(HomeMenuItem::LIBRARY);
+        LOG_DBG("MAIN", "Profile route: Library");
+      } else if (cmd == "PROFILE_BOOKS") {
+        activityManager.goToLibrary();
+        LOG_DBG("MAIN", "Profile route: Books");
+      } else if (cmd == "PROFILE_FILES") {
+        activityManager.goToFileBrowser();
+        LOG_DBG("MAIN", "Profile route: Files");
+      } else if (cmd == "PROFILE_GALLERY") {
+        activityManager.goToGallery();
+        LOG_DBG("MAIN", "Profile route: Gallery");
+      } else if (cmd == "PROFILE_HOME_SETTINGS") {
+        activityManager.goHome(HomeMenuItem::SETTINGS_MENU);
+        LOG_DBG("MAIN", "Profile route: Settings hub");
+      } else if (cmd == "PROFILE_HOME") {
+        activityManager.goHome();
+        LOG_DBG("MAIN", "Profile route: Home");
+      } else if (cmd == "PROFILE_SETTINGS") {
+        activityManager.goToSettings();
+        LOG_DBG("MAIN", "Profile route: Settings");
+#endif
       }
     }
   }
@@ -563,6 +796,16 @@ void loop() {
     screenshotComboActive = false;
   }
 
+  // Removed in 2.0.2: a critical-battery guard that force-slept the device
+  // below 2%. Its premise was sound (a brownout mid-write is how settings
+  // files used to vanish) but its input is not: on the X4 the reading is an
+  // ADC divider smoothed in software, and it sags under a panel refresh, at
+  // 10 MHz in power-saving mode, and after a sleep wake. Acting on it powers
+  // a working device off, which on e-ink is indistinguishable from a freeze —
+  // the panel keeps the last frame and the next press looks like a reboot.
+  // A guard that turns the device off must be at least as trustworthy as the
+  // failure it prevents. This one wasn't, and the failure is rarer.
+
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
   if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
@@ -587,6 +830,8 @@ void loop() {
       mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
     LOG_DBG("MAIN", "Manual screen refresh triggered");
     RenderLock lock;
+    // The X4's single-pass D7 clean removes accumulated differential residue
+    // without the conspicuous multi-phase black flash of FULL (F7).
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   }
 
@@ -596,9 +841,27 @@ void loop() {
     activityManager.requestUpdate();
   }
 
+  // A button can still be physically held while the action-triggered frame is
+  // painted, so its on-screen section is rendered black. The release edge does
+  // not always change activity state and therefore used to leave that frame
+  // latched on e-ink indefinitely. Queue one visual-only redraw after release.
+  // It is deliberately deferred and coalesced with the activity's own update:
+  // no extra gpio.update(), no replayed input event, and no duplicate action.
+  const bool frontButtonReleased =
+      gpio.wasReleased(HalGPIO::BTN_BACK) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
+      gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_RIGHT);
+  // Only when the last rendered frame actually shows a pressed pill: the
+  // unconditional version queued a second full-panel refresh on every list
+  // step (action paints on the press edge, this fired on the release edge),
+  // doubling both the visible flashing and the panel energy per keypress.
+  if (frontButtonReleased && SETTINGS.showButtonHints && UITheme::getInstance().hasVisibleButtonHints() &&
+      UITheme::getInstance().hasPressedButtonHints()) {
+    activityManager.requestUpdate();
+  }
+
   const unsigned long activityStartTime = millis();
   activityManager.loop();
-  const unsigned long activityDuration = millis() - activityStartTime;
+  [[maybe_unused]] const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;
   if (loopDuration > maxLoopDuration) {
@@ -618,6 +881,16 @@ void loop() {
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
+      // Removed in 2.0.2: timer-wakeup esp_light_sleep_start() in place of this
+      // delay. It saved real idle current, and it cost the firmware its
+      // reliability on battery — the only configuration it ran in, and the one
+      // configuration a USB-tethered bench cannot observe. Halting the clocks
+      // this deep touches the ADC ladder every button rides on, the panel's
+      // SPI state and the power rails, and each round of hardening produced a
+      // new field failure mode instead of a quiet device. A plain delay is
+      // 50 ms of WFI at 10 MHz: unglamorous, and correct on hardware I cannot
+      // instrument. It can come back the day it can be measured on battery
+      // with a current probe rather than reasoned about.
       delay(50);
     } else {
       // Short delay to prevent tight loop while still being responsive

@@ -6,6 +6,7 @@
 #include <Serialization.h>
 
 #include <cstring>
+#include <new>
 
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
   // Focus annotations are optional: empty vectors mean no word in this block has a split.
@@ -170,7 +171,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   serialization::readPod(file, blockStyle.isRtl);
   serialization::readPod(file, blockStyle.directionDefined);
 
-  return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
+  return std::unique_ptr<TextBlock>(new (std::nothrow) TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
                                                   std::move(wordFocusBoundary), std::move(wordFocusSuffixX),
                                                   blockStyle));
 }

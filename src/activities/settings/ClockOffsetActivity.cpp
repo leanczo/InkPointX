@@ -120,11 +120,11 @@ void ClockOffsetActivity::loop() {
     return;
   }
 
-  buttonNavigator.onNextRelease([this] {
+  buttonNavigator.onNextPress([this] {
     adjustActiveField(+1);
     requestUpdate();
   });
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onPreviousPress([this] {
     adjustActiveField(-1);
     requestUpdate();
   });
@@ -176,10 +176,10 @@ void ClockOffsetActivity::render(RenderLock&&) {
 
   auto drawField = [&](const char* text, const int boxX, const int boxWidth, const Field field) {
     const bool selected = activeField == field;
-    renderer.fillRectDither(boxX, centreY, boxWidth, fieldHeight, selected ? Color::LightGray : Color::White);
-    renderer.drawRect(boxX, centreY, boxWidth, fieldHeight, true);
     if (selected) {
-      renderer.drawRect(boxX + 1, centreY + 1, boxWidth - 2, fieldHeight - 2, true);
+      GUI.drawSelection(renderer, Rect{boxX, centreY, boxWidth, fieldHeight});
+    } else {
+      renderer.drawRoundedRect(boxX, centreY, boxWidth, fieldHeight, 1, 8, true);
     }
     const int textX = boxX + (boxWidth - widthOf(text)) / 2;
     renderer.drawText(UI_12_FONT_ID, textX, centreY, text, true, EpdFontFamily::BOLD);

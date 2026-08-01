@@ -20,10 +20,18 @@ parser.add_argument("size", type=int, help="font size to use.")
 parser.add_argument("fontstack", action="store", nargs='+', help="list of font files, ordered by descending priority.")
 parser.add_argument("--2bit", dest="is2Bit", action="store_true", help="generate 2-bit greyscale bitmap instead of 1-bit black and white.")
 parser.add_argument("--additional-intervals", dest="additional_intervals", action="append", help="Additional code point intervals to export as min,max. This argument can be repeated.")
+parser.add_argument("--codepoints-file", dest="codepoints_file",
+                    help="UTF-8/hex codepoint manifest. When set, replaces the built-in broad intervals.")
 parser.add_argument("--compress", dest="compress", action="store_true", help="Compress glyph bitmaps using DEFLATE with group-based compression.")
 parser.add_argument("--force-autohint", dest="force_autohint", action="store_true", help="Force FreeType auto-hinter instead of native font hinting. Improves stem width consistency for fonts with weak or no native TrueType hints.")
 parser.add_argument("--pnum", dest="pnum", action="store_true", help="Use proportional numerals (pnum OpenType feature) instead of default tabular figures. Reduces visual gaps between digits in running prose.")
+parser.add_argument("--no-kerning", dest="no_kerning", action="store_true", help="Omit kerning tables for compact display fonts where natural advances are sufficient.")
+parser.add_argument("--mono-threshold", dest="mono_threshold", type=int, default=6,
+                    help="1-bit coverage threshold in 4-bit units (1-15, default: 6).")
 args = parser.parse_args()
+
+if not 1 <= args.mono_threshold <= 15:
+    parser.error("--mono-threshold must be between 1 and 15")
 
 import freetype
 from fontTools.ttLib import TTFont
@@ -134,6 +142,47 @@ intervals = [
     # Replacement Character
     (0xFFFD, 0xFFFD),
 ]
+
+
+def load_codepoint_manifest(path):
+    """Load one codepoint per line (U+XXXX, 0xXXXX, decimal, or literal UTF-8).
+
+    Grouping adjacent values here keeps the generated interval table compact
+    without re-introducing unused glyphs between unrelated translation chars.
+    """
+    codepoints = set()
+    with open(path, "r", encoding="utf-8") as manifest:
+        for line_number, raw_line in enumerate(manifest, start=1):
+            value = raw_line.split("#", 1)[0].strip()
+            if not value:
+                continue
+            try:
+                if value.upper().startswith("U+"):
+                    codepoints.add(int(value[2:], 16))
+                elif value.lower().startswith("0x") or value.isdecimal():
+                    codepoints.add(int(value, 0))
+                else:
+                    codepoints.update(ord(character) for character in value)
+            except ValueError as exc:
+                raise ValueError(
+                    f"{path}:{line_number}: invalid codepoint {value!r}"
+                ) from exc
+
+    codepoints = {cp for cp in codepoints if 0 <= cp <= 0x10FFFF}
+    if not codepoints:
+        raise ValueError(f"{path}: no codepoints found")
+
+    result = []
+    for codepoint in sorted(codepoints):
+        if result and codepoint == result[-1][1] + 1:
+            result[-1] = (result[-1][0], codepoint)
+        else:
+            result.append((codepoint, codepoint))
+    return result
+
+
+if args.codepoints_file:
+    intervals = load_codepoint_manifest(args.codepoints_file)
 
 add_ints = []
 if args.additional_intervals:
@@ -328,7 +377,10 @@ for i_start, i_end in intervals:
             #     print(line)
             # print('')
         else:
-            # Downsample to 1-bit bitmap - treat any 2+ as black
+            # Downsample to 1-bit bitmap using an explicit coverage threshold.
+            # Medium/SemiBold UI weights at threshold 6 preserve small counters
+            # while avoiding the swollen outlines caused by "any coverage is
+            # black" on the X4's native monochrome refresh path.
             pixelsbw = []
             px = 0
             pitch = (bitmap.width // 2) + (bitmap.width % 2)
@@ -336,7 +388,8 @@ for i_start, i_end in intervals:
                 for x in range(bitmap.width):
                     px = px << 1
                     bm = pixels4g[y * pitch + (x // 2)]
-                    px += 1 if ((x & 1) == 0 and bm & 0xE > 0) or ((x & 1) == 1 and bm & 0xE0 > 0) else 0
+                    coverage = (bm & 0x0F) if (x & 1) == 0 else ((bm >> 4) & 0x0F)
+                    px += 1 if coverage >= args.mono_threshold else 0
 
                     if (y * bitmap.width + x) % 8 == 7:
                         pixelsbw.append(px)
@@ -524,12 +577,16 @@ def extract_kerning_fonttools(font_path, codepoints, ppem, pnum_subs=None):
 ppem = size * 150.0 / 72.0
 
 kern_map = {}  # (leftCp, rightCp) -> adjust
-for face_idx, cps in face_idx_cps.items():
-    font_path = args.fontstack[face_idx]
-    subs = pnum_kern_subs.get(face_idx) if args.pnum else None
-    kern_map.update(extract_kerning_fonttools(font_path, cps, ppem, pnum_subs=subs))
+if not args.no_kerning:
+    for face_idx, cps in face_idx_cps.items():
+        font_path = args.fontstack[face_idx]
+        subs = pnum_kern_subs.get(face_idx) if args.pnum else None
+        kern_map.update(extract_kerning_fonttools(font_path, cps, ppem, pnum_subs=subs))
 
-print(f"kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
+if args.no_kerning:
+    print("kerning: omitted by --no-kerning", file=sys.stderr)
+else:
+    print(f"kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
 
 # --- Derive class-based kerning from pairs ---
 kern_left_classes = []   # list of (codepoint, classId)

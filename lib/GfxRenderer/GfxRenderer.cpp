@@ -78,6 +78,27 @@ void GfxRenderer::ensureSdCardFontReady(int fontId, const std::vector<std::strin
   }
 }
 
+void GfxRenderer::prepareSdCardGlyphs(const int fontId, const char* utf8Text, const EpdFontFamily::Style style,
+                                      const bool metadataOnly) const {
+  const auto it = sdCardFonts_.find(fontId);
+  if (it == sdCardFonts_.end() || !utf8Text || *utf8Text == '\0') return;
+  const auto styleMask = static_cast<uint8_t>(1U << (static_cast<uint8_t>(style) & 0x03U));
+  if (it->second->hasPrewarmedGlyphs(utf8Text, styleMask, metadataOnly)) return;
+  // Card fonts keep only a small overflow ring beyond what was prewarmed, and a
+  // miss costs an SD seek. Themes normally prepare all visible labels as one
+  // batch; this fallback handles individual strings outside those theme paths.
+  // UI strings are normally measured immediately before they are drawn. A
+  // full preparation here avoids doing the same SD reads once for metrics and
+  // again for bitmaps, while FontCacheManager merges sibling UI groups.
+  if (fontCacheManager_ && fontCacheManager_->prepareSdCardGlyphs(fontId, utf8Text, styleMask)) return;
+  it->second->prewarm(utf8Text, styleMask, false);
+}
+
+void GfxRenderer::beginFrame() const {
+  frameOverlayDrawn_ = false;
+  if (fontCacheManager_) fontCacheManager_->beginFrame();
+}
+
 void GfxRenderer::begin() {
   frameBuffer = display.getFrameBuffer();
   if (!frameBuffer) {
@@ -374,6 +395,14 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   std::string visual;
   const char* renderedText = resolveVisualText(text, visual, baseDir);
 
+  // A reader page is scanned and prewarmed as one unit. Re-prewarming the SD
+  // font for every measured word would replace that page cache and turn each
+  // subsequent glyph into another SD seek.
+  if (!fontCacheManager_ ||
+      (!fontCacheManager_->isScanning() && !fontCacheManager_->isPagePrewarmedFor(fontId))) {
+    prepareSdCardGlyphs(fontId, renderedText, style, /*metadataOnly=*/true);
+  }
+
   int w = 0, h = 0;
   fontIt->second.getTextDimensions(renderedText, &w, &h, style);
   return w;
@@ -395,13 +424,6 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   std::string visual;
   const char* renderedText = resolveVisualText(text, visual, baseDir);
 
-  const int yPos = y + getFontAscenderSize(fontId);
-  int lastBaseX = x;
-  int lastBaseLeft = 0;
-  int lastBaseWidth = 0;
-  int lastBaseTop = 0;
-  int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
-
   if (fontCacheManager_ && fontCacheManager_->isScanning()) {
     fontCacheManager_->recordText(renderedText, fontId, style);
     return;
@@ -414,16 +436,21 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   }
   const auto& font = fontIt->second;
 
+  if (!fontCacheManager_ || !fontCacheManager_->isPagePrewarmedFor(fontId)) {
+    prepareSdCardGlyphs(fontId, renderedText, style, /*metadataOnly=*/false);
+  }
+
+  const int yPos = y + getFontAscenderSize(fontId);
+  int lastBaseX = x;
+  int lastBaseLeft = 0;
+  int lastBaseWidth = 0;
+  int lastBaseTop = 0;
+  int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
+
   const char* textCursor = renderedText;
   uint32_t cp;
   uint32_t prevCp = 0;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&textCursor)))) {
-    // Skip Hebrew Niqqud (vowel marks)
-    // Temporary: avoid adding Niqqud to built-in fonts. Remove when custom fonts are supported.
-    if (cp >= 0x0591 && cp <= 0x05C7) {
-      continue;
-    }
-
     if (utf8IsCombiningMark(cp)) {
       const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
@@ -474,12 +501,12 @@ const char* resolveVisualText(const char* text, std::string& visualBuffer, const
 
   if (baseDir != BidiUtils::BidiBaseDir::RTL) {
     // Byte-level scan: skip BiDi when no RTL script lead bytes are present.
-    // Hebrew UTF-8 lead bytes: 0xD6-0xD7; Arabic/Syriac: 0xD8-0xDB.
-    // This covers all RTL content without false negatives and avoids triggering
-    // the full UAX#9 algorithm for Latin-extended, em-dashes, accented text, etc.
+    // Hebrew/Arabic/Syriac UTF-8 lead bytes. Include Arabic Extended and
+    // presentation-form input so dynamic file/book metadata cannot bypass
+    // shaping merely because it is outside the basic U+0600 block.
     bool hasRtlBytes = false;
     for (const unsigned char* q = reinterpret_cast<const unsigned char*>(text); *q; ++q) {
-      if (*q >= 0xD6 && *q <= 0xDB) {
+      if ((*q >= 0xD6 && *q <= 0xDF) || *q == 0xEF) {
         hasRtlBytes = true;
         break;
       }
@@ -552,11 +579,18 @@ void GfxRenderer::drawRect(const int x, const int y, const int width, const int 
 // Border is inside the rectangle
 void GfxRenderer::drawRect(const int x, const int y, const int width, const int height, const int lineWidth,
                            const bool state) const {
+  // The far edges are width-1/height-1, matching the single-pixel overload
+  // above. Without the -1 every border was drawn one pixel wider and taller
+  // than asked for, so dialog frames and selection boxes bled a stray line
+  // outside their fill and a rect flush with a screen edge made drawPixel log an
+  // out-of-range error per pixel.
   for (int i = 0; i < lineWidth; i++) {
-    drawLine(x + i, y + i, x + width - i, y + i, state);
-    drawLine(x + width - i, y + i, x + width - i, y + height - i, state);
-    drawLine(x + width - i, y + height - i, x + i, y + height - i, state);
-    drawLine(x + i, y + height - i, x + i, y + i, state);
+    const int right = x + width - 1 - i;
+    const int bottom = y + height - 1 - i;
+    drawLine(x + i, y + i, right, y + i, state);
+    drawLine(right, y + i, right, bottom, state);
+    drawLine(right, bottom, x + i, bottom, state);
+    drawLine(x + i, bottom, x + i, y + i, state);
   }
 }
 
@@ -657,6 +691,51 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
   }
   if (roundBottomLeft) {
     drawArc(maxRadius, x + maxRadius, bottom - maxRadius, -1, 1, lineWidth, state);
+  }
+}
+
+void GfxRenderer::invertRoundedRect(const int x, const int y, const int width, const int height,
+                                    const int cornerRadius, const bool roundTopLeft, const bool roundTopRight,
+                                    const bool roundBottomLeft, const bool roundBottomRight) const {
+  if (width <= 0 || height <= 0 || !frameBuffer || _stripActive) return;
+
+  const int radius = std::min({cornerRadius, width / 2, height / 2});
+  const int radiusEdge = std::max(0, radius - 1);
+  const int radiusSquared = radiusEdge * radiusEdge;
+  for (int logicalY = y; logicalY < y + height; ++logicalY) {
+    for (int logicalX = x; logicalX < x + width; ++logicalX) {
+      const int localX = logicalX - x;
+      const int localY = logicalY - y;
+      bool inside = true;
+      if (radius > 0 && roundTopLeft && localX < radius && localY < radius) {
+        const int dx = radiusEdge - localX;
+        const int dy = radiusEdge - localY;
+        inside = dx * dx + dy * dy <= radiusSquared;
+      } else if (radius > 0 && roundTopRight && localX >= width - radius && localY < radius) {
+        const int dx = localX - (width - radius);
+        const int dy = radiusEdge - localY;
+        inside = dx * dx + dy * dy <= radiusSquared;
+      } else if (radius > 0 && roundBottomLeft && localX < radius && localY >= height - radius) {
+        const int dx = radiusEdge - localX;
+        const int dy = localY - (height - radius);
+        inside = dx * dx + dy * dy <= radiusSquared;
+      } else if (radius > 0 && roundBottomRight && localX >= width - radius && localY >= height - radius) {
+        const int dx = localX - (width - radius);
+        const int dy = localY - (height - radius);
+        inside = dx * dx + dy * dy <= radiusSquared;
+      }
+      if (!inside) continue;
+
+      int physicalX = 0;
+      int physicalY = 0;
+      rotateCoordinates(orientation, logicalX, logicalY, &physicalX, &physicalY, panelWidth, panelHeight);
+      if (physicalX < 0 || physicalX >= panelWidth || physicalY < 0 || physicalY >= panelHeight) continue;
+
+      const uint32_t byteIndex =
+          static_cast<uint32_t>(physicalY) * panelWidthBytes + static_cast<uint32_t>(physicalX / 8);
+      const uint8_t bitMask = static_cast<uint8_t>(1U << (7 - (physicalX % 8)));
+      frameBuffer[byteIndex] ^= bitMask;
+    }
   }
 }
 
@@ -1131,12 +1210,36 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
     return;
   }
 
+  // Inverse-map the destination when reducing, exactly as drawBitmap1Bit does.
+  // Forward mapping let several source pixels land on one screen pixel where only
+  // ink is written, so they combined by implicit OR — the same bias that made the
+  // 1-bit path blotchy. Sampling each destination pixel once keeps the intended
+  // density and removes the moire.
+  // croppedWidth above is the fractional width used for the fit calculation; this
+  // is the same span in whole source pixels.
+  const int croppedPixels = bitmap.getWidth() - cropPixX * 2;
+  const int outputWidth =
+      isScaled ? std::max(1, static_cast<int>(std::ceil(static_cast<float>(croppedPixels) * scale))) : croppedPixels;
+
   for (int bmpY = 0; bmpY < (bitmap.getHeight() - cropPixY); bmpY++) {
     // The BMP's (0, 0) is the bottom-left corner (if the height is positive, top-left if negative).
     // Screen's (0, 0) is the top-left corner.
-    int screenY = -cropPixY + (bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY);
+    const int sourceY = -cropPixY + (bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY);
+    int screenY = sourceY;
     if (isScaled) {
-      screenY = std::floor(screenY * scale);
+      const int outputYEnd = static_cast<int>(std::ceil(static_cast<float>(sourceY + 1) * scale));
+      screenY = static_cast<int>(std::ceil(static_cast<float>(sourceY) * scale));
+      // This source row is not the one the destination row samples: read it to
+      // keep the row counter in sync, but draw nothing.
+      if (screenY >= outputYEnd) {
+        if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
+          LOG_ERR("GFX", "Failed to read row %d from bitmap", bmpY);
+          free(outputRow);
+          free(rowBytes);
+          return;
+        }
+        continue;
+      }
     }
     screenY += y;  // the offset should not be scaled
     if (screenY >= getScreenHeight()) {
@@ -1159,12 +1262,12 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
       continue;
     }
 
-    for (int bmpX = cropPixX; bmpX < bitmap.getWidth() - cropPixX; bmpX++) {
-      int screenX = bmpX - cropPixX;
-      if (isScaled) {
-        screenX = std::floor(screenX * scale);
-      }
-      screenX += x;  // the offset should not be scaled
+    for (int outputX = 0; outputX < outputWidth; outputX++) {
+      const int croppedX =
+          isScaled ? std::min(croppedPixels - 1, static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
+                   : outputX;
+      const int bmpX = cropPixX + croppedX;
+      const int screenX = x + outputX;
       if (screenX >= getScreenWidth()) {
         break;
       }
@@ -1213,6 +1316,16 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
     return;
   }
 
+  // Inverse-map the destination when reducing an already-dithered 1-bit
+  // image. The old source-to-destination loop let several source pixels land
+  // on one screen pixel and, because only black pixels are written, combined
+  // them with an implicit OR. Fine dither then collapsed into dark square
+  // blocks and moire. Sampling each destination pixel exactly once preserves
+  // the intended density and avoids that bias.
+  const int outputWidth =
+      isScaled ? std::max(1, static_cast<int>(std::ceil(static_cast<float>(bitmap.getWidth()) * scale)))
+               : bitmap.getWidth();
+
   for (int bmpY = 0; bmpY < bitmap.getHeight(); bmpY++) {
     // Read rows sequentially using readNextRow
     if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
@@ -1223,8 +1336,15 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
     }
 
     // Calculate screen Y based on whether BMP is top-down or bottom-up
-    const int bmpYOffset = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
-    int screenY = y + (isScaled ? static_cast<int>(std::floor(bmpYOffset * scale)) : bmpYOffset);
+    const int sourceY = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
+    int outputY = sourceY;
+    if (isScaled) {
+      const int outputYEnd =
+          static_cast<int>(std::ceil(static_cast<float>(sourceY + 1) * scale));
+      outputY = static_cast<int>(std::ceil(static_cast<float>(sourceY) * scale));
+      if (outputY >= outputYEnd) continue;  // This source row is skipped by the inverse mapping.
+    }
+    const int screenY = y + outputY;
     if (screenY >= getScreenHeight()) {
       continue;  // Continue reading to keep row counter in sync
     }
@@ -1232,8 +1352,12 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
       continue;
     }
 
-    for (int bmpX = 0; bmpX < bitmap.getWidth(); bmpX++) {
-      int screenX = x + (isScaled ? static_cast<int>(std::floor(bmpX * scale)) : bmpX);
+    for (int outputX = 0; outputX < outputWidth; outputX++) {
+      const int sourceX =
+          isScaled ? std::min(bitmap.getWidth() - 1,
+                              static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
+                   : outputX;
+      const int screenX = x + outputX;
       if (screenX >= getScreenWidth()) {
         break;
       }
@@ -1242,7 +1366,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
       }
 
       // Get 2-bit value (result of readNextRow quantization)
-      const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
+      const uint8_t val = outputRow[sourceX / 4] >> (6 - ((sourceX * 2) % 8)) & 0x3;
 
       // For 1-bit source: 0 or 1 -> map to black (0,1,2) or white (3)
       // val < 3 means black pixel (draw it)
@@ -1327,6 +1451,7 @@ void GfxRenderer::clearScreen(const uint8_t color) const {
     memset(_stripBuf, color, static_cast<size_t>(panelWidthBytes) * _stripRows);
     return;
   }
+  frameOverlayDrawn_ = false;
   display.clearScreen(color);
 }
 
@@ -1370,9 +1495,25 @@ void GfxRenderer::invertScreen() const {
 }
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
-  auto elapsed = millis() - start_ms;
+  applyFrameOverlay();
+  [[maybe_unused]] auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
+  // Reverted in 2.0.2 to the OEM behaviour: the analog rails come down only
+  // when the user's fadingFix setting asks for it. Powering them off after
+  // *every* differential refresh did save the idle drain of an energized
+  // charge pump, and it also added a full power-down/up cycle to every page
+  // turn — 140 ms of extra BUSY wait each time, and an inrush transient on a
+  // pack whose voltage already sags under a refresh. On a device reported to
+  // die at random moments on battery, that trade is not worth defending.
   display.displayBuffer(refreshMode, fadingFix);
+}
+
+void GfxRenderer::applyFrameOverlay(const bool force) const {
+  if (!frameOverlayEnabled_ || (!force && frameOverlayDrawn_) || !frameOverlayHook_ || applyingFrameOverlay_) return;
+  applyingFrameOverlay_ = true;
+  frameOverlayHook_(*this);
+  frameOverlayDrawn_ = true;
+  applyingFrameOverlay_ = false;
 }
 
 std::string GfxRenderer::truncatedText(const int fontId, const char* text, const int maxWidth,
@@ -1388,7 +1529,16 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
     return item;
   }
 
-  while (!item.empty() && getTextWidth(fontId, (item + ellipsis).c_str(), style) >= maxWidth) {
+  // A string exactly maxWidth wide fits — the early return above uses <=, so
+  // this comparison has to as well, otherwise one more character than
+  // necessary is dropped from every truncated label in the UI.
+  // The ellipsis width is measured once and subtracted from the budget: the
+  // previous form built a fresh heap string (item + ellipsis) and re-measured
+  // the whole thing on every iteration — the single largest source of
+  // alloc/free churn in the UI (up to ~3 heap pairs per list row per frame).
+  const int ellipsisWidth = getTextWidth(fontId, ellipsis, style);
+  const int budget = maxWidth - ellipsisWidth;
+  while (!item.empty() && getTextWidth(fontId, item.c_str(), style) > budget) {
     utf8RemoveLastChar(item);
   }
 
@@ -1681,6 +1831,27 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   return widthPx;
 }
 
+bool GfxRenderer::getTextInkBounds(const int fontId, const char* text, int* topOffset, int* height,
+                                   const EpdFontFamily::Style style) const {
+  if (topOffset) *topOffset = 0;
+  if (height) *height = 0;
+  if (text == nullptr || *text == '\0') return false;
+
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) return false;
+
+  int minX = 0, minY = 0, maxX = 0, maxY = 0;
+  fontIt->second.getTextBounds(text, 0, 0, &minX, &minY, &maxX, &maxY, style);
+  if (maxY <= minY) return false;  // whitespace only: no ink to measure
+
+  // getTextBounds measures upward from the baseline; drawText puts the baseline
+  // `ascender` pixels below the y it is handed. So the ink starts that far down
+  // minus its own rise above the baseline.
+  if (topOffset) *topOffset = getFontAscenderSize(fontId) - maxY;
+  if (height) *height = maxY - minY;
+  return true;
+}
+
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
@@ -1724,6 +1895,8 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
   }
 
   const auto& font = fontIt->second;
+  std::string visual;
+  const char* renderedText = resolveVisualText(text, visual, BidiUtils::BidiBaseDir::AUTO);
 
   int lastBaseY = y;
   int lastBaseLeft = 0;
@@ -1733,13 +1906,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
 
   uint32_t cp;
   uint32_t prevCp = 0;
-  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
-    // Skip Hebrew Niqqud (vowel marks)
-    // Temporary: avoid adding Niqqud to built-in fonts. Remove when custom fonts are supported.
-    if (cp >= 0x0591 && cp <= 0x05C7) {
-      continue;
-    }
-
+  while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&renderedText)))) {
     if (utf8IsCombiningMark(cp)) {
       const EpdGlyph* combiningGlyph = font.getGlyph(cp, style);
       if (!combiningGlyph) continue;
@@ -1751,7 +1918,7 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       continue;
     }
 
-    cp = font.applyLigatures(cp, text, style);
+    cp = font.applyLigatures(cp, renderedText, style);
 
     // Differential rounding: snap (previous advance + current kern) as one unit,
     // subtracting for the rotated coordinate direction.
@@ -1780,6 +1947,7 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
+  applyFrameOverlay();
   display.displayGrayscaleBase(fallback, fadingFix);
 }
 
@@ -1803,9 +1971,17 @@ void GfxRenderer::preconditionGrayscale(int x, int y, int w, int h) const {
                                 static_cast<uint16_t>(x1 - x0 + 1), static_cast<uint16_t>(y1 - y0 + 1));
 }
 
-void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuffers(frameBuffer); }
+void GfxRenderer::copyGrayscaleLsbBuffers() const {
+  // The system overlay must be present in both grayscale planes as well as in
+  // the BW base; otherwise the image's gray data washes through the indicator.
+  applyFrameOverlay(true);
+  display.copyGrayscaleLsbBuffers(frameBuffer);
+}
 
-void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
+void GfxRenderer::copyGrayscaleMsbBuffers() const {
+  applyFrameOverlay(true);
+  display.copyGrayscaleMsbBuffers(frameBuffer);
+}
 
 void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
 

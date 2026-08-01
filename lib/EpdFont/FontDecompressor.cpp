@@ -4,7 +4,10 @@
 #include <Logging.h>
 #include <Utf8.h>
 
+#include <algorithm>
 #include <cstdlib>
+#include <cstring>
+#include <esp_heap_caps.h>
 
 FontDecompressor::~FontDecompressor() { deinit(); }
 
@@ -16,11 +19,13 @@ bool FontDecompressor::init() {
 void FontDecompressor::deinit() {
   freePageBuffer();
   freeHotGroup();
+  freeGlyphCache();
 }
 
 void FontDecompressor::clearCache() {
   freePageBuffer();
   freeHotGroup();
+  freeGlyphCache();
 }
 
 void FontDecompressor::freePageBuffer() {
@@ -39,6 +44,76 @@ void FontDecompressor::freeHotGroup() {
   hotGroupIndex = UINT16_MAX;
   hotGlyphBuf.clear();
   hotGlyphBuf.shrink_to_fit();
+}
+
+void FontDecompressor::freeGlyphCache() {
+  free(glyphCacheBuffer);
+  glyphCacheBuffer = nullptr;
+  for (auto& entry : glyphCache) entry = GlyphCacheEntry{};
+  glyphCacheWriteOffset = 0;
+  glyphCacheClock = 0;
+}
+
+namespace {
+// vector::resize() aborts on OOM under -fno-exceptions, so the .empty()
+// checks that used to follow it were unreachable. Probe the heap first:
+// allocation happens on a single task, so the probe is not racy in practice,
+// and it turns a guaranteed panic into the graceful nullptr path below.
+bool tryResize(std::vector<uint8_t>& v, const size_t n) {
+  if (v.capacity() < n && heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < n + 64) {
+    return false;
+  }
+  v.resize(n);
+  return true;
+}
+}  // namespace
+
+const uint8_t* FontDecompressor::findCachedGlyph(const EpdFontData* fontData, const uint32_t glyphIndex) {
+  if (!glyphCacheBuffer) return nullptr;
+  for (auto& entry : glyphCache) {
+    if (entry.fontData == fontData && entry.glyphIndex == glyphIndex && entry.length > 0) {
+      entry.lastUse = ++glyphCacheClock;
+      return glyphCacheBuffer + entry.offset;
+    }
+  }
+  return nullptr;
+}
+
+const uint8_t* FontDecompressor::cacheGlyph(const EpdFontData* fontData, const uint32_t glyphIndex,
+                                            const EpdGlyph* glyph, const uint8_t* alignedBitmap) {
+  const uint16_t length = glyph->dataLength;
+  if (length == 0 || length > GLYPH_CACHE_BYTES) return nullptr;
+
+  if (!glyphCacheBuffer) {
+    glyphCacheBuffer = static_cast<uint8_t*>(malloc(GLYPH_CACHE_BYTES));
+    if (!glyphCacheBuffer) return nullptr;
+  }
+
+  if (glyphCacheWriteOffset + length > GLYPH_CACHE_BYTES) glyphCacheWriteOffset = 0;
+  const uint16_t offset = glyphCacheWriteOffset;
+  const uint16_t end = offset + length;
+
+  GlyphCacheEntry* target = nullptr;
+  GlyphCacheEntry* oldest = &glyphCache[0];
+  for (auto& entry : glyphCache) {
+    if (!entry.fontData) {
+      if (!target) target = &entry;
+      continue;
+    }
+    const uint16_t entryEnd = entry.offset + entry.length;
+    if (offset < entryEnd && entry.offset < end) {
+      entry = {};
+      if (!target) target = &entry;
+      continue;
+    }
+    if (entry.lastUse < oldest->lastUse) oldest = &entry;
+  }
+  if (!target) target = oldest;
+
+  compactSingleGlyph(alignedBitmap, glyphCacheBuffer + offset, glyph->width, glyph->height);
+  *target = {fontData, glyphIndex, offset, length, ++glyphCacheClock};
+  glyphCacheWriteOffset = end;
+  return glyphCacheBuffer + offset;
 }
 
 uint16_t FontDecompressor::getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex) {
@@ -161,6 +236,12 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     break;  // Found the right slot but glyph wasn't in it; don't check other slots
   }
 
+  if (const uint8_t* cached = findCachedGlyph(fontData, glyphIndex)) {
+    stats.cacheHits++;
+    stats.getBitmapTimeUs += micros() - tStart;
+    return cached;
+  }
+
   // Fallback: hot group slot
   uint16_t groupIndex = getGroupIndex(fontData, glyphIndex);
   if (groupIndex >= fontData->groupCount) {
@@ -174,8 +255,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     stats.cacheMisses++;
     const EpdFontGroup& group = fontData->groups[groupIndex];
 
-    hotGroup.resize(group.uncompressedSize);
-    if (hotGroup.empty()) {
+    if (!tryResize(hotGroup, group.uncompressedSize)) {
       LOG_ERR("FDC", "Failed to allocate %u bytes for hot group %u", group.uncompressedSize, groupIndex);
       hotGroupFont = nullptr;
       hotGroupIndex = UINT16_MAX;
@@ -199,19 +279,60 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     stats.cacheHits++;
   }
 
-  // Compact just the requested glyph from byte-aligned data into scratch buffer
-  if (glyph->dataLength > hotGlyphBuf.size()) {
-    hotGlyphBuf.resize(glyph->dataLength);
+  const uint32_t alignedOff = getAlignedOffset(fontData, groupIndex, glyphIndex);
+  if (const uint8_t* cached =
+          cacheGlyph(fontData, glyphIndex, glyph, &hotGroup[alignedOff])) {
+    stats.getBitmapTimeUs += micros() - tStart;
+    return cached;
   }
-  if (hotGlyphBuf.empty()) {
+
+  // Allocation failure fallback: compact just the requested glyph into the
+  // original scratch buffer. Rendering remains functional under low memory.
+  if (glyph->dataLength > hotGlyphBuf.size() && !tryResize(hotGlyphBuf, glyph->dataLength)) {
     stats.getBitmapTimeUs += micros() - tStart;
     return nullptr;
   }
 
-  uint32_t alignedOff = getAlignedOffset(fontData, groupIndex, glyphIndex);
   compactSingleGlyph(&hotGroup[alignedOff], hotGlyphBuf.data(), glyph->width, glyph->height);
   stats.getBitmapTimeUs += micros() - tStart;
   return hotGlyphBuf.data();
+}
+
+int FontDecompressor::warmGlyphCache(const EpdFontData* fontData, const char* utf8Text) {
+  if (!fontData || !fontData->groups || !utf8Text || *utf8Text == '\0') return 0;
+
+  uint32_t glyphIndices[MAX_PAGE_GLYPHS];
+  uint16_t glyphCount = 0;
+  const unsigned char* cursor = reinterpret_cast<const unsigned char*>(utf8Text);
+  while (*cursor && glyphCount < MAX_PAGE_GLYPHS) {
+    const uint32_t cp = utf8NextCodepoint(&cursor);
+    if (cp == 0) break;
+    const int32_t glyphIndex = findGlyphIndex(fontData, cp);
+    if (glyphIndex < 0 || fontData->glyph[glyphIndex].dataLength == 0) continue;
+
+    const auto index = static_cast<uint32_t>(glyphIndex);
+    bool duplicate = false;
+    for (uint16_t i = 0; i < glyphCount; ++i) {
+      if (glyphIndices[i] == index) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate) glyphIndices[glyphCount++] = index;
+  }
+
+  std::sort(glyphIndices, glyphIndices + glyphCount, [this, fontData](const uint32_t lhs, const uint32_t rhs) {
+    const uint16_t lhsGroup = getGroupIndex(fontData, lhs);
+    const uint16_t rhsGroup = getGroupIndex(fontData, rhs);
+    return lhsGroup == rhsGroup ? lhs < rhs : lhsGroup < rhsGroup;
+  });
+
+  int missed = 0;
+  for (uint16_t i = 0; i < glyphCount; ++i) {
+    const EpdGlyph* glyph = &fontData->glyph[glyphIndices[i]];
+    if (!getBitmap(fontData, glyph, glyphIndices[i])) ++missed;
+  }
+  return missed;
 }
 
 // --- Prewarm: pre-decompress glyph bitmaps for a page of text ---
@@ -504,7 +625,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 void FontDecompressor::resetStats() { stats = Stats{}; }
 
 void FontDecompressor::logStats(const char* label) {
-  const uint32_t total = stats.cacheHits + stats.cacheMisses;
+  [[maybe_unused]] const uint32_t total = stats.cacheHits + stats.cacheMisses;
   LOG_DBG("FDC", "[%s] hits=%lu misses=%lu (%.1f%% hit rate)", label, stats.cacheHits, stats.cacheMisses,
           total > 0 ? 100.0f * stats.cacheHits / total : 0.0f);
   LOG_DBG("FDC", "[%s] decompress=%lums groups_accessed=%u", label, stats.decompressTimeMs, stats.uniqueGroupsAccessed);

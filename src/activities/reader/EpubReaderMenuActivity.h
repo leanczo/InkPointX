@@ -12,6 +12,7 @@ class EpubReaderMenuActivity final : public Activity {
  public:
   // Menu actions available from the reader menu.
   enum class MenuAction {
+    GO_TO_PAGE,
     SELECT_CHAPTER,
     FOOTNOTES,
     GO_TO_PERCENT,
@@ -24,12 +25,18 @@ class EpubReaderMenuActivity final : public Activity {
     DISPLAY_QR,
     GO_HOME,
     SYNC,
-    DELETE_CACHE
+    DELETE_CACHE,
+    READING_SETTINGS,
+    BOOK_INFO,
+    OPEN_FROM_FILE,
+    TOGGLE_FAVORITE,
+    GESTURES
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
-                                  const uint8_t currentOrientation, const bool hasFootnotes, bool hasBookmarks);
+                                  const uint8_t currentOrientation, const uint8_t currentPageTurnOption,
+                                  const bool hasFootnotes, bool hasBookmarks, bool isFavorite);
 
   void onEnter() override;
   void onExit() override;
@@ -42,7 +49,7 @@ class EpubReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  static std::vector<MenuItem> buildMenuItems(bool hasFootnotes, bool hasBookmarks);
+  static std::vector<MenuItem> buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool isFavorite);
 
   // Fixed menu layout
   const std::vector<MenuItem> menuItems;
@@ -55,7 +62,11 @@ class EpubReaderMenuActivity final : public Activity {
   uint8_t selectedPageTurnOption = 0;
   const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                 StrId::STR_LANDSCAPE_CCW};
-  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1", "3", "6", "12"};
+  // The unit lives in the value ("3/min"), not the row title: the old
+  // "(Pages Per Minute)" parenthetical pushed the title past the value lane
+  // and it ellipsized in most locales.
+  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1/min", "3/min", "6/min",
+                                                   "12/min"};
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;

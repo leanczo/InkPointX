@@ -14,6 +14,10 @@ class Txt {
   std::string author;
   bool loaded = false;
   size_t fileSize = 0;
+  // .txt carries no encoding label, so it is detected from the file's own bytes
+  // when the book is loaded. Points at one of Fb2Encoding's canonical names.
+  const char* encoding = nullptr;
+  size_t contentStart = 0;  // bytes to skip for a byte-order mark
 
  public:
   explicit Txt(std::string path, std::string cacheBasePath);
@@ -26,6 +30,10 @@ class Txt {
   [[nodiscard]] std::string getTitle() const;
   [[nodiscard]] const std::string& getAuthor() const { return author; }
   [[nodiscard]] size_t getFileSize() const { return fileSize; }
+  // Detected encoding, as one of Fb2Encoding's canonical names.
+  [[nodiscard]] const char* getEncoding() const;
+  // First byte of actual text: non-zero when the file starts with a BOM.
+  [[nodiscard]] size_t getContentStart() const { return contentStart; }
 
   void setupCacheDir() const;
   bool clearCache() const;

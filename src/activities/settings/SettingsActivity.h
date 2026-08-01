@@ -1,6 +1,7 @@
 #pragma once
 #include <I18n.h>
 
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -22,8 +23,13 @@ enum class SettingAction {
   CheckForUpdates,
   SdFirmwareUpdate,
   Language,
+  InterfaceFont,
+  AccentFont,
   DownloadFonts,
   SelectSleepImage,
+  BrowseOPDS,
+  DeviceInfo,
+  ResetSettings,
 };
 
 struct SettingInfo {
@@ -44,6 +50,11 @@ struct SettingInfo {
   const char* key = nullptr;             // JSON API key (nullptr for ACTION types)
   StrId category = StrId::STR_NONE_OPT;  // Category for web UI grouping
   bool obfuscated = false;               // Save/load via base64 obfuscation (passwords)
+  // Never serialize the value over the web API. The settings endpoints are
+  // unauthenticated and, in hotspot mode, served over an open network, so a
+  // stored password must not leave the device. The web UI receives only
+  // "hasValue" and preserves the stored value when it posts an empty field.
+  bool secret = false;
 
   // Direct char[] string fields (for settings stored in CrossPointSettings)
   size_t stringOffset = 0;
@@ -57,6 +68,11 @@ struct SettingInfo {
 
   SettingInfo& withObfuscated() {
     obfuscated = true;
+    return *this;
+  }
+
+  SettingInfo& withSecret() {
+    secret = true;
     return *this;
   }
 
@@ -144,34 +160,41 @@ struct SettingInfo {
 };
 
 class SettingsActivity final : public Activity {
+ public:
+  static constexpr int CATEGORY_COUNT = 7;
+
+ private:
   ButtonNavigator buttonNavigator;
 
-  int selectedCategoryIndex = 0;  // Currently selected category
+  int selectedCategoryIndex = 0;
   int selectedSettingIndex = 0;
   int settingsCount = 0;
 
-  // Per-category settings derived from shared list + device-only actions
-  std::vector<SettingInfo> displaySettings;
-  std::vector<SettingInfo> readerSettings;
-  std::vector<SettingInfo> controlsSettings;
-  std::vector<SettingInfo> systemSettings;
+  // Settings are presented as independent submenus. The old tab bar is no
+  // longer part of the device UI.
+  std::array<std::vector<SettingInfo>, CATEGORY_COUNT> categorySettings;
   const std::vector<SettingInfo>* currentSettings = nullptr;
 
   bool preserveQuickResumeTimeoutOn = false;
   bool quickResumeTimeoutAutoEnabled = false;
+  int initialCategoryIndex = 0;
+  bool returnToCaller = false;
 
-  static constexpr int categoryCount = 4;
-  static const StrId categoryNames[categoryCount];
+  static const StrId categoryNames[CATEGORY_COUNT];
 
-  void enterCategory(int categoryIndex);
   void toggleCurrentSetting();
   void openSleepTimeoutPicker();
   void rebuildSettingsLists();
+  void loopSubmenu();
+  HomeMenuItem homeMenuItemForCategory() const;
   void syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChanged, bool quickResumeTimeoutChanged);
 
  public:
-  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Settings", renderer, mappedInput) {}
+  explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int initialCategory = 0,
+                            bool finishOnBack = false)
+      : Activity("Settings", renderer, mappedInput),
+        initialCategoryIndex(initialCategory),
+        returnToCaller(finishOnBack) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

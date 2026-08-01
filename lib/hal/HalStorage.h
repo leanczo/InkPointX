@@ -37,6 +37,11 @@ class HalStorage {
   bool rename(const char* oldPath, const char* newPath);
   bool rmdir(const char* path);
 
+  // Renames "<path>.tmp" into place when an atomic write was interrupted
+  // between its remove and its rename. Returns true if it recovered something.
+  // Read paths call this for themselves; callers rarely need it directly.
+  bool recoverInterruptedWrite(const char* path);
+
   bool openFileForRead(const char* moduleName, const char* path, HalFile& file);
   bool openFileForRead(const char* moduleName, const std::string& path, HalFile& file);
   bool openFileForRead(const char* moduleName, const String& path, HalFile& file);

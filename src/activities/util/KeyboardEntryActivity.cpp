@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <iterator>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -18,7 +19,7 @@ void KeyboardEntryActivity::onEnter() {
   urlMode = false;
   cursorMode = false;
   togglePos = false;
-  passwordVisible = false;
+  passwordVisible = true;
   shiftState = 0;
   selectedRow = 0;
   selectedCol = 0;
@@ -227,7 +228,8 @@ void KeyboardEntryActivity::loop() {
     downHeld = true;
     if (cursorMode) {
       togglePos = false;
-      passwordVisible = false;
+      // Leaving cursor mode no longer re-hides the field: whichever state the
+      // reader chose at the toggle is the one they meant.
       cursorMode = false;
       hintVisible = false;
       downLongHandled = true;
@@ -527,25 +529,26 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   if (hintVisible && !text.empty()) {
     const int hintLh = renderer.getLineHeight(SMALL_FONT_ID);
     const int underlineY = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing;
-    const int hintY = underlineY + 4;
+    const int hintMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+    int hintLineY = underlineY + 4;
+    const auto drawHint = [&](const char* hint) {
+      for (const auto& line : renderer.wrappedText(SMALL_FONT_ID, hint, hintMaxWidth, 2)) {
+        renderer.drawCenteredText(SMALL_FONT_ID, hintLineY, line.c_str(), true);
+        hintLineY += hintLh;
+      }
+    };
     if (cursorMode) {
-      int hintLineY = hintY;
       if (inputType == InputType::Password && togglePos) {
-        renderer.drawCenteredText(
-            SMALL_FONT_ID, hintLineY,
-            passwordVisible ? tr(STR_KB_HINT_TOGGLE_HIDE_PASSWORD) : tr(STR_KB_HINT_TOGGLE_SHOW_PASSWORD), true);
-        hintLineY += hintLh;
-        renderer.drawCenteredText(SMALL_FONT_ID, hintLineY, tr(STR_KB_HINT_RETURN_CURSOR), true);
+        drawHint(passwordVisible ? tr(STR_KB_HINT_TOGGLE_HIDE_PASSWORD) : tr(STR_KB_HINT_TOGGLE_SHOW_PASSWORD));
+        drawHint(tr(STR_KB_HINT_RETURN_CURSOR));
       } else {
-        renderer.drawCenteredText(SMALL_FONT_ID, hintLineY, tr(STR_KB_HINT_MOVE_CURSOR), true);
-        hintLineY += hintLh;
+        drawHint(tr(STR_KB_HINT_MOVE_CURSOR));
         if (inputType == InputType::Password) {
-          const char* passTip = passwordVisible ? tr(STR_KB_HINT_HIDE_PASSWORD) : tr(STR_KB_HINT_SHOW_PASSWORD);
-          renderer.drawCenteredText(SMALL_FONT_ID, hintLineY, passTip, true);
+          drawHint(passwordVisible ? tr(STR_KB_HINT_HIDE_PASSWORD) : tr(STR_KB_HINT_SHOW_PASSWORD));
         }
       }
     } else {
-      renderer.drawCenteredText(SMALL_FONT_ID, hintY, tr(STR_KB_HINT_EDIT_ENTRY), true);
+      drawHint(tr(STR_KB_HINT_EDIT_ENTRY));
     }
   }
 
@@ -566,53 +569,43 @@ void KeyboardEntryActivity::render(RenderLock&&) {
 
   const int tipsLh = renderer.getLineHeight(SMALL_FONT_ID);
   const int underlineBottom = inputStartY + inputHeight + lineHeight + metrics.verticalSpacing + 4;
-  auto drawTip = [&](const char* tip, int y) { renderer.drawCenteredText(SMALL_FONT_ID, y, tip, true); };
+  // Tips wrap to the content width: the longest English tip is 579 px on a
+  // 480 px panel and used to be clipped at both ends.
+  const int tipMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+  std::vector<std::string> tipLines;
+  const auto addTip = [&](const char* tip) {
+    auto wrapped = renderer.wrappedText(SMALL_FONT_ID, tip, tipMaxWidth, 2);
+    tipLines.insert(tipLines.end(), std::make_move_iterator(wrapped.begin()), std::make_move_iterator(wrapped.end()));
+  };
 
-  int tipCount = 0;
   if (cursorMode) {
-    tipCount = 1;
+    addTip(tr(STR_KB_HINT_RETURN_KEYBOARD));
   } else if (urlMode) {
-    tipCount = 1 + (!text.empty() ? 1 : 0);
+    addTip(tr(STR_KB_HINT_EXIT_URL_MODE));
+    if (!text.empty()) addTip(tr(STR_KB_HINT_CLEAR_TEXT));
   } else if (symMode) {
-    tipCount = !text.empty() ? 1 : 0;
+    if (!text.empty()) addTip(tr(STR_KB_HINT_CLEAR_TEXT));
   } else {
-    tipCount = 1 + (inputType == InputType::Url ? 1 : 0) + (!text.empty() ? 1 : 0);
+    const char* altCharTip;
+    if (inputType == InputType::Url) {
+      altCharTip = tr(STR_KB_HINT_SECONDARY_CHAR);
+    } else if (shiftState > 0) {
+      altCharTip = tr(STR_KB_HINT_LOWER_SECONDARY);
+    } else {
+      altCharTip = tr(STR_KB_HINT_UPPER_SECONDARY);
+    }
+    addTip(altCharTip);
+    if (inputType == InputType::Url) addTip(tr(STR_KB_HINT_URL_SNIPPETS));
+    if (!text.empty()) addTip(tr(STR_KB_HINT_CLEAR_TEXT));
   }
 
-  if (tipCount > 0) {
-    int y = (underlineBottom + keyboardStartY) / 2 - (tipCount + 1) * tipsLh / 2;
-    drawTip(tr(STR_KB_TIPS), y);
+  if (!tipLines.empty()) {
+    int y = (underlineBottom + keyboardStartY) / 2 - (static_cast<int>(tipLines.size()) + 1) * tipsLh / 2;
+    renderer.drawCenteredText(SMALL_FONT_ID, y, tr(STR_KB_TIPS), true);
     y += tipsLh;
-    if (cursorMode) {
-      drawTip(tr(STR_KB_HINT_RETURN_KEYBOARD), y);
-    } else if (urlMode) {
-      drawTip(tr(STR_KB_HINT_EXIT_URL_MODE), y);
+    for (const auto& tipLine : tipLines) {
+      renderer.drawCenteredText(SMALL_FONT_ID, y, tipLine.c_str(), true);
       y += tipsLh;
-      if (!text.empty()) {
-        drawTip(tr(STR_KB_HINT_CLEAR_TEXT), y);
-      }
-    } else if (symMode) {
-      if (!text.empty()) {
-        drawTip(tr(STR_KB_HINT_CLEAR_TEXT), y);
-      }
-    } else {
-      const char* altCharTip;
-      if (inputType == InputType::Url) {
-        altCharTip = tr(STR_KB_HINT_SECONDARY_CHAR);
-      } else if (shiftState > 0) {
-        altCharTip = tr(STR_KB_HINT_LOWER_SECONDARY);
-      } else {
-        altCharTip = tr(STR_KB_HINT_UPPER_SECONDARY);
-      }
-      drawTip(altCharTip, y);
-      y += tipsLh;
-      if (inputType == InputType::Url) {
-        drawTip(tr(STR_KB_HINT_URL_SNIPPETS), y);
-        y += tipsLh;
-      }
-      if (!text.empty()) {
-        drawTip(tr(STR_KB_HINT_CLEAR_TEXT), y);
-      }
     }
   }
 
@@ -737,7 +730,6 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  GUI.drawSideButtonHints(renderer, ">", "<");
 
   renderer.displayBuffer();
 }

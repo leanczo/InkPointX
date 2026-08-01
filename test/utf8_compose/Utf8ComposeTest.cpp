@@ -52,3 +52,11 @@ TEST(Utf8ComposeNfc, ComposesWithinWord) {
   // "Ti" + e+circ+acute + "ng" -> "Tiếng"
   EXPECT_EQ(utf8ComposeNfc("Ti" + std::string("e") + kCombCirc + kCombAcute + "ng"), "Ti\xE1\xBA\xBFng");
 }
+
+TEST(Utf8CombiningMarks, RecognizesHebrewAndArabicMarks) {
+  EXPECT_TRUE(utf8IsCombiningMark(0x05B0));   // Hebrew sheva
+  EXPECT_TRUE(utf8IsCombiningMark(0x064E));   // Arabic fatha
+  EXPECT_TRUE(utf8IsCombiningMark(0x0650));   // Arabic kasra
+  EXPECT_TRUE(utf8IsCombiningMark(0x08E4));   // Arabic curly fatha
+  EXPECT_FALSE(utf8IsCombiningMark(0x0628));  // Arabic beh
+}

@@ -6,6 +6,8 @@
 #include <OpdsStream.h>
 #include <WiFi.h>
 
+#include <algorithm>
+
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -18,7 +20,13 @@
 #include "util/UrlUtils.h"
 
 namespace {
-constexpr int PAGE_ITEMS = 23;
+int pageItemsFor(const GfxRenderer& renderer) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight =
+      renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  return std::max(1, GUI.getListPageItems(contentHeight, true));
+}  // namespace
 }
 
 void OpdsBookBrowserActivity::onEnter() {
@@ -98,25 +106,31 @@ void OpdsBookBrowserActivity::loop() {
       }
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
+    } else if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+      // On the press edge: Left is also NavPrevious, and the navigator's
+      // press handler used to move the selection before the release arrived,
+      // so the advertised Search could never actually fire.
+      if (!searchTemplate.empty() && selectorIndex == 0) {
+        launchSearch();
+        return;
+      }
     }
 
     if (!entries.empty()) {
-      buttonNavigator.onNextRelease([this] {
+      buttonNavigator.onNextPress([this] {
         selectorIndex = ButtonNavigator::nextIndex(selectorIndex, entries.size());
         requestUpdate();
       });
-      buttonNavigator.onPreviousRelease([this] {
+      buttonNavigator.onPreviousPress([this] {
         selectorIndex = ButtonNavigator::previousIndex(selectorIndex, entries.size());
         requestUpdate();
       });
       buttonNavigator.onNextContinuous([this] {
-        selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
+        selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), pageItemsFor(renderer));
         requestUpdate();
       });
       buttonNavigator.onPreviousContinuous([this] {
-        selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
+        selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), pageItemsFor(renderer));
         requestUpdate();
       });
     }
@@ -127,13 +141,21 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  const auto& metrics = UITheme::getInstance().getMetrics();
 
   // Show server name in header if available, otherwise generic title
   const char* headerTitle = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
-  renderer.drawCenteredText(UI_12_FONT_ID, 15, headerTitle, true, EpdFontFamily::BOLD);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, headerTitle);
+
+  // These three states all say "nothing to show yet, here is why", so they use the
+  // shared centred block instead of pageHeight / 2 with per-state offsets of -40,
+  // -20, -10 and +10 that took neither the header nor the line height into account.
+  const int messageTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const Rect messageArea{0, messageTop, pageWidth,
+                         std::max(0, UITheme::getListContentBottom(renderer, false) - messageTop)};
 
   if (state == BrowserState::CHECK_WIFI || state == BrowserState::LOADING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, statusMessage.c_str());
+    GUI.drawEmptyState(renderer, messageArea, statusMessage.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -141,8 +163,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   }
 
   if (state == BrowserState::ERROR) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 20, tr(STR_ERROR_MSG));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 10, errorMessage.c_str());
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_ERROR_MSG), errorMessage.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -150,13 +171,18 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   }
 
   if (state == BrowserState::DOWNLOADING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 40, tr(STR_DOWNLOADING));
-    auto title = renderer.truncatedText(UI_10_FONT_ID, statusMessage.c_str(), pageWidth - 40);
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 - 10, title.c_str());
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_DOWNLOADING), statusMessage.c_str());
     if (downloadTotal > 0) {
-      GUI.drawProgressBar(renderer, Rect{50, pageHeight / 2 + 20, pageWidth - 100, 20}, downloadProgress,
-                          downloadTotal);
+      // Under the message block rather than at a fixed offset from mid-screen, and
+      // inset to the content margin like every other full-width element.
+      const int barTop = messageArea.y + messageArea.height * 2 / 5 + renderer.getLineHeight(UI_10_FONT_ID) * 3;
+      GUI.drawProgressBar(renderer,
+                          Rect{metrics.contentSidePadding, barTop, pageWidth - metrics.contentSidePadding * 2,
+                               metrics.progressBarHeight},
+                          downloadProgress, downloadTotal);
     }
+    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
@@ -168,19 +194,20 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   if (entries.empty()) {
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, tr(STR_NO_ENTRIES));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_ENTRIES), nullptr, /*script=*/true);
   } else {
-    const auto pageStartIndex = selectorIndex / PAGE_ITEMS * PAGE_ITEMS;
-    renderer.fillRect(0, 60 + (selectorIndex % PAGE_ITEMS) * 30 - 2, pageWidth - 1, 30);
-
-    for (size_t i = pageStartIndex; i < entries.size() && i < static_cast<size_t>(pageStartIndex + PAGE_ITEMS); i++) {
-      const auto& entry = entries[i];
-      std::string displayText = (entry.type == OpdsEntryType::NAVIGATION) ? "> " + entry.title : entry.title;
-      if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) displayText += " - " + entry.author;
-      auto item = renderer.truncatedText(UI_10_FONT_ID, displayText.c_str(), pageWidth - 40);
-      renderer.drawText(UI_10_FONT_ID, 20, 60 + (i % PAGE_ITEMS) * 30, item.c_str(),
-                        i != static_cast<size_t>(selectorIndex));
-    }
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    GUI.drawList(
+        renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(entries.size()), selectorIndex,
+        [this](int index) { return entries[index].title; },
+        [this](int index) {
+          return entries[index].type == OpdsEntryType::BOOK ? entries[index].author : std::string();
+        },
+        [this](int index) {
+          return entries[index].type == OpdsEntryType::BOOK ? UIIcon::Book : UIIcon::Folder;
+        },
+        nullptr, false, nullptr, [](int) { return UIAccessory::Chevron; });
   }
   renderer.displayBuffer();
 }
@@ -273,17 +300,36 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
       "/" + StringUtils::sanitizeFilename((book.author.empty() ? "" : book.author + " - ") + book.title) + ".epub";
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
+  // The transfer blocks this task, so input is polled from the progress
+  // callback — the same pattern the font downloader uses. Without it the
+  // download was uncancellable and the whole screen unresponsive.
+  cancelRequested = false;
+  lastNotifiedPercent = -1;
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,
       [this](const size_t downloaded, const size_t total) {
         downloadProgress = downloaded;
         downloadTotal = total;
-        requestUpdate(true);
+        mappedInput.update();
+        if (mappedInput.isPressed(MappedInputManager::Button::Back) ||
+            mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+          cancelRequested = true;
+        }
+        // Whole-percent gate — see FontDownloadActivity: ungated, this drove
+        // the panel at its maximum refresh rate for the whole transfer.
+        const int percent = total > 0 ? static_cast<int>(downloaded * 100 / total) : 0;
+        if (percent != lastNotifiedPercent) {
+          lastNotifiedPercent = percent;
+          requestUpdate(true);
+        }
       },
-      nullptr, server.username, server.password);
+      &cancelRequested, server.username, server.password);
 
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
+    state = BrowserState::BROWSING;
+  } else if (result == HttpDownloader::ABORTED) {
+    Storage.remove(filename.c_str());
     state = BrowserState::BROWSING;
   } else {
     state = BrowserState::ERROR;

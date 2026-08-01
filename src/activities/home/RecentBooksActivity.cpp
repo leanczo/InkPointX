@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "MappedInputManager.h"
+#include "util/HoldGestures.h"
 #include "RecentBooksStore.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
@@ -15,7 +16,8 @@
 
 namespace {
 // Hold threshold for the long-press "remove from list" action (firmware convention).
-constexpr unsigned long LONG_PRESS_MS = 1000;
+// Acting on the selected entry (offer to remove it), so the shared short hold.
+constexpr unsigned long LONG_PRESS_MS = HoldGestures::SHORT_MS;
 }  // namespace
 
 void RecentBooksActivity::loadRecentBooks() { recentBooks = RECENT_BOOKS.getBooks(); }
@@ -77,12 +79,12 @@ void RecentBooksActivity::loop() {
 
   int listSize = static_cast<int>(recentBooks.size());
 
-  buttonNavigator.onNextRelease([this, listSize] {
+  buttonNavigator.onNextPress([this, listSize] {
     selectorIndex = ButtonNavigator::nextIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this, listSize] {
+  buttonNavigator.onPreviousPress([this, listSize] {
     selectorIndex = ButtonNavigator::previousIndex(static_cast<int>(selectorIndex), listSize);
     requestUpdate();
   });
@@ -125,17 +127,19 @@ void RecentBooksActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_MENU_RECENT_BOOKS));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  // Shared with every other list screen, so a row's bottom margin no longer
+  // differs by 8 px between siblings.
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, false) - contentTop);
 
   // Recent tab
   if (recentBooks.empty()) {
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_RECENT_BOOKS));
+    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_RECENT_BOOKS), nullptr,
+                       /*script=*/true);
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, recentBooks.size(), selectorIndex,

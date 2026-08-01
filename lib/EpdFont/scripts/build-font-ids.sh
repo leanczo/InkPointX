@@ -80,34 +80,67 @@ ruby -rdigest -e 'puts [
 ].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
 ))"
 
-echo "#define UI_10_FONT_ID ($(
-ruby -rdigest -e 'puts [
-  "./ubuntu_10_regular.h",
-  "./ubuntu_10_bold.h",
-].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+for logical_size in 10 12 14 16 18; do
+  case "$logical_size" in
+    10) raster_size=12 ;;
+    12) raster_size=14 ;;
+    14) raster_size=16 ;;
+    16) raster_size=16 ;;
+    18) raster_size=16 ;;
+    *) raster_size=$logical_size ;;
+  esac
+  echo "#define UI_${logical_size}_FONT_ID ($(
+  ruby -rdigest -e "puts ([
+    \"UI_${logical_size}\",
+    File.read(\"./ui_${raster_size}_medium.h\"),
+    File.read(\"./ui_${raster_size}_semibold.h\"),
+  ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)"
+  ))"
+done
+
+echo "#define HEADER_FONT_ID ($(
+ruby -rdigest -e 'puts ([
+  "UI_HEADER",
+  File.read("./ui_16_semibold.h"),
+].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
-echo "#define UI_12_FONT_ID ($(
-ruby -rdigest -e 'puts [
-  "./ubuntu_12_regular.h",
-  "./ubuntu_12_bold.h",
-].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+echo "#define SCRIPT_FONT_ID ($(
+ruby -rdigest -e 'puts ([
+  "UI_SCRIPT",
+  File.read("./ui_script_20.h"),
+].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
+))"
+
+echo "#define SCRIPT_SMALL_FONT_ID ($(
+ruby -rdigest -e 'puts ([
+  "UI_SCRIPT_SMALL",
+  File.read("./ui_script_18.h"),
+].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
 echo "#define SMALL_FONT_ID ($(
-ruby -rdigest -e 'puts [
-  "./notosans_8_regular.h",
-].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+ruby -rdigest -e 'puts ([
+  "UI_SMALL",
+  File.read("./ui_10_medium.h"),
+  File.read("./ui_10_semibold.h"),
+].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
-echo "#define LOCKSCREEN_CLOCK_FONT_ID ($(
-ruby -rdigest -e 'puts [
-  "./locksans_clock_72_light.h",
-].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
+echo "#define MICRO_FONT_ID ($(
+ruby -rdigest -e 'puts ([
+  "UI_MICRO",
+  File.read("./ui_8_medium.h"),
+  File.read("./ui_8_semibold.h"),
+].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 
-echo "#define LOCKSCREEN_DATE_FONT_ID ($(
-ruby -rdigest -e 'puts [
-  "./locksans_date_11_medium.h",
-].map{|f| Digest::SHA256.hexdigest(File.read(f)).to_i(16) }.sum % (2 ** 32) - (2 ** 31)'
-))"
+echo ""
+echo "// Font ID 0 is reserved as the \"not found\" sentinel."
+echo "// Guard against any hash accidentally producing 0."
+for font_id in \
+  NOTOSERIF_12 NOTOSERIF_14 NOTOSERIF_16 NOTOSERIF_18 \
+  NOTOSANS_12 NOTOSANS_14 NOTOSANS_16 NOTOSANS_18 \
+  UI_10 UI_12 UI_14 UI_16 UI_18 HEADER SMALL MICRO SCRIPT SCRIPT_SMALL; do
+  echo "static_assert(${font_id}_FONT_ID != 0, \"Font ID collision with sentinel\");"
+done

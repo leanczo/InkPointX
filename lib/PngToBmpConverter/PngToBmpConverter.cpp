@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "BitmapHelpers.h"
+#include <new>
 
 // ============================================================================
 // IMAGE PROCESSING OPTIONS - Same as JpegToBmpConverter for consistency
@@ -624,13 +625,24 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
   FloydSteinbergDitherer* fsDitherer = nullptr;
   Atkinson1BitDitherer* atkinson1BitDitherer = nullptr;
 
+  // Drop a ditherer that could not allocate its error rows: the pixel loops
+  // dereference these pointers, and plain quantization is the correct fallback.
+  const auto dropIfInvalid = [](auto*& ditherer) {
+    if (ditherer && !ditherer->isValid()) {
+      delete ditherer;
+      ditherer = nullptr;
+    }
+  };
   if (oneBit) {
-    atkinson1BitDitherer = new Atkinson1BitDitherer(outWidth);
+    atkinson1BitDitherer = new (std::nothrow) Atkinson1BitDitherer(outWidth);
+    dropIfInvalid(atkinson1BitDitherer);
   } else if (!USE_8BIT_OUTPUT) {
     if (USE_ATKINSON) {
-      atkinsonDitherer = new AtkinsonDitherer(outWidth);
+      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(outWidth);
+      dropIfInvalid(atkinsonDitherer);
     } else if (USE_FLOYD_STEINBERG) {
-      fsDitherer = new FloydSteinbergDitherer(outWidth);
+      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(outWidth);
+      dropIfInvalid(fsDitherer);
     }
   }
 
@@ -641,8 +653,20 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
   uint32_t nextOutY_srcStart = 0;
 
   if (needsScaling) {
-    rowAccum = new uint32_t[outWidth]();
-    rowCount = new uint16_t[outWidth]();
+    rowAccum = new (std::nothrow) uint32_t[outWidth]();
+    rowCount = new (std::nothrow) uint16_t[outWidth]();
+    if (!rowAccum || !rowCount) {
+      LOG_ERR("PNG", "Failed to allocate scaling accumulators (%d px)", outWidth);
+      delete[] rowAccum;
+      delete[] rowCount;
+      delete atkinsonDitherer;
+      delete fsDitherer;
+      delete atkinson1BitDitherer;
+      free(rowBuffer);
+      free(ctx.currentRow);
+      free(ctx.previousRow);
+      return false;
+    }
     nextOutY_srcStart = scaleY_fp;
   }
 

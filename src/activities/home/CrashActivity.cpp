@@ -20,7 +20,9 @@ void CrashActivity::onEnter() {
 }
 
 void CrashActivity::loop() {
-  if (mappedInput.isPressed(MappedInputManager::Button::Back)) {
+  // Dismiss on release, like every other screen: finishing on the press edge
+  // leaks the release into the activity shown next.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     finish();
   }
 }

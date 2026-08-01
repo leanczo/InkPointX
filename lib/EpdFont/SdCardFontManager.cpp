@@ -78,7 +78,11 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
 }
 
 void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
-  renderer.clearSdCardFonts();
+  // Only this manager's own ids: removeFont() clears both the family map and
+  // the SD registration for each. The blanket clearSdCardFonts() that used to
+  // run here also dropped every other registration — with the interface now
+  // able to come off the card, swapping the reader's font would have left the
+  // UI faces in the family map with no way to fetch their glyphs.
   for (auto& lf : loaded_) {
     renderer.removeFont(lf.fontId);
     delete lf.font;

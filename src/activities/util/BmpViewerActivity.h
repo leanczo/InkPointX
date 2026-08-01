@@ -8,7 +8,8 @@
 
 class BmpViewerActivity final : public Activity {
  public:
-  BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string filePath);
+  BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string filePath,
+                    bool returnToCaller = false, bool browseSiblings = true);
 
   void onEnter() override;
   void onExit() override;
@@ -16,9 +17,17 @@ class BmpViewerActivity final : public Activity {
 
  private:
   void loadSiblingImages();
+  // Paint the currently selected file. Separate from onEnter() so navigating
+  // between siblings does not re-run the activity's entry bookkeeping.
+  void showCurrentImage();
   void doSetSleepCover();
+  bool prepareDisplayImage();
 
   std::string filePath;
+  std::string displayPath;
   std::vector<std::string> siblingImages;
   int currentImageIndex = -1;
+  bool returnToCaller = false;
+  bool browseSiblings = true;
+  bool ownsPreviewFile = false;
 };

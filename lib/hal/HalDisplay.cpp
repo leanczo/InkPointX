@@ -17,6 +17,7 @@ void HalDisplay::begin(bool seamless) {
   }
 
   einkDisplay.begin();
+  refreshPolicy.reset();
 
   if (seamless) {
     // Defuse the SDK's X3 _x3InitialFullSyncsRemaining counter (no-op on X4)
@@ -29,7 +30,13 @@ void HalDisplay::begin(bool seamless) {
   const auto wakeupReason = gpio.getWakeupReason();
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton || wakeupReason == HalGPIO::WakeupReason::AfterFlash ||
       wakeupReason == HalGPIO::WakeupReason::Other) {
-    einkDisplay.requestResync();
+    // X3 needs its controller-specific DTM resync. On X4, begin() already
+    // invalidates the differential baseline and promotes the first FAST frame
+    // to the single-pass HALF clean. Forcing FULL here adds a multi-phase
+    // black flash without improving the next-frame baseline.
+    if (gpio.deviceIsX3()) {
+      einkDisplay.requestResync();
+    }
   }
 }
 
@@ -58,6 +65,7 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
 }
 
 void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen) {
+  mode = applyRefreshPolicy(mode);
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
   }
@@ -66,6 +74,7 @@ void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen)
 }
 
 void HalDisplay::refreshDisplay(HalDisplay::RefreshMode mode, bool turnOffScreen) {
+  mode = applyRefreshPolicy(mode);
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
   }
@@ -82,6 +91,7 @@ void HalDisplay::copyGrayscaleBuffers(const uint8_t* lsbBuffer, const uint8_t* m
 }
 
 void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) {
+  fallback = applyRefreshPolicy(fallback);
   // X3: a HALF fallback means the caller wants a clean base (e.g. the sleep
   // cover, a full-screen swap from arbitrary prior content). Without this, the
   // X3 grayscale base takes its gentle differential happy path and the prior
@@ -94,6 +104,33 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
   }
 
   einkDisplay.displayGrayscaleBase(convertRefreshMode(fallback), turnOffScreen);
+}
+
+HalDisplay::RefreshMode HalDisplay::applyRefreshPolicy(const RefreshMode requested) {
+  const auto policyMode = requested == FULL_REFRESH
+                              ? EInkRefreshPolicy::Mode::Full
+                              : requested == HALF_REFRESH ? EInkRefreshPolicy::Mode::Clean
+                                                          : EInkRefreshPolicy::Mode::Fast;
+  switch (refreshPolicy.consume(policyMode)) {
+    case EInkRefreshPolicy::Mode::Full:
+      return FULL_REFRESH;
+    case EInkRefreshPolicy::Mode::Clean:
+      return HALF_REFRESH;
+    case EInkRefreshPolicy::Mode::Fast:
+    default:
+      return FAST_REFRESH;
+  }
+}
+
+void HalDisplay::requestCleanRefresh() { refreshPolicy.requestClean(); }
+
+void HalDisplay::requestFullRefresh() {
+  refreshPolicy.requestFull();
+  einkDisplay.requestResync();
+}
+
+void HalDisplay::setAutomaticCleanupEnabled(const bool enabled) {
+  refreshPolicy.setAutomaticCleanupEnabled(enabled);
 }
 
 void HalDisplay::preconditionGrayscale() { einkDisplay.preconditionGrayscale(); }

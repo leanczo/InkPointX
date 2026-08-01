@@ -107,12 +107,12 @@ void FontSelectionActivity::loop() {
   const int pageItems =
       UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, previewHeight + metrics_.verticalSpacing);
 
-  buttonNavigator_.onNextRelease([this, listSize] {
+  buttonNavigator_.onNextPress([this, listSize] {
     selectedIndex_ = ButtonNavigator::nextIndex(selectedIndex_, listSize);
     requestUpdate();
   });
 
-  buttonNavigator_.onPreviousRelease([this, listSize] {
+  buttonNavigator_.onPreviousPress([this, listSize] {
     selectedIndex_ = ButtonNavigator::previousIndex(selectedIndex_, listSize);
     requestUpdate();
   });
@@ -189,7 +189,6 @@ void FontSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
 
   GUI.drawHeader(renderer, Rect{0, metrics_.topPadding, pageWidth, metrics_.headerHeight}, tr(STR_FONT_FAMILY));
 
@@ -203,7 +202,9 @@ void FontSelectionActivity::render(RenderLock&&) {
                                     : nullptr;
   renderPreviewPane(previewTop, previewHeight, previewFontId, previewFontName);
 
-  renderer.drawLine(0, listTop - metrics_.verticalSpacing / 2, pageWidth, listTop - metrics_.verticalSpacing / 2);
+  // The design system's inset hairline, not a full-bleed solid rule.
+  GUI.drawDivider(renderer, metrics_.contentSidePadding, pageWidth - metrics_.contentSidePadding,
+                  listTop - metrics_.verticalSpacing / 2);
 
   const int currentFontIndex = findCurrentFontIndex(registry_, originalSdFontFamilyName_, originalFontFamily_);
   GUI.drawList(
@@ -211,10 +212,11 @@ void FontSelectionActivity::render(RenderLock&&) {
       [this](int index) { return fonts_[index].name; }, nullptr, nullptr,
       [this, currentFontIndex](int index) -> std::string {
         if (index == previewFontIndex_ && index != currentFontIndex) return tr(STR_PREVIEW);
-        if (index == currentFontIndex) return tr(STR_SELECTED);
         return "";
       },
-      true);
+      true, nullptr, [currentFontIndex](int index) {
+        return index == currentFontIndex ? UIAccessory::Check : UIAccessory::None;
+      });
 
   const bool onPreviewed = selectedIndex_ == previewFontIndex_;
   const char* confirmLabel = onPreviewed ? tr(STR_SELECT) : tr(STR_PREVIEW);

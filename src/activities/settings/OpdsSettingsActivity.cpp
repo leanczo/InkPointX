@@ -1,6 +1,8 @@
 #include "OpdsSettingsActivity.h"
 
 #include <GfxRenderer.h>
+
+#include <algorithm>
 #include <I18n.h>
 #include <Logging.h>
 
@@ -8,6 +10,7 @@
 
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -48,6 +51,21 @@ void OpdsSettingsActivity::onEnter() {
 void OpdsSettingsActivity::onExit() { Activity::onExit(); }
 
 void OpdsSettingsActivity::loop() {
+  // The save-error popup redraws on every render, so without this it could
+  // never be dismissed — the first press clears it and is consumed.
+  if (showSaveError) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Left) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+      showSaveError = false;
+      requestUpdate();
+    }
+    return;
+  }
+
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
     finish();
     return;
@@ -157,14 +175,23 @@ void OpdsSettingsActivity::handleSelection() {
                                                                    editServer.password, 63, InputType::Password),
                            handler);
   } else if (selectedIndex == 4 && !isNewServer) {
-    // Delete flow is only available for existing servers.
-    if (!OPDS_STORE.removeServer(static_cast<size_t>(serverIndex))) {
-      LOG_ERR("OPS", "Failed to remove OPDS server at index %d", serverIndex);
-      showSaveError = true;
-      requestUpdate();
-      return;
-    }
-    finish();
+    // Delete flow is only available for existing servers. Confirmed first:
+    // it is irreversible and sits in the same list as the editable fields.
+    startActivityForResult(
+        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_SERVER), editServer.name),
+        [this](const ActivityResult& result) {
+          if (result.isCancelled) {
+            requestUpdate();
+            return;
+          }
+          if (!OPDS_STORE.removeServer(static_cast<size_t>(serverIndex))) {
+            LOG_ERR("OPS", "Failed to remove OPDS server at index %d", serverIndex);
+            showSaveError = true;
+            requestUpdate();
+            return;
+          }
+          finish();
+        });
   }
 }
 
@@ -173,16 +200,19 @@ void OpdsSettingsActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-  // Reuse STR_OPDS_BROWSER as the "edit existing server" title.
-  // New server creation uses STR_ADD_SERVER.
-  const char* header = isNewServer ? tr(STR_ADD_SERVER) : tr(STR_OPDS_BROWSER);
+  // New server creation uses STR_ADD_SERVER; editing shows the server's own
+  // name (the old title borrowed "OPDS Browser" from a different feature).
+  const char* header = isNewServer ? tr(STR_ADD_SERVER)
+                       : editServer.name.empty() ? tr(STR_EDIT)
+                                                 : editServer.name.c_str();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, header);
-  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                     tr(STR_CALIBRE_URL_HINT));
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + metrics.tabBarHeight;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + metrics.subHeaderHeight;
+  // Shared with every other list screen, so a row's bottom margin no longer
+  // differs by 8 px between siblings.
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, false) - contentTop);
   const int menuItems = getMenuItemCount();
 
   const StrId fieldNames[] = {StrId::STR_SERVER_NAME, StrId::STR_OPDS_SERVER_URL, StrId::STR_USERNAME,

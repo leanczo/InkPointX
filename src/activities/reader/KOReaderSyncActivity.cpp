@@ -16,6 +16,7 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
 #include "MappedInputManager.h"
+#include "util/SyncErrorStrings.h"
 #include "ReaderUtils.h"
 #include "SilentRestart.h"
 #include "activities/ActivityManager.h"
@@ -155,7 +156,7 @@ void KOReaderSyncActivity::performSync() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
-      statusMessage = KOReaderSyncClient::errorString(result);
+      statusMessage = syncErrorText(result);
     }
     requestUpdate(true);
     return;
@@ -215,7 +216,7 @@ void KOReaderSyncActivity::performUpload() {
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
-      statusMessage = KOReaderSyncClient::errorString(result);
+      statusMessage = syncErrorText(result);
     }
     requestUpdate();
     return;
@@ -274,12 +275,15 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
                  tr(STR_KOREADER_SYNC));
 
-  int top = screen.y + screen.height / 2 - 40;
+  // Every message on this screen goes through drawEmptyState: several of the
+  // strings ("Set up KOReader account in Settings", the client's error text)
+  // are wider than the panel, and drawCenteredText clipped them at both ends.
+  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const Rect messageArea{screen.x, contentTop, screen.width,
+                         screen.y + screen.height - metrics.buttonHintsHeight - metrics.verticalSpacing - contentTop};
   if (state == NO_CREDENTIALS) {
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top, tr(STR_NO_CREDENTIALS_MSG), true,
-                              EpdFontFamily::BOLD);
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top + 40, tr(STR_KOREADER_SETUP_HINT), true,
-                              EpdFontFamily::BOLD);
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_CREDENTIALS_MSG), tr(STR_KOREADER_SETUP_HINT),
+                       /*script=*/true);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -288,14 +292,17 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == SYNCING || state == UPLOADING) {
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top, statusMessage.c_str(), true, EpdFontFamily::BOLD);
+    GUI.drawEmptyState(renderer, messageArea, statusMessage.c_str());
     renderer.displayBuffer();
     return;
   }
 
   if (state == SHOWING_RESULT) {
-    // Show comparison
-    top = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    // Show comparison. Every offset derives from the real line height: the
+    // previous fixed 25 px grid was written for a smaller font and the lines
+    // overlapped by 4 px after the interface scale-up.
+    const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    int top = contentTop;
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_PROGRESS_FOUND), true, EpdFontFamily::BOLD);
 
     // Remote chapter name requires Epub (loaded lazily in performSync before this state).
@@ -308,48 +315,56 @@ void KOReaderSyncActivity::render(RenderLock&&) {
         !localChapterName.empty() ? localChapterName
                                   : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex + 1));
 
+    const int textX = screen.x + metrics.contentSidePadding;
+    const int maxLineWidth = screen.width - metrics.contentSidePadding * 2;
+    const auto drawRow = [&](const char* text, const bool bold) {
+      const auto fitted = renderer.truncatedText(UI_10_FONT_ID, text, maxLineWidth);
+      renderer.drawText(UI_10_FONT_ID, textX, top, fitted.c_str(), true,
+                        bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+      top += lineHeight;
+    };
+
     // Remote progress - chapter and page
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 40, tr(STR_REMOTE_LABEL), true);
+    top += lineHeight + metrics.verticalSpacing;
+    drawRow(tr(STR_REMOTE_LABEL), true);
     char remoteChapterStr[128];
     snprintf(remoteChapterStr, sizeof(remoteChapterStr), "  %s", remoteChapter.c_str());
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 65, remoteChapterStr);
+    drawRow(remoteChapterStr, false);
     char remotePageStr[64];
     snprintf(remotePageStr, sizeof(remotePageStr), tr(STR_PAGE_OVERALL_FORMAT), remotePosition.pageNumber + 1,
              remoteProgress.percentage * 100);
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 90, remotePageStr);
+    drawRow(remotePageStr, false);
 
     if (!remoteProgress.device.empty()) {
       char deviceStr[64];
       snprintf(deviceStr, sizeof(deviceStr), tr(STR_DEVICE_FROM_FORMAT), remoteProgress.device.c_str());
-      renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 115, deviceStr);
+      drawRow(deviceStr, false);
     }
 
     // Local progress - chapter and page
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 150, tr(STR_LOCAL_LABEL), true);
+    top += metrics.verticalSpacing * 2;
+    drawRow(tr(STR_LOCAL_LABEL), true);
     char localChapterStr[128];
     snprintf(localChapterStr, sizeof(localChapterStr), "  %s", localChapter.c_str());
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 175, localChapterStr);
+    drawRow(localChapterStr, false);
     char localPageStr[64];
     snprintf(localPageStr, sizeof(localPageStr), tr(STR_PAGE_TOTAL_OVERALL_FORMAT), currentPage + 1, totalPagesInSpine,
              localProgress.percentage * 100);
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, top + 200, localPageStr);
+    drawRow(localPageStr, false);
 
-    const int optionY = top + 230;
-    const int optionHeight = 30;
-
-    // Apply option
-    if (selectedOption == 0) {
-      renderer.fillRect(screen.x, optionY - 2, screen.width - 1, optionHeight);
+    // The two actions. The selection box wraps the whole line box, so the
+    // label can no longer hang below its own outline.
+    const int optionHeight = lineHeight + metrics.verticalSpacing;
+    int optionY = top + metrics.verticalSpacing * 2;
+    for (int option = 0; option < 2; ++option) {
+      if (selectedOption == option) {
+        GUI.drawSelection(renderer, Rect{screen.x + 8, optionY, screen.width - 16, optionHeight});
+      }
+      renderer.drawText(UI_10_FONT_ID, textX, optionY + metrics.verticalSpacing / 2,
+                        option == 0 ? tr(STR_APPLY_REMOTE) : tr(STR_UPLOAD_LOCAL), true,
+                        selectedOption == option ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+      optionY += optionHeight + metrics.verticalSpacing / 2;
     }
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY, tr(STR_APPLY_REMOTE),
-                      selectedOption != 0);
-
-    // Upload option
-    if (selectedOption == 1) {
-      renderer.fillRect(screen.x, optionY + optionHeight - 2, screen.width - 1, optionHeight);
-    }
-    renderer.drawText(UI_10_FONT_ID, screen.x + metrics.contentSidePadding, optionY + optionHeight,
-                      tr(STR_UPLOAD_LOCAL), selectedOption != 1);
 
     // Bottom button hints
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -359,8 +374,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == NO_REMOTE_PROGRESS) {
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top, tr(STR_NO_REMOTE_MSG), true, EpdFontFamily::BOLD);
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top + 40, tr(STR_UPLOAD_PROMPT));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_REMOTE_MSG), tr(STR_UPLOAD_PROMPT), /*script=*/true);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_UPLOAD), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -369,7 +383,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == UPLOAD_COMPLETE) {
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top, tr(STR_UPLOAD_SUCCESS), true, EpdFontFamily::BOLD);
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_UPLOAD_SUCCESS), nullptr, /*script=*/true);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -378,8 +392,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == SYNC_FAILED) {
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top, tr(STR_SYNC_FAILED_MSG), true, EpdFontFamily::BOLD);
-    UITheme::drawCenteredText(renderer, screen, UI_10_FONT_ID, top + 40, statusMessage.c_str());
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_SYNC_FAILED_MSG), statusMessage.c_str());
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -398,12 +411,12 @@ void KOReaderSyncActivity::loop() {
 
   if (state == SHOWING_RESULT) {
     // Navigate options
-    if (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Left)) {
       selectedOption = (selectedOption + 1) % 2;  // Wrap around among 2 options
       requestUpdate();
-    } else if (mappedInput.wasReleased(MappedInputManager::Button::Down) ||
-               mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+    } else if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+               mappedInput.wasPressed(MappedInputManager::Button::Right)) {
       selectedOption = (selectedOption + 1) % 2;  // Wrap around among 2 options
       requestUpdate();
     }

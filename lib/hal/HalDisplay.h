@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include <EInkDisplay.h>
 
+#include "EInkRefreshPolicy.h"
+
 class HalDisplay {
  public:
   // Constructor with pin configuration
@@ -40,6 +42,12 @@ class HalDisplay {
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
   void refreshDisplay(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+
+  // Request a stronger update for the next frame. Screen/activity transitions
+  // use CLEAN; boot, wake and explicit user refresh use FULL.
+  void requestCleanRefresh();
+  void requestFullRefresh();
+  void setAutomaticCleanupEnabled(bool enabled);
 
   // Power management
   void deepSleep();
@@ -80,7 +88,10 @@ class HalDisplay {
   uint32_t getBufferSize() const;
 
  private:
+  RefreshMode applyRefreshPolicy(RefreshMode requested);
+
   EInkDisplay einkDisplay;
+  EInkRefreshPolicy refreshPolicy;
 };
 
 extern HalDisplay display;

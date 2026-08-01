@@ -21,6 +21,10 @@
 // Minimum file size (in bytes) to show indexing popup - smaller chapters don't benefit from it
 constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
+// A progress update is a physical e-ink refresh, not a cheap LCD repaint.
+// Reporting every 1% made a large chapter spend roughly 100 seconds refreshing
+// its progress bar instead of indexing.
+constexpr int PROGRESS_STEP_PERCENT = 10;
 
 // Hard cap on the number of anchor IDs recorded per chapter. Legitimate navigation
 // anchors (TOC entries, footnotes, cross-references) rarely exceed a few hundred per
@@ -149,7 +153,7 @@ void ChapterHtmlSlimParser::flushPendingAnchor() {
     if (currentPage && !currentPage->elements.empty()) {
       completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex);
       completedPageCount++;
-      currentPage.reset(new Page());
+      currentPage.reset(new (std::nothrow) Page());
       currentPageNextY = 0;
     }
   }
@@ -213,7 +217,10 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   // If the pending anchor is a TOC chapter boundary, force a page break after the previous
   // block is flushed so the chapter starts on a fresh page.
   flushPendingAnchor();
-  currentTextBlock.reset(new ParsedText(extraParagraphSpacing, hyphenationEnabled, focusReadingEnabled, blockStyle));
+  currentTextBlock.reset(new (std::nothrow) ParsedText(extraParagraphSpacing, hyphenationEnabled, focusReadingEnabled, blockStyle));
+  if (!currentTextBlock) {
+    LOG_ERR("EHP", "Out of memory allocating text block");
+  }
   wordsExtractedInBlock = 0;
 }
 
@@ -634,14 +641,14 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   self->completePageFn(std::move(self->currentPage), self->xpathParagraphIndex,
                                        self->xpathListItemIndex);
                   self->completedPageCount++;
-                  self->currentPage.reset(new Page());
+                  self->currentPage.reset(new (std::nothrow) Page());
                   if (!self->currentPage) {
                     LOG_ERR("EHP", "Failed to create new page");
                     return;
                   }
                   self->currentPageNextY = 0;
                 } else if (!self->currentPage) {
-                  self->currentPage.reset(new Page());
+                  self->currentPage.reset(new (std::nothrow) Page());
                   if (!self->currentPage) {
                     LOG_ERR("EHP", "Failed to create initial page");
                     return;
@@ -722,8 +729,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   // Skip blocks with role="doc-pagebreak" and epub:type="pagebreak"
   if (atts != nullptr) {
     for (int i = 0; atts[i]; i += 2) {
-      if (strcmp(atts[i], "role") == 0 && strcmp(atts[i + 1], "doc-pagebreak") == 0 ||
-          strcmp(atts[i], "epub:type") == 0 && strcmp(atts[i + 1], "pagebreak") == 0) {
+      if ((strcmp(atts[i], "role") == 0 && strcmp(atts[i + 1], "doc-pagebreak") == 0) ||
+          (strcmp(atts[i], "epub:type") == 0 && strcmp(atts[i + 1], "pagebreak") == 0)) {
         self->skipUntilDepth = self->depth;
         self->depth += 1;
         return;
@@ -745,6 +752,15 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     if (href && strncmp(href, "javascript:", 11) == 0) {
       isInternalLink = false;
       // TODO: Parse data-* attributes to extract actual href
+    }
+
+    // An href longer than the fixed buffer used to be silently truncated, so the
+    // stored target pointed at nothing (or at the wrong anchor) with no trace.
+    // Calibre-style hrefs routinely exceed it. Treat it as ordinary text instead
+    // of registering a link that cannot resolve.
+    if (isInternalLink && strlen(href) >= sizeof(self->currentFootnote.href)) {
+      LOG_DBG("EHP", "Footnote href too long (%u bytes), not linking", static_cast<unsigned>(strlen(href)));
+      isInternalLink = false;
     }
 
     if (isInternalLink) {
@@ -1297,9 +1313,15 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     return false;
   }
 
-  // Get file size to decide whether to show indexing popup.
-  if (popupFn && file.size() >= MIN_SIZE_FOR_POPUP) {
-    popupFn();
+  // Only worth a popup for a chapter big enough to be noticeable. Progress is
+  // reported as bytes consumed, which is the one honest metric available here --
+  // the page count is not known until the parse finishes.
+  const size_t chapterBytes = file.size();
+  const bool reportProgress = popupFn && chapterBytes >= MIN_SIZE_FOR_POPUP;
+  size_t bytesParsed = 0;
+  int lastReportedPercent = 0;
+  if (reportProgress) {
+    popupFn(0);
   }
 
   XML_SetUserData(parser, this);
@@ -1307,7 +1329,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   XML_SetCharacterDataHandler(parser, characterData);
 
   // Compute the time taken to parse and build pages
-  const uint32_t chapterStartTime = millis();
+  [[maybe_unused]] const uint32_t chapterStartTime = millis();
   do {
     void* const buf = XML_GetBuffer(parser, PARSE_BUFFER_SIZE);
     if (!buf) {
@@ -1327,6 +1349,18 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
     }
 
     done = file.available() == 0;
+
+    if (reportProgress) {
+      bytesParsed += len;
+      // Keep progress useful without making the panel refresh the dominant
+      // indexing cost. Always report completion even if the last jump is short.
+      const int percent = chapterBytes > 0 ? static_cast<int>((bytesParsed * 100) / chapterBytes) : 100;
+      const int clampedPercent = percent > 100 ? 100 : percent;
+      if (clampedPercent == 100 || clampedPercent - lastReportedPercent >= PROGRESS_STEP_PERCENT) {
+        lastReportedPercent = clampedPercent;
+        popupFn(clampedPercent);
+      }
+    }
 
     if (XML_ParseBuffer(parser, static_cast<int>(len), done) == XML_STATUS_ERROR) {
       LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(parser),
@@ -1361,15 +1395,22 @@ void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
 
   if (!currentPage) {
-    currentPage.reset(new Page());
+    currentPage.reset(new (std::nothrow) Page());
     currentPageNextY = 0;
   }
 
-  if (currentPageNextY + lineHeight > viewportHeight) {
+  if (currentPage && currentPageNextY + lineHeight > viewportHeight) {
     completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex);
     completedPageCount++;
-    currentPage.reset(new Page());
+    currentPage.reset(new (std::nothrow) Page());
     currentPageNextY = 0;
+  }
+
+  if (!currentPage) {
+    // OOM mid-pagination: drop the line rather than dereference null — the
+    // caller's error path already reports a failed section build.
+    LOG_ERR("EHP", "Out of memory allocating page");
+    return;
   }
 
   // Track cumulative words to assign footnotes to the page containing their anchor
@@ -1394,8 +1435,12 @@ void ChapterHtmlSlimParser::makePages() {
   }
 
   if (!currentPage) {
-    currentPage.reset(new Page());
+    currentPage.reset(new (std::nothrow) Page());
     currentPageNextY = 0;
+    if (!currentPage) {
+      LOG_ERR("EHP", "Out of memory allocating page");
+      return;
+    }
   }
 
   const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;

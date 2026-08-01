@@ -83,6 +83,7 @@ void SdCardFont::freeStyleMiniData(PerStyle& s) {
   s.miniBitmap = nullptr;
   s.miniIntervalCount = 0;
   s.miniGlyphCount = 0;
+  s.miniHasBitmaps = false;
   freeStyleMiniKern(s);
   memset(&s.miniData, 0, sizeof(s.miniData));
   s.epdFont.data = &s.stubData;
@@ -626,7 +627,7 @@ bool SdCardFont::load(const char* path) {
   LOG_DBG("SDCF", "Loaded: %s (v%u, %u styles)", path, CPFONT_VERSION, styleCount_);
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
     if (!styles_[i].present) continue;
-    const auto& h = styles_[i].header;
+    [[maybe_unused]] const auto& h = styles_[i].header;
     LOG_DBG("SDCF", "  style[%u]: %u intervals, %u glyphs, advY=%u, asc=%d, desc=%d, kernL=%u, kernR=%u, ligs=%u", i,
             h.intervalCount, h.glyphCount, h.advanceY, h.ascender, h.descender, h.kernLeftEntryCount,
             h.kernRightEntryCount, h.ligaturePairCount);
@@ -657,7 +658,7 @@ int32_t SdCardFont::findGlobalGlyphIndex(const PerStyle& s, uint32_t codepoint) 
 
 // --- Prewarm ---
 
-int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOnly) {
+int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOnly, const bool preserveExisting) {
   if (!loaded_) return -1;
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
@@ -691,6 +692,32 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
     }
     if (!found) {
       codepoints[cpCount++] = cp;
+    }
+  }
+
+  // A UI frame can be composed from several independently rendered groups
+  // (header, menu tiles, list and button hints) that share one physical card
+  // face. Keep glyphs prepared by earlier groups when the frame coordinator
+  // asks for an incremental warm-up, otherwise each group evicts the previous
+  // one and every selection step starts the SD reads again.
+  if (preserveExisting) {
+    for (uint8_t si = 0; si < MAX_STYLES && cpCount < MAX_PAGE_GLYPHS; ++si) {
+      if (!(styleMask & (1U << si)) || !styles_[si].present) continue;
+      const auto& s = styles_[si];
+      for (uint32_t ii = 0; ii < s.miniIntervalCount && cpCount < MAX_PAGE_GLYPHS; ++ii) {
+        const auto& interval = s.miniIntervals[ii];
+        for (uint32_t cp = interval.first; cp <= interval.last && cpCount < MAX_PAGE_GLYPHS; ++cp) {
+          bool found = false;
+          for (uint32_t i = 0; i < cpCount; ++i) {
+            if (codepoints[i] == cp) {
+              found = true;
+              break;
+            }
+          }
+          if (!found) codepoints[cpCount++] = cp;
+          if (cp == UINT32_MAX) break;
+        }
+      }
     }
   }
 
@@ -759,6 +786,46 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
 
   stats_.prewarmTotalMs = millis() - startMs;
   return totalMissed;
+}
+
+bool SdCardFont::hasPrewarmedGlyphs(const char* utf8Text, uint8_t styleMask, const bool metadataOnly) const {
+  if (!loaded_ || !utf8Text || *utf8Text == '\0') return false;
+  styleMask = resolveStyleMask(styleMask);
+  if (styleMask == 0) return true;
+
+  for (uint8_t si = 0; si < MAX_STYLES; ++si) {
+    if (!(styleMask & (1U << si)) || !styles_[si].present) continue;
+    const auto& s = styles_[si];
+    if (s.miniIntervalCount == 0 || (!metadataOnly && !s.miniHasBitmaps)) return false;
+
+    const unsigned char* cursor = reinterpret_cast<const unsigned char*>(utf8Text);
+    while (*cursor) {
+      uint32_t cp = utf8NextCodepoint(&cursor);
+      if (cp == 0) break;
+      // Unsupported codepoints render through the replacement glyph. Treat
+      // that substitution as cached so the same missing character does not
+      // trigger a full rebuild on every draw.
+      if (findGlobalGlyphIndex(s, cp) < 0) cp = REPLACEMENT_GLYPH;
+
+      bool found = false;
+      int left = 0;
+      int right = static_cast<int>(s.miniIntervalCount) - 1;
+      while (left <= right) {
+        const int mid = left + (right - left) / 2;
+        const auto& interval = s.miniIntervals[mid];
+        if (cp < interval.first) {
+          right = mid - 1;
+        } else if (cp > interval.last) {
+          left = mid + 1;
+        } else {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return false;
+    }
+  }
+  return true;
 }
 
 int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint32_t cpCount, bool metadataOnly) {
@@ -972,6 +1039,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   }
   s.miniData.glyphMissHandler = &SdCardFont::onGlyphMiss;
   s.miniData.glyphMissCtx = &overflowCtx_[styleIdx];
+  s.miniHasBitmaps = !metadataOnly;
 
   s.epdFont.data = &s.miniData;
 

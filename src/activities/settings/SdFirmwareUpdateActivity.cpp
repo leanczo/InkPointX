@@ -13,6 +13,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
+#include "util/BootDiag.h"
 
 void SdFirmwareUpdateActivity::onEnter() {
   Activity::onEnter();
@@ -32,8 +33,18 @@ void SdFirmwareUpdateActivity::launchPicker() {
 void SdFirmwareUpdateActivity::onPickerResult(const ActivityResult& result) {
   if (result.isCancelled) {
     if (recoveryMode) {
-      // Recovery mode: re-launch the picker so the user cannot escape into a half-initialised UI.
-      launchPicker();
+      // Recovery mode is entered by a hardware combination at boot, so it is easy
+      // to reach by accident. Re-launching the picker here left Back doing
+      // nothing at all and the device looking wedged. There is no initialised UI
+      // to fall back to, so reboot: the combination is no longer held, and the
+      // device comes up in normal mode.
+      LOG_INF("FW", "Recovery mode cancelled, restarting into normal boot");
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_RESTARTING_HINT));
+      renderer.displayBuffer();
+      delay(1200);
+      BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
+      ESP.restart();
       return;
     }
     finish();
@@ -181,6 +192,7 @@ void SdFirmwareUpdateActivity::performUpdate() {
   }
   requestUpdateAndWait();
   delay(1500);
+  BootDiag::markCleanShutdown(BootDiag::Shutdown::Restart);
   ESP.restart();
 }
 
@@ -211,6 +223,9 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
 
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - lineHeight) / 2;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const Rect messageRect{0, contentTop, pageWidth,
+                         pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - contentTop};
 
   if (state == State::VALIDATING) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_VALIDATING_FIRMWARE));
@@ -235,19 +250,20 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
     y += lineHeight + metrics.verticalSpacing;
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF));
   } else if (state == State::SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, tr(STR_RESTARTING_HINT));
+    GUI.drawEmptyState(renderer, messageRect, tr(STR_UPDATE_COMPLETE), tr(STR_RESTARTING_HINT), /*script=*/true);
   } else if (state == State::FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
-    if (!errorMessage.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, errorMessage.c_str());
-    }
+    // drawEmptyState wraps: several locales' messages are wider than the
+    // panel and drawCenteredText clipped them at both ends.
+    GUI.drawEmptyState(renderer, messageRect, tr(STR_UPDATE_FAILED),
+                       errorMessage.empty() ? nullptr : errorMessage.c_str());
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {
     // PICKING / CONFIRMING: a sub-activity is on top, nothing to draw.
     if (recoveryMode) {
-      renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_RECOVERY_MODE_HINT));
+      GUI.drawEmptyState(renderer, messageRect, tr(STR_RECOVERY_MODE_HINT));
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     }
   }
 

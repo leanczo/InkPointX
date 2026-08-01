@@ -153,7 +153,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
                                 const uint8_t paragraphAlignment, const uint16_t viewportWidth,
                                 const uint16_t viewportHeight, const bool hyphenationEnabled, const bool embeddedStyle,
                                 const uint8_t imageRendering, const bool focusReadingEnabled,
-                                const std::function<void()>& popupFn) {
+                                const std::function<void(int percent)>& popupFn) {
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
 
@@ -165,7 +165,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 
   // Retry logic for SD card timing issues
   bool success = false;
-  uint32_t fileSize = 0;
+  [[maybe_unused]] uint32_t fileSize = 0;
   for (int attempt = 0; attempt < 3 && !success; attempt++) {
     if (attempt > 0) {
       LOG_DBG("SCT", "Retrying stream (attempt %d)...", attempt + 1);

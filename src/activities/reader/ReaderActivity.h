@@ -11,6 +11,7 @@ class Txt;
 class ReaderActivity final : public Activity {
   std::string initialBookPath;
   std::string currentBookPath;  // Track current book path for navigation
+  bool allowFastInitialRefresh;
   static std::unique_ptr<Epub> loadEpub(const std::string& path);
   static std::unique_ptr<Xtc> loadXtc(const std::string& path);
   static std::unique_ptr<Txt> loadTxt(const std::string& path);
@@ -33,10 +34,14 @@ class ReaderActivity final : public Activity {
   void onGoToBmpViewer(const std::string& path);
 
   void onGoBack();
+  int initialRefreshCountdown() const;
 
  public:
-  explicit ReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialBookPath)
-      : Activity("Reader", renderer, mappedInput), initialBookPath(std::move(initialBookPath)) {}
+  explicit ReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialBookPath,
+                          bool allowFastInitialRefresh)
+      : Activity("Reader", renderer, mappedInput),
+        initialBookPath(std::move(initialBookPath)),
+        allowFastInitialRefresh(allowFastInitialRefresh) {}
   void onEnter() override;
   bool isReaderActivity() const override { return true; }
 };

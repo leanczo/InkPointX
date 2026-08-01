@@ -10,26 +10,41 @@
 EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool hasFootnotes, const bool hasBookmarks)
+                                               const uint8_t currentPageTurnOption, const bool hasFootnotes,
+                                               const bool hasBookmarks, const bool isFavorite)
     : Activity("EpubReaderMenu", renderer, mappedInput),
-      menuItems(buildMenuItems(hasFootnotes, hasBookmarks)),
+      menuItems(buildMenuItems(hasFootnotes, hasBookmarks, isFavorite)),
       title(title),
       pendingOrientation(currentOrientation),
+      selectedPageTurnOption(currentPageTurnOption),
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent) {}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes,
-                                                                                     bool hasBookmarks) {
+                                                                                     bool hasBookmarks,
+                                                                                     bool isFavorite) {
   std::vector<MenuItem> items;
-  items.reserve(12);
+  items.reserve(18);
+  items.push_back({MenuAction::GO_TO_PAGE, StrId::STR_GO_TO_PAGE});
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }
+  // Gated like Footnotes: the bookmarks screen renders nothing but a header when
+  // there are none, so offering it was a dead end. Toggle Bookmark below still
+  // creates the first one.
   if (hasBookmarks) {
     items.push_back({MenuAction::BOOKMARKS, StrId::STR_BOOKMARKS});
   }
+  items.push_back({MenuAction::READING_SETTINGS, StrId::STR_READING_SETTINGS});
+  // What the buttons do. The reading page shows no legend by design, so this is the
+  // only place the hold gestures are stated.
+  items.push_back({MenuAction::GESTURES, StrId::STR_SETTINGS_CONTROLS});
+  items.push_back({MenuAction::BOOK_INFO, StrId::STR_BOOK_INFO});
+  items.push_back({MenuAction::OPEN_FROM_FILE, StrId::STR_OPEN_FROM_FILE});
+  items.push_back(
+      {MenuAction::TOGGLE_FAVORITE, isFavorite ? StrId::STR_REMOVE_FROM_FAVORITES : StrId::STR_ADD_TO_FAVORITES});
   items.push_back({MenuAction::TOGGLE_BOOKMARK, StrId::STR_TOGGLE_BOOKMARK});
   items.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
@@ -108,12 +123,16 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
   GUI.drawSubHeader(
       renderer,
-      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
+      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.subHeaderHeight},
       progressLine.c_str());
 
   const int contentTop =
-      screen.y + metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.height - contentTop - metrics.verticalSpacing;
+      screen.y + metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing;
+  // contentTop already includes screen.y, so the remaining height is measured from
+  // the safe area's bottom edge. Subtracting it from screen.height instead lost
+  // screen.y worth of list rows in Portrait-Inverted.
+  const int contentHeight =
+      (screen.y + screen.height) - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
 
   GUI.drawList(
       renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, menuItems.size(), selectedIndex,
@@ -133,6 +152,7 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
       true);
 
   // Footer / Hints
+  GUI.drawFooterCounter(renderer, selectedIndex, static_cast<int>(menuItems.size()));
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

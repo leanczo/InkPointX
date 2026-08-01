@@ -15,8 +15,25 @@
 
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
+enum class NetworkMode;
 
-enum class HomeMenuItem { NONE, FILE_BROWSER, RECENTS, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
+enum class HomeMenuItem {
+  NONE,
+  LIBRARY,
+  FILE_BROWSER,
+  GALLERY,
+  FAVORITES,
+  RECENTS,
+  OPDS_BROWSER,
+  FILE_TRANSFER,
+  SETTINGS_MENU,
+  SETTINGS_POWER,
+  SETTINGS_READING,
+  SETTINGS_CONTROLS,
+  SETTINGS_LIBRARY,
+  SETTINGS_NETWORK,
+  SETTINGS_SYSTEM
+};
 
 /**
  * ActivityManager
@@ -42,6 +59,7 @@ class ActivityManager {
   std::unique_ptr<Activity> currentActivity;
 
   void exitActivity(const RenderLock& lock);
+  void prepareDisplayForActivity(const Activity& activity);
 
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;
@@ -81,11 +99,15 @@ class ActivityManager {
 
   // goTo... functions are convenient wrapper for replaceActivity()
   void goToFileTransfer();
-  void goToSettings();
+  void goToFileTransfer(NetworkMode mode);
+  void goToSettings(int categoryIndex = 0);
+  void goToLibrary();
+  void goToFavorites();
+  void goToGallery();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();
-  void goToReader(std::string path);
+  void goToReader(std::string path, bool allowFastInitialRefresh = false);
   void goToSleep(bool fromTimeout = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);

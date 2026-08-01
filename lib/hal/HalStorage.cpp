@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <SDCardManager.h>
 
+#include <algorithm>
 #include <cassert>
 
 #define SDCard SDCardManager::getInstance()
@@ -43,18 +44,80 @@ std::vector<String> HalStorage::listFiles(const char* path, int maxFiles) {
   HAL_STORAGE_WRAPPED_CALL(listFiles, path, maxFiles);
 }
 
-String HalStorage::readFile(const char* path) { HAL_STORAGE_WRAPPED_CALL(readFile, path); }
+String HalStorage::readFile(const char* path) {
+  // Chunked read with an up-front reserve. The SDK's readFile accumulates one
+  // byte at a time into an Arduino String, which reallocates every 16 bytes —
+  // ~3,000 reallocs and a heap-fragmentation trail for a 50 KB settings file,
+  // paid on every store load at boot and every bookmark load at runtime.
+  StorageLock lock;
+  HalFile f;
+  if (!openFileForRead("SD", path, f)) return String();
+  constexpr size_t maxSize = 50000;  // preserve the SDK's historical cap
+  const size_t size = std::min(static_cast<size_t>(f.fileSize()), maxSize);
+  String content;
+  if (size == 0) return content;
+  if (!content.reserve(size)) {
+    LOG_ERR("SD", "readFile: cannot reserve %u bytes for %s", (unsigned)size, path);
+    return String();
+  }
+  char buf[512];
+  size_t total = 0;
+  while (total < size) {
+    const int n = f.read(buf, std::min(sizeof(buf), size - total));
+    if (n <= 0) break;
+    content.concat(buf, static_cast<unsigned int>(n));
+    total += static_cast<size_t>(n);
+  }
+  return content;
+}
 
 bool HalStorage::readFileToStream(const char* path, Print& out, size_t chunkSize) {
   HAL_STORAGE_WRAPPED_CALL(readFileToStream, path, out, chunkSize);
 }
 
 size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t bufferSize, size_t maxBytes) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, path, buffer, bufferSize, maxBytes);
+  StorageLock lock;
+  const size_t read = SDCard.readFileToBuffer(path, buffer, bufferSize, maxBytes);
+  if (read == 0 && recoverInterruptedWrite(path)) {
+    return SDCard.readFileToBuffer(path, buffer, bufferSize, maxBytes);
+  }
+  return read;
 }
 
 bool HalStorage::writeFile(const char* path, const String& content) {
-  HAL_STORAGE_WRAPPED_CALL(writeFile, path, content);
+  // Atomic replace, not the SDK's delete-then-write: SDCardManager::writeFile
+  // removes the old file before writing the new one, so a power loss or card
+  // fault in that window destroyed settings.json / state.json / wifi.json
+  // outright. Write the full payload to a sibling temp file first and swap it
+  // in with a rename — the same pattern ProgressFile::writeAtomic documents.
+  // Worst case after a crash is the previous file intact plus a stale .tmp,
+  // or (in the tiny remove-to-rename window) the payload intact in the .tmp.
+  StorageLock lock;
+  const String tmpPath = String(path) + ".tmp";
+  {
+    HalFile f;
+    if (!openFileForWrite("SD", tmpPath, f)) {
+      LOG_ERR("SD", "Atomic write: cannot open temp %s", tmpPath.c_str());
+      return false;
+    }
+    const size_t written = f.write(reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
+    if (written != content.length()) {
+      LOG_ERR("SD", "Atomic write: short write %u/%u to %s", (unsigned)written, (unsigned)content.length(),
+              tmpPath.c_str());
+      f.close();
+      SDCard.remove(tmpPath.c_str());
+      return false;
+    }
+    f.flush();
+    // HalFile closes at scope exit; SdFat must not rename a path with an open handle.
+  }
+  // SdFat rename does not overwrite, so drop the old file first.
+  SDCard.remove(path);
+  if (!SDCard.rename(tmpPath.c_str(), path)) {
+    LOG_ERR("SD", "Atomic write: rename %s -> %s failed", tmpPath.c_str(), path);
+    return false;
+  }
+  return true;
 }
 
 bool HalStorage::ensureDirectoryExists(const char* path) { HAL_STORAGE_WRAPPED_CALL(ensureDirectoryExists, path); }
@@ -97,10 +160,34 @@ bool HalStorage::rename(const char* oldPath, const char* newPath) {
 
 bool HalStorage::rmdir(const char* path) { HAL_STORAGE_WRAPPED_CALL(rmdir, path); }
 
+bool HalStorage::recoverInterruptedWrite(const char* path) {
+  // Both atomic writers in this firmware (writeFile here, ProgressFile in the
+  // reader) replace a file as remove-then-rename, because SdFat's rename will
+  // not overwrite. A power loss inside that two-operation window left the
+  // payload complete under "<path>.tmp" and no canonical file at all — and
+  // nothing ever looked there again, so a settings file or a reading position
+  // was lost outright rather than merely being one save stale. Recover it on
+  // the first read that misses. Called only from a failed open, so the extra
+  // directory lookup is not on any hot path.
+  StorageLock lock;
+  if (SDCard.exists(path)) return false;
+  const String tmpPath = String(path) + ".tmp";
+  if (!SDCard.exists(tmpPath.c_str())) return false;
+  if (!SDCard.rename(tmpPath.c_str(), path)) {
+    LOG_ERR("SD", "Found %s but could not rename it into place", tmpPath.c_str());
+    return false;
+  }
+  LOG_INF("SD", "Recovered an interrupted write: %s", path);
+  return true;
+}
+
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
   StorageLock lock;  // ensure thread safety for the duration of this function
   FsFile fsFile;
   bool ok = SDCard.openFileForRead(moduleName, path, fsFile);
+  if (!ok && recoverInterruptedWrite(path)) {
+    ok = SDCard.openFileForRead(moduleName, path, fsFile);
+  }
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
   return ok;
 }

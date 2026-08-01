@@ -27,6 +27,8 @@ enum Color : uint8_t { Clear = 0x00, White = 0x01, LightGray = 0x05, DarkGray = 
 
 class GfxRenderer {
  public:
+  using FrameOverlayHook = void (*)(const GfxRenderer&);
+
   enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
 
   // Logical screen orientation from the perspective of callers
@@ -73,9 +75,14 @@ class GfxRenderer {
   mutable int _stripY0 = 0;
   mutable int _stripRows = 0;
   mutable bool _stripActive = false;
+  FrameOverlayHook frameOverlayHook_ = nullptr;
+  bool frameOverlayEnabled_ = true;
+  mutable bool frameOverlayDrawn_ = false;
+  mutable bool applyingFrameOverlay_ = false;
 
   void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontFamily::Style style) const;
+  void applyFrameOverlay(bool force = false) const;
   void freeBwBufferChunks();
   template <Color color>
   void drawPixelDither(int x, int y) const;
@@ -121,6 +128,9 @@ class GfxRenderer {
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).
   void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
+  // Batches a string's glyphs into a card font's cache before measuring or
+  // drawing it. No-op for built-in fonts.
+  void prepareSdCardGlyphs(int fontId, const char* utf8Text, EpdFontFamily::Style style, bool metadataOnly) const;
   void ensureSdCardFontReady(int fontId, const std::vector<std::string>& words, bool includeHyphen,
                              uint8_t styleMask = 0x0F) const;
 
@@ -130,6 +140,13 @@ class GfxRenderer {
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
+  void setFrameOverlayHook(const FrameOverlayHook hook) { frameOverlayHook_ = hook; }
+  void setFrameOverlayEnabled(const bool enabled) { frameOverlayEnabled_ = enabled; }
+  void beginFrame() const;
+  void markFrameOverlayDrawn() const { frameOverlayDrawn_ = true; }
+  void requestCleanRefresh() { display.requestCleanRefresh(); }
+  void requestFullRefresh() { display.requestFullRefresh(); }
+  void setAutomaticCleanupEnabled(const bool enabled) { display.setAutomaticCleanupEnabled(enabled); }
 
   // Screen ops
   int getScreenWidth() const;
@@ -174,6 +191,8 @@ class GfxRenderer {
   void drawRoundedRect(int x, int y, int width, int height, int lineWidth, int cornerRadius, bool state) const;
   void drawRoundedRect(int x, int y, int width, int height, int lineWidth, int cornerRadius, bool roundTopLeft,
                        bool roundTopRight, bool roundBottomLeft, bool roundBottomRight, bool state) const;
+  void invertRoundedRect(int x, int y, int width, int height, int cornerRadius, bool roundTopLeft,
+                         bool roundTopRight, bool roundBottomLeft, bool roundBottomRight) const;
   void maskRoundedRectOutsideCorners(int x, int y, int width, int height, int radius, Color color = Color::White) const;
   void fillRect(int x, int y, int width, int height, bool state = true) const;
   void fillRectDither(int x, int y, int width, int height, Color color) const;
@@ -207,6 +226,12 @@ class GfxRenderer {
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  // Where the *ink* of `text` actually sits, relative to the y that drawText()
+  // is given, and how tall it is. Line height and ascender describe the font's
+  // box, not the marks in it: centring an icon on digits needs the marks.
+  // Returns false for an unknown font or empty text; both outputs are then 0.
+  bool getTextInkBounds(int fontId, const char* text, int* topOffset, int* height,
+                        EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than

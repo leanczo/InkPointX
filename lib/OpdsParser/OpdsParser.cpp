@@ -157,7 +157,13 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
 
   if (strcmp(name, "entry") == 0 || strstr(name, ":entry") != nullptr) {
     if (!self->currentEntry.title.empty() && !self->currentEntry.href.empty()) {
-      self->entries.push_back(self->currentEntry);
+      // A catalogue that returns its whole library in one feed (some servers
+      // ignore pagination) grew this vector until the heap ran out, and an
+      // allocation failure under -fno-exceptions terminates the firmware
+      // instead of failing the fetch. Past this the list is unnavigable on a
+      // seven-button device anyway; the feed's next-page link is the answer.
+      constexpr size_t MAX_ENTRIES = 512;
+      if (self->entries.size() < MAX_ENTRIES) self->entries.push_back(self->currentEntry);
     }
     self->inEntry = false;
   } else if (self->inEntry) {
@@ -179,6 +185,14 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
 void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const int len) {
   auto* self = static_cast<OpdsParser*>(userData);
   if (self->inTitle || self->inAuthorName || self->inId) {
-    self->currentText.append(s, len);
+    // Bounded: this grew without limit from whatever the server sent, and on
+    // a ~118 KB heap under -fno-exceptions the allocation that finally fails
+    // terminates the firmware rather than failing the feed. A title, author
+    // or id past this length is already unusable in a 480 px list row, so
+    // the remainder is dropped instead of the device.
+    constexpr size_t MAX_FIELD_CHARS = 2048;
+    if (self->currentText.size() >= MAX_FIELD_CHARS) return;
+    const size_t room = MAX_FIELD_CHARS - self->currentText.size();
+    self->currentText.append(s, len > 0 && static_cast<size_t>(len) > room ? room : static_cast<size_t>(len));
   }
 }

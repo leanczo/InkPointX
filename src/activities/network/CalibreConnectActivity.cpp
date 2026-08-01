@@ -104,6 +104,25 @@ void CalibreConnectActivity::loop() {
     exitRequested = true;
   }
 
+  // Without this the screen keeps showing setup instructions forever when the
+  // access point drops, which is indistinguishable from a hang.
+  if (webServer && webServer->isRunning() && millis() - lastWifiCheckAt > 2000) {
+    lastWifiCheckAt = millis();
+    if (WiFi.status() != WL_CONNECTED) {
+      if (firstDisconnectAt == 0) {
+        firstDisconnectAt = millis();
+      } else if (millis() - firstDisconnectAt > WIFI_ABANDON_MS) {
+        LOG_ERR("CAL", "WiFi unavailable for >%lu s; leaving Calibre mode", WIFI_ABANDON_MS / 1000UL);
+        state = CalibreConnectState::ERROR;
+        stopWebServer();
+        requestUpdate();
+        return;
+      }
+    } else {
+      firstDisconnectAt = 0;
+    }
+  }
+
   if (webServer && webServer->isRunning()) {
     const unsigned long timeSinceLastHandleClient = millis() - lastHandleClientTime;
     if (lastHandleClientTime > 0 && timeSinceLastHandleClient > 100) {
@@ -130,12 +149,20 @@ void CalibreConnectActivity::loop() {
     const auto status = webServer->getWsUploadStatus();
     bool changed = false;
     if (status.inProgress) {
-      if (status.received != lastProgressReceived || status.total != lastProgressTotal ||
-          status.filename != currentUploadName) {
-        lastProgressReceived = status.received;
-        lastProgressTotal = status.total;
-        currentUploadName = status.filename;
-        changed = true;
+      // A new file, or the first frame of one, repaints immediately; ongoing
+      // byte counts are rate limited so the panel is not driven once per 64 KB.
+      const bool newUpload = status.filename != currentUploadName || lastProgressTotal != status.total;
+      const bool dueForRepaint = millis() - lastProgressRepaintAt >= PROGRESS_REPAINT_MIN_MS;
+      const bool finished = status.total > 0 && status.received >= status.total;
+      if (newUpload || dueForRepaint || finished) {
+        if (status.received != lastProgressReceived || status.total != lastProgressTotal ||
+            status.filename != currentUploadName) {
+          lastProgressReceived = status.received;
+          lastProgressTotal = status.total;
+          currentUploadName = status.filename;
+          lastProgressRepaintAt = millis();
+          changed = true;
+        }
       }
     } else if (lastProgressReceived != 0 || lastProgressTotal != 0) {
       lastProgressReceived = 0;
@@ -183,23 +210,36 @@ void CalibreConnectActivity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_12_FONT_ID, top, tr(STR_CALIBRE_STARTING));
   } else if (state == CalibreConnectState::ERROR) {
     renderer.drawCenteredText(UI_12_FONT_ID, top, tr(STR_CONNECTION_FAILED), true, EpdFontFamily::BOLD);
+    // Back has always worked here; the legend just never said so.
+    const auto errorLabels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, errorLabels.btn1, errorLabels.btn2, errorLabels.btn3, errorLabels.btn4);
   } else if (state == CalibreConnectState::SERVER_RUNNING) {
-    GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
-                      connectedSSID.c_str(), (std::string(tr(STR_IP_ADDRESS_PREFIX)) + connectedIP).c_str());
+    // Raw IP on the right: with the localized "IP Address:" prefix the value
+    // exceeded the 200 px value lane and was cut mid-octet — the one fact this
+    // screen exists to show. A bare dotted quad needs no label.
+    GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
+                      connectedSSID.c_str(), connectedIP.c_str());
 
-    int y = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing * 4;
-    const auto heightText12 = renderer.getTextHeight(UI_12_FONT_ID);
-    renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_SETUP), true, EpdFontFamily::BOLD);
-    y += heightText12 + metrics.verticalSpacing * 2;
+    int y = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 4;
+    const auto headingHeight = renderer.getTextHeight(HEADER_FONT_ID);
+    renderer.drawText(HEADER_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_SETUP));
+    y += headingHeight + metrics.verticalSpacing * 2;
 
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_INSTRUCTION_1));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height, tr(STR_CALIBRE_INSTRUCTION_2));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height * 2, tr(STR_CALIBRE_INSTRUCTION_3));
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y + height * 3, tr(STR_CALIBRE_INSTRUCTION_4));
+    // Wrapped, and advanced by the SMALL line height — the old fixed grid used
+    // the UI_10 metric and clipped 22 locales at the right edge.
+    const int instructionLh = renderer.getLineHeight(SMALL_FONT_ID);
+    const int instructionMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+    for (const auto instruction : {StrId::STR_CALIBRE_INSTRUCTION_1, StrId::STR_CALIBRE_INSTRUCTION_2,
+                                   StrId::STR_CALIBRE_INSTRUCTION_3, StrId::STR_CALIBRE_INSTRUCTION_4}) {
+      for (const auto& line : renderer.wrappedText(SMALL_FONT_ID, I18N.get(instruction), instructionMaxWidth, 2)) {
+        renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding, y, line.c_str());
+        y += instructionLh;
+      }
+    }
 
-    y += height * 3 + metrics.verticalSpacing * 4;
-    renderer.drawText(UI_12_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_STATUS), true, EpdFontFamily::BOLD);
-    y += heightText12 + metrics.verticalSpacing * 2;
+    y += metrics.verticalSpacing * 4;
+    renderer.drawText(HEADER_FONT_ID, metrics.contentSidePadding, y, tr(STR_CALIBRE_STATUS));
+    y += headingHeight + metrics.verticalSpacing * 2;
 
     if (lastProgressTotal > 0 && lastProgressReceived <= lastProgressTotal) {
       std::string label = tr(STR_CALIBRE_RECEIVING);
@@ -213,7 +253,10 @@ void CalibreConnectActivity::render(RenderLock&&) {
                           Rect{metrics.contentSidePadding, y + height + metrics.verticalSpacing,
                                pageWidth - metrics.contentSidePadding * 2, metrics.progressBarHeight},
                           lastProgressReceived, lastProgressTotal);
-      y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight;
+      // drawProgressBar draws its own centred percent caption a line below
+      // the bar — reserve that line, or the next status line lands on it.
+      y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight +
+           renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
     }
 
     if (lastCompleteAt > 0 && (millis() - lastCompleteAt) < 6000) {

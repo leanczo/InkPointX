@@ -18,6 +18,16 @@ namespace {
 constexpr uint16_t ZIP_METHOD_STORED = 0;
 constexpr uint16_t ZIP_METHOD_DEFLATED = 8;
 
+// This device has ~380 KB of RAM in total, so no whole-member read can succeed
+// beyond a fraction of that. Used to reject implausible sizes declared by the
+// archive before they reach malloc.
+constexpr uint32_t MAX_MEMBER_SIZE = 1u << 18;  // 256 KiB
+
+// The EOCD entry count is a raw uint16_t; a corrupt 65535 asks an
+// unordered_map<std::string, ...> for a ~262 KB bucket array up front. The map
+// grows on its own, so a conservative hint is enough.
+constexpr uint16_t MAX_RESERVED_ENTRIES = 2048;
+
 // RAII zip: opens the zip if not already open, closes on destruction only if
 // it performed the open.  Removes the wasOpen/close boilerplate from every method.
 class ScopedOpenClose final {
@@ -67,7 +77,7 @@ bool ZipFile::loadAllFileStatSlims() {
   uint32_t sig;
   char itemName[256];
   fileStatSlimCache.clear();
-  fileStatSlimCache.reserve(zipDetails.totalEntries);
+  fileStatSlimCache.reserve(std::min(zipDetails.totalEntries, MAX_RESERVED_ENTRIES));
 
   while (file.available()) {
     file.read(&sig, 4);
@@ -378,7 +388,16 @@ uint8_t* ZipFile::readFileToMemory(const char* filename, size_t* size, const boo
 
   const auto deflatedDataSize = fileStat.compressedSize;
   const auto inflatedDataSize = fileStat.uncompressedSize;
-  const auto dataSize = trailingNullByte ? inflatedDataSize + 1 : inflatedDataSize;
+  // uncompressedSize is a raw uint32_t from the central directory. A ZIP64
+  // sentinel (0xFFFFFFFF) or a crafted value made `+ 1` wrap to 0, so malloc(0)
+  // succeeded and the read/inflate then wrote gigabytes past a zero-byte block.
+  // Bound it against what this device could ever hold before allocating.
+  if (inflatedDataSize > MAX_MEMBER_SIZE) {
+    LOG_ERR("ZIP", "Refusing member of %zu bytes (limit %zu)", static_cast<size_t>(inflatedDataSize),
+            static_cast<size_t>(MAX_MEMBER_SIZE));
+    return nullptr;
+  }
+  const size_t dataSize = static_cast<size_t>(inflatedDataSize) + (trailingNullByte ? 1 : 0);
   const auto data = static_cast<uint8_t*>(malloc(dataSize));
   if (data == nullptr) {
     LOG_ERR("ZIP", "Failed to allocate memory for output buffer (%zu bytes)", dataSize);

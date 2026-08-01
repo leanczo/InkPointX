@@ -45,6 +45,16 @@ INTERVAL_PRESETS = {
     "greek":       [(0x0370, 0x03FF), (0x1F00, 0x1FFF)],
     "cyrillic":    [(0x0400, 0x04FF), (0x0500, 0x052F)],
     "hebrew":      [(0x0590, 0x05FF), (0xFB1D, 0xFB4F)],
+    "arabic":      [(0x0600, 0x06FF), (0x0750, 0x077F),
+                    (0x0870, 0x089F), (0x08A0, 0x08FF),
+                    # Bounded forms emitted by ArabicShaper. Avoid the full
+                    # FB50-FDFF block: Naskh includes very wide phrase
+                    # ligatures there that exceed the compact cpfont glyph
+                    # width field and are never produced by the firmware.
+                    (0xFB51, 0xFB51), (0xFB57, 0xFB59),
+                    (0xFB7B, 0xFB7D), (0xFB8B, 0xFB8B),
+                    (0xFB8F, 0xFB91), (0xFB93, 0xFB95),
+                    (0xFBFD, 0xFBFF), (0xFE70, 0xFEFC)],
     "georgian":    [(0x10A0, 0x10FF), (0x2D00, 0x2D2F)],
     "armenian":    [(0x0530, 0x058F)],
     "ethiopic":    [(0x1200, 0x137F), (0x1380, 0x139F), (0x2D80, 0x2DDF)],
@@ -520,7 +530,7 @@ def extract_ligatures_fonttools(font_path, codepoints):
 
 
 def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=False,
-                         fallback_fontfile=None):
+                         fallback_fontfile=None, is2bit=True, mono_threshold=6):
     """Rasterize all glyphs for one font style. Returns StyleRasterData."""
     import freetype
 
@@ -620,36 +630,50 @@ def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=F
                     pixels4g.append(px)
                     px = 0
 
-            # Downsample to 2-bit bitmap
-            pixels2b = []
-            px = 0
             pitch = (bitmap.width // 2) + (bitmap.width % 2)
-            for y in range(bitmap.rows):
-                for x in range(bitmap.width):
-                    px = px << 2
-                    bm = pixels4g[y * pitch + (x // 2)]
-                    bm = (bm >> ((x % 2) * 4)) & 0xF
+            if is2bit:
+                # Downsample to 2-bit bitmap.
+                pixels2b = []
+                px = 0
+                for y in range(bitmap.rows):
+                    for x in range(bitmap.width):
+                        px = px << 2
+                        bm = pixels4g[y * pitch + (x // 2)]
+                        bm = (bm >> ((x % 2) * 4)) & 0xF
 
-                    if bm >= 12:
-                        px += 3
-                    elif bm >= 8:
-                        px += 2
-                    elif bm >= 4:
-                        px += 1
+                        if bm >= 12:
+                            px += 3
+                        elif bm >= 8:
+                            px += 2
+                        elif bm >= 4:
+                            px += 1
 
-                    if (y * bitmap.width + x) % 4 == 3:
-                        pixels2b.append(px)
-                        px = 0
-            if (bitmap.width * bitmap.rows) % 4 != 0:
-                # Outer parens are for clarity: in Python `*` binds tighter
-                # than `<<`, so the original `px << (4 - … % 4) * 2` already
-                # evaluates as `px << ((4 - … % 4) * 2)`. Match the explicit
-                # bracketing here so the shift width is obvious at a glance,
-                # mirroring the inner-loop style in fontconvert.py.
-                px = px << ((4 - (bitmap.width * bitmap.rows) % 4) * 2)
-                pixels2b.append(px)
-
-            packed = bytes(pixels2b)
+                        if (y * bitmap.width + x) % 4 == 3:
+                            pixels2b.append(px)
+                            px = 0
+                if (bitmap.width * bitmap.rows) % 4 != 0:
+                    px = px << ((4 - (bitmap.width * bitmap.rows) % 4) * 2)
+                    pixels2b.append(px)
+                packed = bytes(pixels2b)
+            else:
+                # Native monochrome path for memory-constrained e-ink. This
+                # halves SD traffic and hot-glyph cache use versus 2-bit.
+                pixels1b = []
+                px = 0
+                for y in range(bitmap.rows):
+                    for x in range(bitmap.width):
+                        px <<= 1
+                        bm = pixels4g[y * pitch + (x // 2)]
+                        coverage = (bm & 0x0F) if (x & 1) == 0 else ((bm >> 4) & 0x0F)
+                        if coverage >= mono_threshold:
+                            px += 1
+                        if (y * bitmap.width + x) % 8 == 7:
+                            pixels1b.append(px)
+                            px = 0
+                if (bitmap.width * bitmap.rows) % 8 != 0:
+                    px <<= 8 - (bitmap.width * bitmap.rows) % 8
+                    pixels1b.append(px)
+                packed = bytes(pixels1b)
             glyph = GlyphProps(
                 width=bitmap.width,
                 height=bitmap.rows,
@@ -669,6 +693,13 @@ def rasterize_font_style(fontfile, size, intervals, style_id=0, force_autohint=F
     advanceY = norm_ceil(face.size.height)
     ascender = norm_ceil(face.size.ascender)
     descender = norm_floor(face.size.descender)
+    if fallback_face:
+        # A fallback script can have taller marks/descenders than the Latin
+        # primary. Use union metrics so Arabic harakat are never clipped and
+        # line spacing remains stable when a paragraph switches scripts.
+        advanceY = max(advanceY, norm_ceil(fallback_face.size.height))
+        ascender = max(ascender, norm_ceil(fallback_face.size.ascender))
+        descender = min(descender, norm_floor(fallback_face.size.descender))
 
     print(f"  [{style_label}] Metrics: advanceY={advanceY}, ascender={ascender}, descender={descender}", file=sys.stderr)
     print(f"  [{style_label}] Bitmap: {total_bitmap_size} bytes ({total_bitmap_size / 1024:.1f} KB)", file=sys.stderr)
@@ -776,7 +807,8 @@ def style_sections_total_size(sections):
 # --- File writers ---
 
 def generate_cpfont_multistyle(style_fonts, size, intervals, output_path,
-                               force_autohint=False, fallback_style_fonts=None):
+                               force_autohint=False, fallback_style_fonts=None,
+                               is2bit=True, mono_threshold=6):
     """Generate a multi-style v4 .cpfont file.
 
     style_fonts: dict of {style_id: fontfile_path} e.g. {0: "Regular.ttf", 2: "Italic.ttf"}
@@ -785,7 +817,7 @@ def generate_cpfont_multistyle(style_fonts, size, intervals, output_path,
     MAGIC = b"CPFONT\x00\x00"
     HEADER_SIZE = 32
     STYLE_TOC_ENTRY_SIZE = 32
-    flags = 1  # always 2-bit greyscale
+    flags = 1 if is2bit else 0
     style_count = len(style_fonts)
 
     # Rasterize each style
@@ -798,7 +830,9 @@ def generate_cpfont_multistyle(style_fonts, size, intervals, output_path,
         raster_data[style_id] = rasterize_font_style(
             fontfile, size, intervals, style_id=style_id,
             force_autohint=force_autohint,
-            fallback_fontfile=fallback_fontfile)
+            fallback_fontfile=fallback_fontfile,
+            is2bit=is2bit,
+            mono_threshold=mono_threshold)
 
     # Pack binary sections for each style
     packed_sections = {}  # style_id -> tuple of section bytearrays
@@ -893,6 +927,10 @@ def main():
                         help="Font family name for output filenames (default: derived from font filename).")
     parser.add_argument("--force-autohint", dest="force_autohint", action="store_true",
                         help="Force FreeType auto-hinter instead of native font hinting.")
+    parser.add_argument("--1bit", dest="one_bit", action="store_true",
+                        help="Generate native 1-bit glyph bitmaps instead of 2-bit greyscale.")
+    parser.add_argument("--mono-threshold", type=int, default=6,
+                        help="1-bit coverage threshold in 4-bit units (1-15, default: 6).")
     parser.add_argument("-o", "--output", dest="output",
                         help="Output file path (for single-size mode).")
     parser.add_argument("--output-dir", dest="output_dir",
@@ -919,6 +957,9 @@ def main():
                         help="Fallback font file for bold-italic style.")
 
     args = parser.parse_args()
+
+    if not 1 <= args.mono_threshold <= 15:
+        parser.error("--mono-threshold must be between 1 and 15")
 
     if args.list_presets:
         print("Available interval presets:")
@@ -1016,7 +1057,9 @@ def main():
         total_size += generate_cpfont_multistyle(
             style_fonts, sz, intervals, output_path,
             force_autohint=args.force_autohint,
-            fallback_style_fonts=fallback_style_fonts)
+            fallback_style_fonts=fallback_style_fonts,
+            is2bit=not args.one_bit,
+            mono_threshold=args.mono_threshold)
     print(f"\nTotal: {len(sizes)} files, {total_size / 1024 / 1024:.2f} MB", file=sys.stderr)
 
 

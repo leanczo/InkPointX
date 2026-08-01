@@ -9,12 +9,14 @@
 #include <algorithm>
 
 #include "MappedInputManager.h"
+#include "util/HoldGestures.h"
 #include "ProgressMapper.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
-constexpr int ENTER_DELETE_MODE_MS = 700;
+// Acting on the selected bookmark, so the shared short hold.
+constexpr unsigned long ENTER_DELETE_MODE_MS = HoldGestures::SHORT_MS;
 constexpr int DELETE_MODE_OFF = 0;
 constexpr int DELETE_MODE_DISPLAY = 1;
 constexpr int DELETE_MODE_CONFIRM = 2;
@@ -54,14 +56,20 @@ void EpubReaderBookmarksActivity::onEnter() {
 void EpubReaderBookmarksActivity::onExit() { Activity::onExit(); }
 
 int EpubReaderBookmarksActivity::getGutterBottom(const GfxRenderer& renderer) {
-  const auto orientation = renderer.getOrientation();
-  const bool isPortrait = orientation == GfxRenderer::Orientation::Portrait;
-  return isPortrait ? 75 : 40;  // Reserve vertical space for button hints at the bottom
+  // Button hints plus the "Hold Open to Delete" help line above them. Derived
+  // from the theme instead of the old 75/40 constants, which no longer matched
+  // the metrics they were copied from.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  return metrics.buttonHintsHeight + metrics.verticalSpacing + LINE_HEIGHT;
 }
 
 int EpubReaderBookmarksActivity::getListHeight(const GfxRenderer& renderer) {
   const auto pageHeight = renderer.getScreenHeight();
-  return pageHeight - getGutterBottom(renderer) - LINE_HEIGHT;  // Reserve vertical space for title and button hints
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int contentY = isPortraitInverted ? 50 : 0;
+  const int listY = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  return pageHeight - getGutterBottom(renderer) - listY;
 }
 
 void EpubReaderBookmarksActivity::loop() {
@@ -69,8 +77,10 @@ void EpubReaderBookmarksActivity::loop() {
   if (confirmingDelete >= DELETE_MODE_DISPLAY) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       if (confirmingDelete == DELETE_MODE_DISPLAY) {
-        confirmingDelete = DELETE_MODE_CONFIRM;  // first confirmation, update text
-        requestUpdate();
+        // This release belongs to the hold that opened the dialog — swallow it
+        // so the dialog needs one deliberate press. Nothing changed on screen,
+        // so no redraw either.
+        confirmingDelete = DELETE_MODE_CONFIRM;
         return;
       }
       bookmarks.erase(bookmarks.begin() + selectorIndex);
@@ -120,6 +130,14 @@ void EpubReaderBookmarksActivity::loop() {
     return;
   }
 
+  // Nothing below this point may run while the delete prompt is up: the
+  // navigation handlers stayed live, so Up/Down moved the selection out from
+  // under the prompt and the confirmation then deleted a different bookmark than
+  // the one shown.
+  if (confirmingDelete >= DELETE_MODE_DISPLAY) {
+    return;
+  }
+
   if (mappedInput.isPressed(MappedInputManager::Button::Confirm) && mappedInput.getHeldTime() > ENTER_DELETE_MODE_MS) {
     if (bookmarks.empty()) {
       return;
@@ -128,12 +146,12 @@ void EpubReaderBookmarksActivity::loop() {
     requestUpdate();
   }
 
-  buttonNavigator.onNextRelease([this] {
+  buttonNavigator.onNextPress([this] {
     selectorIndex = ButtonNavigator::nextIndex(selectorIndex, bookmarks.size());
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onPreviousPress([this] {
     selectorIndex = ButtonNavigator::previousIndex(selectorIndex, bookmarks.size());
     requestUpdate();
   });
@@ -170,14 +188,13 @@ void EpubReaderBookmarksActivity::render(RenderLock&&) {
   const int hintGutterHeight = isPortraitInverted ? 50 : 0;
   const int hintGutterBottom = getGutterBottom(renderer);
   const int contentY = hintGutterHeight;
-  const int listY = contentY + LINE_HEIGHT;  // Reserve vertical space for title
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int listY = contentY + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int listHeight = getListHeight(renderer);
   const int numBookmarks = bookmarks.size();
 
-  // Manual centering to honor content gutters.
-  const int titleX =
-      contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, tr(STR_BOOKMARKS), EpdFontFamily::BOLD)) / 2;
-  renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, tr(STR_BOOKMARKS), true, EpdFontFamily::BOLD);
+  GUI.drawHeader(renderer, Rect{contentX, contentY + metrics.topPadding, contentWidth, metrics.headerHeight},
+                 tr(STR_BOOKMARKS));
 
   const auto getBookmarkTitle = [this](int index) {
     return bookmarks.at(confirmingDelete >= DELETE_MODE_DISPLAY ? selectorIndex : index).summary;
@@ -216,8 +233,10 @@ void EpubReaderBookmarksActivity::render(RenderLock&&) {
   }
 
   const auto backLabel = confirmingDelete >= DELETE_MODE_DISPLAY ? tr(STR_CANCEL) : tr(STR_BACK);
+  // "Open", not "Select": the help line above says "Hold Open to Delete", and
+  // both must name the button the same way.
   const auto confirmLabel =
-      bookmarks.size() > 0 ? (confirmingDelete >= DELETE_MODE_DISPLAY ? tr(STR_DELETE) : tr(STR_SELECT)) : "";
+      bookmarks.size() > 0 ? (confirmingDelete >= DELETE_MODE_DISPLAY ? tr(STR_DELETE) : tr(STR_OPEN)) : "";
   const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

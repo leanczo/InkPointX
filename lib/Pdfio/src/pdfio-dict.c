@@ -634,33 +634,23 @@ _pdfioDictRead(pdfio_file_t   *pdf,	// I - PDF file
                size_t         depth)	// I - Depth of dictionary
 {
   pdfio_dict_t		*dict;		// New dictionary
-  char			*key;		// Dictionary key (heap keeps recursive parsing off task stack)
+  char			key[256];	// Dictionary key
   _pdfio_value_t	value;		// Dictionary value
 
 
   PDFIO_DEBUG("_pdfioDictRead(pdf=%p, obj=%p, tb=%p, depth=%lu)\n", (void *)pdf, (void *)obj, (void *)tb, (unsigned long)depth);
 
-  if ((key = (char *)malloc(256)) == NULL)
-  {
-    _pdfioFileError(pdf, "Unable to allocate dictionary key buffer.");
-    return (NULL);
-  }
-
   // Create a dictionary and start reading...
   if ((dict = pdfioDictCreate(pdf)) == NULL)
-  {
-    free(key);
     return (NULL);
-  }
 
-  while (_pdfioTokenGet(tb, key, 256))
+  while (_pdfioTokenGet(tb, key, sizeof(key)))
   {
     // Get the next key or end-of-dictionary...
     if (!strcmp(key, ">>"))
     {
       // End of dictionary...
       PDFIO_DEBUG("_pdfioDictRead: Returning dictionary value...\n");
-      free(key);
       return (dict);
     }
     else if (key[0] != '/')
@@ -694,7 +684,6 @@ _pdfioDictRead(pdfio_file_t   *pdf,	// I - PDF file
 
   // Dictionary is invalid - pdfioFileClose will free the memory, return NULL
   // to indicate an error...
-  free(key);
   return (NULL);
 }
 

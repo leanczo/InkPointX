@@ -36,7 +36,19 @@ void QrDisplayActivity::render(RenderLock&&) {
   const int startY = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
 
   const Rect qrBounds(20, startY, availableWidth, availableHeight);
-  QrUtils::drawQrCode(renderer, qrBounds, textPayload);
+  bool wasTruncated = false;
+  if (!QrUtils::drawQrCode(renderer, qrBounds, textPayload, &wasTruncated)) {
+    // The encoder refused the payload — a header over blank space read as a
+    // hang, so say what happened.
+    GUI.drawEmptyState(renderer, qrBounds, tr(STR_ERROR_GENERAL_FAILURE));
+  } else if (wasTruncated) {
+    // Only a prefix fit into the code: warn, or a scanned page passes for the
+    // whole chapter.
+    UITheme::drawCenteredText(renderer, Rect{0, 0, pageWidth, pageHeight}, SMALL_FONT_ID,
+                              pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing -
+                                  renderer.getLineHeight(SMALL_FONT_ID),
+                              tr(STR_QR_TRUNCATED), true);
+  }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

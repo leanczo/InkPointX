@@ -7,11 +7,9 @@ class SleepActivity final : public Activity {
  public:
   explicit SleepActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool fromTimeout = false)
       : Activity("Sleep", renderer, mappedInput), fromTimeout(fromTimeout) {}
-  void onEnter() override;
+ void onEnter() override;
 
  private:
-  void syncClockForSleep() const;
-  void renderLockScreen() const;
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;

@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "NetworkModeSelectionActivity.h"
@@ -20,7 +21,8 @@ enum class WebServerActivityState {
 /**
  * CrossPointWebServerActivity is the entry point for file transfer functionality.
  * It:
- * - First presents a choice between "Join a Network" (STA), "Connect to Calibre", and "Create Hotspot" (AP)
+ * - Accepts a mode selected directly in Home's Transfer subsection
+ * - Keeps its legacy mode picker for callers that do not provide a mode
  * - For STA mode: Launches WifiSelectionActivity to connect to an existing network
  * - For AP mode: Creates an Access Point that clients can connect to
  * - Starts the CrossPointWebServer when connected
@@ -32,6 +34,7 @@ class CrossPointWebServerActivity final : public Activity {
 
   // Network mode
   NetworkMode networkMode = NetworkMode::JOIN_NETWORK;
+  std::optional<NetworkMode> initialMode;
   bool isApMode = false;
 
   // Web server - owned by this activity
@@ -57,12 +60,15 @@ class CrossPointWebServerActivity final : public Activity {
 
   void onNetworkModeSelected(NetworkMode mode);
   void onWifiSelectionComplete(bool connected);
+  void showModeSelection();
+  void returnToTransferMenu();
   void startAccessPoint();
   void startWebServer();
 
  public:
-  explicit CrossPointWebServerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("CrossPointWebServer", renderer, mappedInput) {}
+  explicit CrossPointWebServerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                       std::optional<NetworkMode> mode = std::nullopt)
+      : Activity("CrossPointWebServer", renderer, mappedInput), initialMode(mode) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

@@ -7,6 +7,7 @@
 
 #include "JpegToFramebufferConverter.h"
 #include "PngToFramebufferConverter.h"
+#include <new>
 
 std::unique_ptr<JpegToFramebufferConverter> ImageDecoderFactory::jpegDecoder = nullptr;
 std::unique_ptr<PngToFramebufferConverter> ImageDecoderFactory::pngDecoder = nullptr;
@@ -25,12 +26,12 @@ ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string& im
 
   if (JpegToFramebufferConverter::supportsFormat(ext)) {
     if (!jpegDecoder) {
-      jpegDecoder.reset(new JpegToFramebufferConverter());
+      jpegDecoder.reset(new (std::nothrow) JpegToFramebufferConverter());
     }
     return jpegDecoder.get();
   } else if (PngToFramebufferConverter::supportsFormat(ext)) {
     if (!pngDecoder) {
-      pngDecoder.reset(new PngToFramebufferConverter());
+      pngDecoder.reset(new (std::nothrow) PngToFramebufferConverter());
     }
     return pngDecoder.get();
   }

@@ -5,16 +5,32 @@
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
 
+#include <WiFi.h>
+
 #include <ctime>
+#include <string>
 
 #include "KOReaderCredentialStore.h"
 
 int KOReaderSyncClient::lastHttpCode = 0;
 
 namespace {
-// Device identifier for CrossPoint reader
-constexpr char DEVICE_NAME[] = "CrossPoint";
-constexpr char DEVICE_ID[] = "crosspoint-reader";
+// Device identity reported to the sync server. The name is the product; the id is
+// derived from the MAC so two InkPoint X units are distinguishable — a shared
+// constant made every device look like the same one, so a user could not tell
+// which had pushed a position.
+constexpr char DEVICE_NAME[] = "InkPoint X";
+
+const char* deviceId() {
+  static std::string id;
+  if (id.empty()) {
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    mac.toLowerCase();
+    id = std::string("inkpointx-") + mac.c_str();
+  }
+  return id.c_str();
+}
 
 // Small TLS buffers to fit in ESP32-C3's limited heap (~46KB free after WiFi).
 // KOSync payloads are tiny JSON (<1KB), so 2KB buffers are sufficient.
@@ -165,6 +181,14 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
       return JSON_ERROR;
     }
 
+    // Some servers answer an unknown document with 200 and an empty or null
+    // progress instead of 404. Treated as real data that became a legitimate
+    // looking "remote 0%" the user could pick, overwriting a good local position.
+    if (!doc["progress"].is<const char*>() || doc["progress"].as<std::string>().empty()) {
+      LOG_DBG("KOSync", "200 with no progress field, treating as not found");
+      return NOT_FOUND;
+    }
+
     outProgress.document = documentHash;
     outProgress.progress = doc["progress"].as<std::string>();
     outProgress.percentage = doc["percentage"].as<float>();
@@ -202,7 +226,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   doc["progress"] = progress.progress;
   doc["percentage"] = progress.percentage;
   doc["device"] = DEVICE_NAME;
-  doc["device_id"] = DEVICE_ID;
+  doc["device_id"] = deviceId();
 
   std::string body;
   serializeJson(doc, body);

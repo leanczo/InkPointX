@@ -5,18 +5,24 @@
 
 #include <algorithm>
 
+#include "Activity.h"
 #include "OpdsServerStore.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
+#include "home/GalleryActivity.h"
 #include "home/HomeActivity.h"
+#include "home/LibraryActivity.h"
 #include "home/RecentBooksActivity.h"
 #include "network/CrossPointWebServerActivity.h"
+#include "network/NetworkModeSelectionActivity.h"
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "components/UITheme.h"
+#include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
 
 void ActivityManager::begin() {
@@ -42,7 +48,18 @@ void ActivityManager::renderTaskLoop() {
     RenderLock lock;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
+      renderer.beginFrame();
+#if LOG_LEVEL >= 2
+      auto* fontCache = renderer.getFontCacheManager();
+      if (fontCache) fontCache->resetStats();
+      const std::string activityName = currentActivity->name;
+      const unsigned long renderStartedAt = millis();
       currentActivity->render(std::move(lock));
+      LOG_DBG("ACT", "Rendered %s in %lu ms", activityName.c_str(), millis() - renderStartedAt);
+      if (fontCache) fontCache->logStats(activityName.c_str());
+#else
+      currentActivity->render(std::move(lock));
+#endif
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
     TaskHandle_t waiter = nullptr;
@@ -88,6 +105,7 @@ void ActivityManager::loop() {
       } else {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
+        prepareDisplayForActivity(*currentActivity);
         LOG_DBG("ACT", "Popped from activity stack, new size = %zu", stackActivities.size());
         // Handle result if necessary
         if (currentActivity->resultHandler) {
@@ -128,7 +146,17 @@ void ActivityManager::loop() {
       }
       pendingAction = PendingAction::None;
       currentActivity = std::move(pendingActivity);
+      prepareDisplayForActivity(*currentActivity);
 
+      if (currentActivity->isReaderActivity()) {
+        // UI glyphs are cached across menu redraws for responsiveness. Release
+        // that bounded cache before book parsing/layout, where heap headroom is
+        // more important and the reader has its own per-page font prewarm.
+        // Inside the lock: freeing decompressed glyph data while the render
+        // task is blitting one is a use-after-free, and a render notification
+        // queued before the switch can start the moment the lock drops.
+        if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+      }
       lock.unlock();  // onEnter may acquire its own lock
       currentActivity->onEnter();
 
@@ -145,6 +173,23 @@ void ActivityManager::loop() {
       xTaskNotify(renderTaskHandle, 1, eIncrement);
     }
   }
+}
+
+void ActivityManager::prepareDisplayForActivity(const Activity& activity) {
+  // Every screen the user reaches passes through here, so this is where the
+  // post-mortem marker learns what was on screen. One small SD write per
+  // navigation; nothing during reading, where no activity is installed.
+  BootDiag::noteScreen(activity.name.c_str());
+  const bool reader = activity.isReaderActivity();
+  UITheme::getInstance().resetButtonHintsVisible();
+  renderer.beginFrame();
+  renderer.setFrameOverlayEnabled(!reader);
+  // Keep navigation on the X4's differential waveform. The display driver
+  // synchronizes RED RAM to the completed frame after every update, so the
+  // next screen can diff against an authoritative baseline without a
+  // whole-panel clean/black flash. Reader cleanup remains governed by its
+  // user-configurable page cadence.
+  renderer.setAutomaticCleanupEnabled(false);
 }
 
 void ActivityManager::exitActivity(const RenderLock& lock) {
@@ -165,6 +210,10 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
   } else {
     // No current activity, safe to launch immediately
     currentActivity = std::move(newActivity);
+    prepareDisplayForActivity(*currentActivity);
+    if (currentActivity->isReaderActivity()) {
+      if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
+    }
     currentActivity->onEnter();
   }
 }
@@ -173,7 +222,23 @@ void ActivityManager::goToFileTransfer() {
   replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput));
 }
 
-void ActivityManager::goToSettings() { replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput)); }
+void ActivityManager::goToFileTransfer(const NetworkMode mode) {
+  replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput, mode));
+}
+
+void ActivityManager::goToSettings(const int categoryIndex) {
+  replaceActivity(std::make_unique<SettingsActivity>(renderer, mappedInput, categoryIndex));
+}
+
+void ActivityManager::goToLibrary() {
+  replaceActivity(std::make_unique<LibraryActivity>(renderer, mappedInput, LibraryActivity::Mode::AllBooks));
+}
+
+void ActivityManager::goToFavorites() {
+  replaceActivity(std::make_unique<LibraryActivity>(renderer, mappedInput, LibraryActivity::Mode::Favorites));
+}
+
+void ActivityManager::goToGallery() { replaceActivity(std::make_unique<GalleryActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(std::make_unique<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
@@ -193,8 +258,8 @@ void ActivityManager::goToBrowser() {
   }
 }
 
-void ActivityManager::goToReader(std::string path) {
-  replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path)));
+void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
+  replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), allowFastInitialRefresh));
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {
@@ -211,7 +276,13 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
   if (initialMenuItem == HomeMenuItem::NONE && currentActivity) {
     const auto& activityName = currentActivity->name;
-    if (activityName == "FileBrowser") {
+    if (activityName == "Library") {
+      initialMenuItem = HomeMenuItem::LIBRARY;
+    } else if (activityName == "Favorites") {
+      initialMenuItem = HomeMenuItem::FAVORITES;
+    } else if (activityName == "Gallery") {
+      initialMenuItem = HomeMenuItem::GALLERY;
+    } else if (activityName == "FileBrowser") {
       initialMenuItem = HomeMenuItem::FILE_BROWSER;
     } else if (activityName == "RecentBooks") {
       initialMenuItem = HomeMenuItem::RECENTS;
@@ -246,7 +317,14 @@ void ActivityManager::popActivity() {
   pendingAction = PendingAction::Pop;
 }
 
-bool ActivityManager::preventAutoSleep() const { return currentActivity && currentActivity->preventAutoSleep(); }
+bool ActivityManager::preventAutoSleep() const {
+  // Consider the whole stack, like isReaderActivity below: an activity that must
+  // not be slept through (a transfer, an update, hands-free page turning) keeps
+  // that requirement while one of its own dialogs is on top.
+  return std::any_of(stackActivities.begin(), stackActivities.end(),
+                     [](const auto& activity) { return activity->preventAutoSleep(); }) ||
+         (currentActivity && currentActivity->preventAutoSleep());
+}
 
 bool ActivityManager::isReaderActivity() const {
   return std::any_of(stackActivities.begin(), stackActivities.end(),

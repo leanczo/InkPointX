@@ -1,7 +1,17 @@
 #pragma once
 
-#include <builtinFonts/locksans_clock_72_light.h>
-#include <builtinFonts/locksans_date_11_medium.h>
+#include <builtinFonts/ui_8_medium.h>
+#include <builtinFonts/ui_8_semibold.h>
+#include <builtinFonts/ui_10_medium.h>
+#include <builtinFonts/ui_10_semibold.h>
+#include <builtinFonts/ui_script_18.h>
+#include <builtinFonts/ui_script_20.h>
+#include <builtinFonts/ui_12_medium.h>
+#include <builtinFonts/ui_12_semibold.h>
+#include <builtinFonts/ui_14_medium.h>
+#include <builtinFonts/ui_14_semibold.h>
+#include <builtinFonts/ui_16_medium.h>
+#include <builtinFonts/ui_16_semibold.h>
 #include <builtinFonts/notoserif_12_bold.h>
 #include <builtinFonts/notoserif_12_bolditalic.h>
 #include <builtinFonts/notoserif_12_italic.h>
@@ -18,7 +28,6 @@
 #include <builtinFonts/notoserif_18_bolditalic.h>
 #include <builtinFonts/notoserif_18_italic.h>
 #include <builtinFonts/notoserif_18_regular.h>
-#include <builtinFonts/notosans_8_regular.h>
 #include <builtinFonts/notosans_12_bold.h>
 #include <builtinFonts/notosans_12_bolditalic.h>
 #include <builtinFonts/notosans_12_italic.h>
@@ -35,7 +44,3 @@
 #include <builtinFonts/notosans_18_bolditalic.h>
 #include <builtinFonts/notosans_18_italic.h>
 #include <builtinFonts/notosans_18_regular.h>
-#include <builtinFonts/ubuntu_10_bold.h>
-#include <builtinFonts/ubuntu_10_regular.h>
-#include <builtinFonts/ubuntu_12_bold.h>
-#include <builtinFonts/ubuntu_12_regular.h>

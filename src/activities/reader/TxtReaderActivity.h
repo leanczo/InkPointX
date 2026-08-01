@@ -11,6 +11,9 @@ class TxtReaderActivity final : public Activity {
   std::unique_ptr<Txt> txt;
 
   int currentPage = 0;
+  // Byte offset of the page that was open when progress was last saved. Used to
+  // resume in the right place after the page index has been rebuilt.
+  size_t savedByteOffset = 0;
   int totalPages = 1;
   int pagesUntilFullRefresh = 0;
 
@@ -21,6 +24,9 @@ class TxtReaderActivity final : public Activity {
   int viewportWidth = 0;
   bool initialized = false;
   bool fullyIndexed = false;
+  // True while the end-of-book screen is shown: forward from the last page
+  // lands here first instead of silently ejecting the user to Home.
+  bool atEndOfBook = false;
   size_t currentPageEndOffset = 0;
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
@@ -43,8 +49,11 @@ class TxtReaderActivity final : public Activity {
   void loadProgress();
 
  public:
-  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt)
-      : Activity("TxtReader", renderer, mappedInput), txt(std::move(txt)) {}
+  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt,
+                             int initialRefreshCountdown)
+      : Activity("TxtReader", renderer, mappedInput),
+        txt(std::move(txt)),
+        pagesUntilFullRefresh(initialRefreshCountdown) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

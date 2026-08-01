@@ -58,6 +58,7 @@ class HalGPIO {
   // Inline device type helpers for cleaner downstream checks
   inline bool deviceIsX3() const { return _deviceType == DeviceType::X3; }
   inline bool deviceIsX4() const { return _deviceType == DeviceType::X4; }
+  bool isXteinkDevice() const;
 
   // Start button GPIO and setup SPI for screen and SD card
   void begin();
@@ -72,13 +73,10 @@ class HalGPIO {
   unsigned long getHeldTime() const;
   unsigned long getPowerButtonHeldTime() const;
 
-  // Setup wake up GPIO and enter deep sleep
-  void startDeepSleep();
-
   // Verify power button was held long enough after wakeup.
-  // If verification fails, enters deep sleep and does not return.
+  // Returns false when the device should immediately return to sleep.
   // Should only be called when wakeup reason is PowerButton.
-  void verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed);
+  bool verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed);
 
   // Check if USB is connected
   bool isUsbConnected() const;

@@ -17,6 +17,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
+#include <new>
 
 namespace {
 // AP Mode configuration
@@ -43,6 +44,9 @@ void stopDnsServer() {
 void restartMdns(const char* hostname, const char* tag) {
   MDNS.end();
   if (MDNS.begin(hostname)) {
+    // Advertise the service, not just the hostname: without this the device
+    // resolves by name but never appears to anything browsing for _http._tcp.
+    MDNS.addService("http", "tcp", 80);
     LOG_DBG(tag, "mDNS started: http://%s.local/", hostname);
   } else {
     LOG_DBG(tag, "WARNING: mDNS failed to start");
@@ -74,7 +78,15 @@ void CrossPointWebServerActivity::onEnter() {
   lastHandleClientTime = 0;
   requestUpdate();
 
-  // Launch network mode selection subactivity
+  if (initialMode.has_value()) {
+    onNetworkModeSelected(*initialMode);
+  } else {
+    showModeSelection();
+  }
+}
+
+void CrossPointWebServerActivity::showModeSelection() {
+  state = WebServerActivityState::MODE_SELECTION;
   LOG_DBG("WEBACT", "Launching NetworkModeSelectionActivity...");
   startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
@@ -84,6 +96,14 @@ void CrossPointWebServerActivity::onEnter() {
                              onNetworkModeSelected(std::get<NetworkModeResult>(result.data).mode);
                            }
                          });
+}
+
+void CrossPointWebServerActivity::returnToTransferMenu() {
+  if (initialMode.has_value()) {
+    onGoHome(HomeMenuItem::FILE_TRANSFER);
+  } else {
+    showModeSelection();
+  }
 }
 
 void CrossPointWebServerActivity::onExit() {
@@ -110,7 +130,7 @@ void CrossPointWebServerActivity::onExit() {
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
-  const char* modeName = "Join Network";
+  [[maybe_unused]] const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";
   } else if (mode == NetworkMode::CREATE_HOTSPOT) {
@@ -123,17 +143,8 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
 
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     startActivityForResult(
-        std::make_unique<CalibreConnectActivity>(renderer, mappedInput), [this](const ActivityResult& result) {
-          state = WebServerActivityState::MODE_SELECTION;
-
-          startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
-                                 [this](const ActivityResult& result) {
-                                   if (result.isCancelled) {
-                                     onGoHome();
-                                   } else {
-                                     onNetworkModeSelected(std::get<NetworkModeResult>(result.data).mode);
-                                   }
-                                 });
+        std::make_unique<CalibreConnectActivity>(renderer, mappedInput), [this](const ActivityResult&) {
+          returnToTransferMenu();
         });
     return;
   }
@@ -175,17 +186,8 @@ void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) 
     // Start the web server
     startWebServer();
   } else {
-    // User cancelled - go back to mode selection
-    state = WebServerActivityState::MODE_SELECTION;
-
-    startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
-                           [this](const ActivityResult& result) {
-                             if (result.isCancelled) {
-                               onGoHome();
-                             } else {
-                               onNetworkModeSelected(std::get<NetworkModeResult>(result.data).mode);
-                             }
-                           });
+    // User cancelled - return to the Transfer subsection on Home.
+    returnToTransferMenu();
   }
 }
 
@@ -198,13 +200,12 @@ void CrossPointWebServerActivity::startAccessPoint() {
   delay(100);
 
   // Start soft AP
-  bool apStarted;
-  if (AP_PASSWORD && strlen(AP_PASSWORD) >= 8) {
-    apStarted = WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
-  } else {
-    // Open network (no password)
-    apStarted = WiFi.softAP(AP_SSID, nullptr, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
-  }
+  // An empty passphrase is the core's open-network form, and AP_PASSWORD is a
+  // build-time constant: with the open default the old runtime branch compiled
+  // down to an unreachable strlen(NULL). The core rejects a passphrase shorter
+  // than WPA2's eight characters on its own, and reports it in apStarted.
+  const char* const apPassphrase = AP_PASSWORD ? AP_PASSWORD : "";
+  const bool apStarted = WiFi.softAP(AP_SSID, apPassphrase, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
 
   if (!apStarted) {
     LOG_ERR("WEBACT", "ERROR: Failed to start Access Point!");
@@ -231,10 +232,17 @@ void CrossPointWebServerActivity::startAccessPoint() {
   // Start DNS server for captive portal behavior
   // This redirects all DNS queries to our IP, making any domain typed resolve to us
   stopDnsServer();
-  dnsServer = new DNSServer();
-  dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
-  dnsServer->start(DNS_PORT, "*", apIP);
-  LOG_DBG("WEBACT", "DNS server started for captive portal");
+  dnsServer = new (std::nothrow) DNSServer();
+  if (dnsServer) {
+    dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
+    dnsServer->start(DNS_PORT, "*", apIP);
+    LOG_DBG("WEBACT", "DNS server started for captive portal");
+  } else {
+    // Heap is at its tightest with the AP up. The captive-portal redirect is
+    // a convenience; the transfer page still answers on the printed address,
+    // so lose the redirect rather than the whole feature.
+    LOG_ERR("WEBACT", "No heap for the captive-portal DNS server; continuing without it");
+  }
 
   LOG_DBG("WEBACT", "Free heap after AP start: %d bytes", ESP.getFreeHeap());
 
@@ -376,7 +384,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
                    isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER), nullptr);
 
     if (state == WebServerActivityState::SERVER_RUNNING) {
-      GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+      GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                         connectedSSID.c_str());
       renderServerRunning();
     } else {
@@ -394,36 +402,50 @@ void CrossPointWebServerActivity::renderServerRunning() const {
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
                  isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER), nullptr);
-  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+  GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                     connectedSSID.c_str());
 
   if (!isApMode) {
     renderWifiIndicator(metrics.topPadding + metrics.headerHeight);
   }
 
-  int startY = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing * 2;
+  int startY = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 2;
   int height10 = renderer.getLineHeight(UI_10_FONT_ID);
+  const int textMaxWidth = pageWidth - metrics.contentSidePadding * 2;
+  // The two instruction lines are wider than the panel in most locales, so
+  // they wrap; the QR captions are truncated to the lane beside the code and
+  // stacked a full line box apart (they used to overlap by ~10 px and run off
+  // the right edge).
+  const auto drawWrapped = [&](const char* textToWrap) {
+    for (const auto& line : renderer.wrappedText(UI_10_FONT_ID, textToWrap, textMaxWidth, 2, EpdFontFamily::BOLD)) {
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, line.c_str(), true, EpdFontFamily::BOLD);
+      startY += height10;
+    }
+  };
   if (isApMode) {
     // AP mode display
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_CONNECT_WIFI_HINT), true,
-                      EpdFontFamily::BOLD);
-    startY += height10 + metrics.verticalSpacing * 2;
+    drawWrapped(tr(STR_CONNECT_WIFI_HINT));
+    startY += metrics.verticalSpacing * 2;
+
+    const int captionX = metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing;
+    const int captionMaxWidth = pageWidth - captionX - metrics.contentSidePadding;
 
     // Show QR code for Wifi
-    const std::string wifiConfig = std::string("WIFI:S:") + connectedSSID + ";;";
+    // Include the auth type: scanners are unreliable about a bare "WIFI:S:ssid;;"
+    // and some refuse to offer joining at all without it. The hotspot is open.
+    const std::string wifiConfig = std::string("WIFI:T:nopass;S:") + connectedSSID + ";;";
     const Rect qrBoundsWifi(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBoundsWifi, wifiConfig);
 
     // Show network name
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      connectedSSID.c_str());
+    renderer.drawText(UI_10_FONT_ID, captionX, startY + 80,
+                      renderer.truncatedText(UI_10_FONT_ID, connectedSSID.c_str(), captionMaxWidth).c_str());
 
     startY += QR_CODE_HEIGHT + 2 * metrics.verticalSpacing;
 
     // Show primary URL (hostname)
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, startY, tr(STR_OPEN_URL_HINT), true,
-                      EpdFontFamily::BOLD);
-    startY += height10 + metrics.verticalSpacing * 2;
+    drawWrapped(tr(STR_OPEN_URL_HINT));
+    startY += metrics.verticalSpacing * 2;
 
     std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
     std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
@@ -433,10 +455,10 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     QrUtils::drawQrCode(renderer, qrBoundsUrl, hostnameUrl);
 
     // Show IP address as fallback
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 80,
-                      hostnameUrl.c_str());
-    renderer.drawText(SMALL_FONT_ID, metrics.contentSidePadding + QR_CODE_WIDTH + metrics.verticalSpacing, startY + 100,
-                      ipUrl.c_str());
+    renderer.drawText(UI_10_FONT_ID, captionX, startY + 80,
+                      renderer.truncatedText(UI_10_FONT_ID, hostnameUrl.c_str(), captionMaxWidth).c_str());
+    renderer.drawText(SMALL_FONT_ID, captionX, startY + 80 + height10,
+                      renderer.truncatedText(SMALL_FONT_ID, ipUrl.c_str(), captionMaxWidth).c_str());
   } else {
     startY += metrics.verticalSpacing * 2;
 
@@ -475,7 +497,7 @@ void CrossPointWebServerActivity::renderWifiIndicator(int subHeaderTop) const {
   const int iconWidth = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP;
   const int iconRight = renderer.getScreenWidth() - metrics.contentSidePadding;
   const int iconLeft = iconRight - iconWidth;
-  const int iconBottom = subHeaderTop + metrics.tabBarHeight - metrics.verticalSpacing;
+  const int iconBottom = subHeaderTop + metrics.subHeaderHeight - metrics.verticalSpacing;
 
   const bool wifiUp = (WiFi.status() == WL_CONNECTED) && (consecutiveDisconnects == 0);
   if (wifiUp) {

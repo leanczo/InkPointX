@@ -1,159 +1,425 @@
-# InkPoint X
+<p align="center">
+  <img src="docs/qa/v2.0/home-now-reading.png" width="280" alt="InkPoint X home screen on XTEINK X4">
+</p>
 
-[![Support on Ko‑fi](https://img.shields.io/badge/Support-Ko--fi-F16061?logo=kofi&logoColor=white)](https://ko-fi.com/yokkivans)
+<h1 align="center">InkPoint X</h1>
 
-InkPoint X is a custom firmware for Xteink X3/X4 devices, built as a fork of **CrossPoint Reader**.
+<p align="center">
+  Open-source reader firmware designed for the XTEINK X3 and X4.
+  <br>
+  A focused library, capable file management, multilingual typography, and an e-ink-native interface.
+</p>
 
-Firmware version: **v1.0.3**
+<p align="center">
+  <img alt="Version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-000000">
+  <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
+  <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
+  <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-black"></a>
+  <a href="https://ko-fi.com/yokkivans"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/support-Ko--fi-F16061?logo=kofi&logoColor=white"></a>
+</p>
 
-> Runs on ESP32-C3 (X4 and X3), with full web server support, Wi‑Fi features, OTA updates, and extended reading functionality.
+> [!IMPORTANT]
+> The `dev` branch contains the current development firmware. For a prebuilt, user-facing binary, use the
+> [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically want to test development
+> changes. Devices already running 1.x can update over the air from **Settings → System → Check for updates**.
 
-## What this project is
+## Overview
 
-InkPoint X inherits the core architecture and baseline features from CrossPoint and adds/improves:
+InkPoint X is a complete firmware experience for the XTEINK X3 and X4 rather than a collection of isolated reader patches.
+The interface, input model, font system, library, file operations, network transfer, settings, and e-ink refresh
+strategy adapt at boot to the X3's 528 × 792 or X4's 480 × 800 monochrome panel and physical controls.
 
-- full **FB2** format support
-- full **PDF** support
-- improved reading and status flow (including reading statistics and photo frame enhancements already integrated)
-- cleaner, stable versioning (`v1.0.3`) and dedicated release publishing in a separate repository
+The project is based on [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) and keeps its
+open architecture while adding an independent InkPoint X product layer, expanded document support, a redesigned
+interface, and controller-specific display tuning.
 
-## Main differences vs CrossPoint and CrossInk
+## What's new in 2.1
 
-| Feature | CrossPoint | CrossInk | InkPoint X |
-| --- | --- | --- | --- |
-| EPUB / TXT / BMP | ✅ | ✅ | ✅ |
-| FB2 | Partial/indirect | Partial (depends on build) | ✅ (complete local support for import, markup handling, attachments, and navigation) |
-| PDF | ❌/Limited | ❌/Limited | ✅ (full page rendering, zoom/navigation, and caching) |
-| OTA updates | ✅ | ✅ (implementation varies) | ✅ (via GitHub releases of `yokki-vans/inkpointx`) |
-| Reading stats | limited | extended | ✅ (integrated and adapted from CrossInk) |
-| Photo frame | missing / experimental | missing | ✅ (built-in app in the main menu) |
-| Branding/logo | CrossPoint | CrossInk | InkPoint X |
-| Default version format | `1.x-dev-*` for dev builds | varies | `v1.0.3` (stable) |
+- one runtime-detecting ESP32-C3 image supports both XTEINK X3 and X4;
+- X3 support covers both UC8253 and newer UC8279 panel-controller production runs;
+- X3 battery percentage, DS3231 clock, QMI8658 tilt gestures, microSD power rail, wake and deep sleep use the active hardware profile;
+- PDF music, diagrams and other fixed-layout graphics rasterize at the active device width (528 px on X3, 480 px on X4), with geometry-aware caches;
+- X3 Quick Resume uses its differential display path to avoid unnecessary full-screen flashes.
 
-### FB2 support
+See [the X3 implementation notes](docs/X3_SUPPORT_RU.md) for hardware details and the validation matrix.
 
-- proper document parsing and chapter/section splitting
-- metadata extraction and storage
-- support for attachments and images
-- reading position and bookmark navigation
-- correct cache/progress recalculation on device
+### Design principles
 
-### PDF support
+- clear hierarchy and restrained, high-contrast layouts;
+- consistent focus, headers, rows, dialogs, icons, and hardware-button legends;
+- no touch assumptions, color-only states, shadows, or animation-heavy interactions;
+- fast differential updates for navigation, with deliberate clean refreshes when the panel needs them;
+- readable 1-bit typography and predictable behavior in every supported language.
 
-- native PDF document loading and rendering
-- page-by-page navigation
-- on-device scaling for comfortable reading
-- caching for faster repeat opens
+## What's new in 2.0
 
-## OTA updates
+Version 2.0 is a full design and engineering pass over the entire firmware — every screen was audited element by
+element, and the result was verified by reading the device's own framebuffer rather than by eye.
 
-The firmware already includes a full OTA client:
+### Interface
 
-- checks for new releases on GitHub
-- downloads `firmware.bin` from release assets
-- shows install progress
-- compares versions and prevents downgrade
+- **A calmer home screen.** The reading card is one clear hierarchy instead of five near-equal centred rows: a
+  larger cover, the title, the author, then a single progress band that carries percent, pages and invested time.
+- **A handwritten accent voice.** Caveat sets the moments that are about a person rather than a function — home
+  greetings and hub headers, the quieter author line, empty states, successful completion, and end-of-book screens.
+  Functional text, list rows, settings, progress, and every error state stay in the structural face on purpose.
+- **A type scale one step smaller** across the whole interface, so long book titles fit where they used to
+  ellipsize, without making any list denser.
+- **A minimal reader status bar.** The reading page's bottom lane uses the smallest legible size, and the pixels it
+  gives back go to the book text.
+- **Shared layout primitives.** Empty states, full-screen reader messages, list content bounds and position
+  counters come from one place, so equivalent screens no longer disagree by a few pixels or a font size.
+- **A one-size button legend** whose seam shifts to fit a wide label, instead of the whole bar changing size as the
+  selection moved.
+- **Larger, unmistakable toggles** — on and off differ by fill, not only by knob position.
 
-The release source is:
+### Reliability
 
-- `https://api.github.com/repos/yokki-vans/inkpointx/releases/latest`
+- **Atomic settings writes.** Every JSON store is written to a temporary file and swapped in with a rename. The
+  previous delete-then-write could destroy `settings.json`, `state.json` or `wifi.json` outright if power was lost
+  mid-save.
+- **A working task watchdog.** It was armed with no subscribers, so all 25 feed calls in the network code were
+  no-ops and an application-level hang required force-powering the device.
+- **Real OTA rollback.** A pending image is confirmed only after the device boots and stays healthy, so an update
+  that panics on start rolls back instead of bricking the slot.
+- **Out-of-memory guards** across the pagination and parsing paths, where an unguarded allocation used to reboot
+  the device instead of failing back to the library.
+- **Post-mortem breadcrumbs.** On battery the device has no console, so each boot reports how the previous session
+  ended — the screen that was up, how long it had run, and whether the firmware asked for the power-down — to the
+  serial log and to `/.crosspoint/diag.log`.
 
-And published releases are here:
+Three power optimizations from the first 2.0 build were withdrawn in 2.0.2 after they proved unreliable in the
+field: idle light sleep, unconditional panel-rail power-down, and the critical-battery force-sleep. All three ran
+only on battery, which is the one configuration a USB-tethered bench cannot observe. See
+[design-qa.md](design-qa.md) for the post-mortem.
 
-- https://github.com/yokki-vans/inkpointx/releases
+### Battery and performance
 
-## Installation and updating
+- **Glyph caches survive page turns**, so body text is no longer re-inflated on every page.
+- **Progress screens repaint per percent**, not per 2 KB chunk, which removed roughly 120 full-panel refreshes per
+  minute of downloading.
+- **Reading position is coalesced** instead of costing four filesystem operations per page turn.
 
-### Quick install
+The full element-by-element findings and decisions are recorded in [design-qa.md](design-qa.md).
 
-1. Connect the device via USB‑C and wake it up.
-2. Use your usual USB/web flasher workflow.
-3. Download `firmware.bin` from `yokki-vans/inkpointx` releases and flash it.
+## Interface
 
-### First-time flash for new users (no special flashing software)
+The home screen is organized into three horizontal pages:
 
-If your device has not been flashed yet, this is the simplest safe method:
+1. **Now Reading** — the largest safe cover, title, author, a single progress band, and a primary continue action.
+2. **Library** — Books, Files, Gallery, Favorites, plus a dedicated Transfer subsection.
+3. **Settings** — focused submenus for interface, power, reading, controls, files, network, and system options.
 
-1. Download the latest `firmware.bin` from the release page (the same as before).
-2. Insert a microSD card into your computer and format it as FAT32 (most memory cards are already). 
-3. Copy only one file to the card root: `firmware.bin`.
-4. Unmount/eject the card and insert it into the reader.
-5. Turn off the reader, then hold the **left side button (UP)** while turning it on (or while pressing Power).
-6. The screen will enter **Recovery Mode** and open **SD Card Firmware Update**.
-7. Select `firmware.bin`, confirm **Update firmware?**, then wait until the process finishes.
-8. Reboot happens automatically. Do not remove power during the process.
+Selection uses a subtle rounded gray surface instead of a heavy inverted bar. Compact legends at the bottom mirror
+the two physical two-section controls and always show their current assignments. The legends can be disabled in
+Settings and are intentionally omitted from the reading page.
 
-This method works even from a stock reader and does not require any PC flashing utility.
+<table>
+  <tr>
+    <td align="center"><img src="docs/qa/v2.0/home-now-reading.png" width="220" alt="Now Reading"><br><sub>Now Reading</sub></td>
+    <td align="center"><img src="docs/qa/v2.0/home-settings-hub.png" width="220" alt="Settings hub"><br><sub>Settings hub</sub></td>
+    <td align="center"><img src="docs/qa/v2.0/library-books.png" width="220" alt="Books"><br><sub>Books</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/qa/v2.0/reader-page.png" width="220" alt="Reading page"><br><sub>Reading page</sub></td>
+    <td align="center"><img src="docs/qa/v2.0/settings-interface.png" width="220" alt="Interface settings"><br><sub>Interface settings</sub></td>
+    <td align="center"><img src="docs/qa/v2.0/home-ghost-cover.png" width="220" alt="Book without a cover"><br><sub>Book without a cover</sub></td>
+  </tr>
+</table>
 
-### OTA from device menu
+All screenshots are captured from the device's own framebuffer over serial, not rendered on a host.
 
-In the device Settings menu, open update check:
+The detailed interface specification is available in [docs/inkpoint-x-ui.md](docs/inkpoint-x-ui.md).
 
-- Wi‑Fi → Check for updates
-- If a newer version is available, choose Update
+## Features
 
-### Command line (optional)
+### Library and reading
+
+- recursive book discovery on microSD;
+- a Books view restricted to **EPUB**, **FB2**, and **PDF**;
+- sorting by title, author, format, and recent activity;
+- Favorites stored separately from the book files;
+- reading progress, bookmarks, table of contents, book information, and statistics;
+- configurable font, size, line spacing, margins, alignment, hyphenation, orientation, and inversion;
+- automatic page turning, screenshots, QR display, OPDS, and KOReader Sync;
+- an on-device gesture reference, so the reader's hold gestures are discoverable;
+- support for **XTC**, **TXT**, and **Markdown** when opened from Files, with CP1251/KOI8-R/CP1252/ISO-8859-5/CP866
+  detection for legacy single-byte text.
+
+### Gallery
+
+- discovers **BMP**, **JPEG**, and **PNG** images across the card;
+- includes images and screenshots created while reading;
+- opens images in a viewer adapted to the active X3/X4 display;
+- uses corrected 1-bit scaling and dithering to avoid block and moiré artifacts.
+
+### File manager
+
+Files is a full on-device file manager, not a second book list:
+
+- browse folders and inspect file properties;
+- create folders;
+- copy and move files or folders;
+- rename items;
+- delete files and directory trees with confirmation;
+- open supported books and images directly.
+
+### Transfer and network
+
+- join an existing Wi-Fi network;
+- receive books wirelessly from Calibre;
+- create a local access point;
+- upload, download, rename, move, and delete files through the web interface;
+- WebDAV access;
+- OPDS catalog browsing, with cancellable downloads;
+- over-the-air updates with rollback protection.
+
+### Device settings
+
+Settings are grouped by purpose rather than split across tab and “advanced” screens:
+
+- interface language and interface font;
+- button legends and battery indicator visibility;
+- sleep, lock, power, and refresh behavior;
+- reading defaults and reader status bar;
+- button remapping;
+- library and file behavior;
+- Wi-Fi, OPDS, Calibre, and synchronization;
+- cache maintenance, firmware update, device information, and safe settings reset.
+
+Resetting settings preserves books, reading progress, bookmarks, statistics, recent books, and favorites.
+
+## Typography and languages
+
+The system interface uses **Inter Medium** for normal text and **Inter SemiBold** for headings, selection, and
+emphasis, instanced from Inter's variable `wght` and `opsz` axes so each size gets its own optical treatment.
+**Caveat** supplies the handwritten accent voice. Inter carries no Hebrew or Arabic, so **Noto Sans Hebrew** and
+**Noto Naskh Arabic** supply exactly the code points it is missing. Full font files are not embedded. During the
+build, `scripts/build_ui_fonts.py` scans every string in `lib/I18n/translations/*.yaml` and generates compact native
+subsets containing only the glyphs the firmware needs.
+
+The firmware currently provides complete UI resources for 27 languages:
+
+<details>
+<summary>Show language list</summary>
+
+Arabic, Belarusian, Catalan, Czech, Danish, Dutch, English, Finnish, French, German, Hebrew, Hungarian, Italian,
+Kazakh, Lithuanian, Polish, Portuguese (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish,
+Ukrainian, Valencian, and Vietnamese.
+
+</details>
+
+Every user-facing string is translated — including month abbreviations, sync and font-manager errors, and the SD
+card failure screen, all of which were English-only before 2.0. Menu labels and row titles are measured against the
+real glyph advance tables during development, so they fit their lanes instead of ellipsizing.
+
+The text pipeline supports:
+
+- extended Cyrillic used by Belarusian, Kazakh, Russian, and Ukrainian;
+- Vietnamese diacritics and NFC composition;
+- bidirectional Hebrew and Arabic text;
+- contextual Arabic shaping for both translated UI strings and dynamic book, author, and file names;
+- mirrored accessories and layout behavior for RTL content.
+
+The interface font and the handwritten accent face can also come from the card:
+**Settings › Interface › Interface font** and **Accent font** list the built-in face first, then every family
+installed in `/.fonts/`. A slot takes a card size only when the family ships one within 2 pt of it, so the layout
+keeps its proportions; slots the family cannot cover stay on the built-in face. Reader packs typically start at
+12 pt, which covers everything except the smallest captions.
+
+Reader fonts are independent from the UI font. Optimized `.cpfont` families can be installed in `/.fonts/` or
+`/fonts/` on microSD or uploaded from the web font manager. The reader font pipeline includes a Noto Serif family
+for Latin/Cyrillic/Vietnamese with Noto Naskh Arabic fallback. See
+[docs/sd-card-fonts.md](docs/sd-card-fonts.md).
+
+## E-ink behavior
+
+InkPoint X contains a panel-aware refresh policy built around the active controller's actual behavior:
+
+- controller RAM is synchronized after updates so differential refreshes compare against a valid previous frame;
+- interactive navigation avoids full-screen black flashes;
+- explicit clean and full refresh paths are retained for recovery from accumulated ghosting;
+- the first update after controller initialization uses a stronger waveform;
+- grayscale and 1-bit image paths use panel-aware conversion;
+- home-cover thumbnails are generated at their final layout size, avoiding a second rescale of an already-dithered
+  image;
+- button debounce is tuned for the shared X3/X4 ADC ladder so one physical press produces one action.
+
+E-ink cannot behave exactly like an emissive phone display, but normal navigation is designed to feel immediate
+without trading away panel cleanliness.
+
+## Installation
+
+### Over the air
+
+On a device already running InkPoint X, open **Settings → System → Check for updates**. The updater verifies the
+release over HTTPS, stages the image, and switches boot slots only after the whole binary has landed. If the new
+firmware fails to start, the bootloader rolls back to the previous slot automatically.
+
+### Prebuilt firmware
+
+Download `firmware.bin` from [Releases](https://github.com/yokki-vans/InkPointX/releases). It is a universal X3/X4 image;
+the device-labelled X3 and X4 files in the same release are byte-identical aliases for convenience.
+
+#### Recovery update from microSD
+
+1. Format a microSD card as FAT32.
+2. Copy `firmware.bin` to the root of the card.
+3. Safely eject the card and insert it into the reader.
+4. Power the device off.
+5. Hold the **left side / Up** button while powering on.
+6. Choose the firmware file in Recovery Mode and confirm the update.
+7. Keep the device powered until it restarts.
+
+#### Flash over USB
+
+Install [esptool](https://github.com/espressif/esptool), connect the reader over USB-C, and run:
 
 ```bash
-pip install esptool
-esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 firmware.bin
+esptool --chip esp32c3 \
+  --port /dev/ttyACM0 \
+  --baud 921600 \
+  write-flash 0x10000 firmware.bin
 ```
 
-Replace `/dev/ttyACM0` with your device port.
+Replace `/dev/ttyACM0` with the actual serial port. On macOS it is usually named `/dev/cu.usbmodem*`.
 
-## What else is included
-
-- EPUB/XTC/TXT support and extended format handling
-- device web interface and network operations
-- WebDAV and network file access
-- Wi‑Fi AP/STA modes
-- OPDS and remote library control
-- custom font loading from SD card
-- InkPoint X logo/branding on the screen
+> [!CAUTION]
+> Flash only InkPoint X binaries built for the XTEINK X3/X4 ESP32-C3 family, do not disconnect power while writing, and keep a recovery-capable
+> microSD card available when testing development builds.
 
 ## Build from source
 
+### Requirements
+
+- Git with submodule support;
+- Python 3;
+- [PlatformIO Core](https://platformio.org/install/cli);
+- internet access on the first build for declared toolchains, libraries, and font sources.
+
+### Clone the development branch
+
 ```bash
-git clone --recursive https://github.com/yokki-vans/inkpointx
-cd inkpointx
-pio run --target upload
+git clone --branch dev --recurse-submodules https://github.com/yokki-vans/InkPointX.git
+cd InkPointX
 ```
 
-For binary-only local build:
+If the repository was cloned without submodules:
 
 ```bash
 git submodule update --init --recursive
-pio run
 ```
 
-## Versioning and troubleshooting
+### Build
 
-In local/dev builds, the version shown in logs is now always `v1.0.3` (no `-dev-*` suffix), which is required for consistent OTA comparison.
+Development build:
 
-If a new book is not detected on device:
+```bash
+pio run -e default
+```
 
-- verify filename and supported extension
-- re-run indexing in the file browser UI after SD card structure changes
+Release-style binary:
 
-## Project origin
+```bash
+pio run -e gh_release
+```
 
-InkPoint X is a fork of CrossPoint Reader. The core codebase, project structure, and rendering model come from CrossPoint, then were extended for:
+The resulting binary is:
 
-- expanded format support (FB2 + PDF),
-- improved reading UX flow,
-- dedicated branding and versioning,
-- independent OTA update pipeline for this fork.
+```text
+.pio/build/gh_release/firmware.bin
+```
 
-## Licenses and attribution
+Upload directly through PlatformIO:
 
-This remains an open-source project and includes components from CrossPoint and the broader community under their respective licenses.
+```bash
+pio run -e gh_release --target upload
+```
 
-## Support InkPoint X
+## Validation
 
-If you want to support the project, you can contribute via Ko‑fi:
+Run localization and font coverage checks:
 
-- [https://ko-fi.com/yokkivans](https://ko-fi.com/yokkivans)
+```bash
+python3 scripts/validate_i18n.py
+```
+
+Run host tests:
+
+```bash
+cmake -S test -B test/build -DCMAKE_BUILD_TYPE=Release
+cmake --build test/build
+ctest --test-dir test/build --output-on-failure
+```
+
+Run static analysis:
+
+```bash
+pio check -e default --fail-on-defect=medium
+```
+
+Release validation includes the host suite, localization coverage across 27 languages, development and release
+compilation, static analysis, PDF conversion checks, and a hard flash budget so the image cannot silently grow into
+the OTA slot's limit.
+
+## Releases and OTA
+
+Pushing a tag builds the universal `gh_release` image and publishes `firmware.bin`, X3/X4-labelled aliases, and
+SHA-256 checksums. The on-device updater reads `releases/latest` and looks for exactly that asset. It downloads to a
+temporary SD-card file, requires an exact size and GitHub release SHA-256 match, validates the complete ESP image,
+and only then writes the inactive OTA slot. Network operations retry three times; a failed download or validation
+never selects the candidate image. Version comparison is semantic — major, then minor, then patch — with release
+candidates treated as older than the final tag.
+
+## Repository layout
+
+```text
+src/                         Firmware activities, settings, stores, and UI
+lib/                         Readers, rendering, fonts, bidi, i18n, and HAL
+freeink-sdk/                 X3/X4 display, input, storage, and hardware libraries
+scripts/                     Code generation, font subsetting, and validation
+test/                        Host-side unit and policy tests
+docs/                        User, developer, attribution, and visual QA docs
+design-qa.md                 Design audit findings and deliberate decisions
+platformio.ini               ESP32-C3 build environments
+partitions.csv               16 MB flash partition layout
+```
+
+The `freeink-sdk` submodule points to
+[`Free-Ink/freeink-sdk`](https://github.com/Free-Ink/freeink-sdk), which provides the runtime X3/X4 board profiles,
+panel drivers, input, sensors, storage and power management used by this firmware.
+
+## Data and storage
+
+Books stay on the microSD card. InkPoint X stores its generated caches and application data under `/.crosspoint/`.
+Settings and application state are written atomically, so an interrupted save leaves the previous file intact —
+but a separate backup of irreplaceable files remains the safest protection before testing development builds.
+
+The web interface and device file manager can modify or delete files. Destructive operations require confirmation.
+
+> [!NOTE]
+> Updating to 2.0 changes the reader viewport slightly, because the reading page's status bar is smaller. Each book
+> re-indexes once the first time it is opened afterwards; reading positions are preserved.
+
+## Project origin and attribution
+
+InkPoint X is derived from CrossPoint Reader and includes work from its contributors and the wider open-source
+e-reader community. Third-party components, fonts, and icons retain their original licenses.
+
+- Project license: [MIT](LICENSE)
+- Third-party notices: [docs/third-party-notices.md](docs/third-party-notices.md)
+- Lucide icon notice: [docs/licenses/lucide-ISC.txt](docs/licenses/lucide-ISC.txt)
 
 ## Contributing
 
-If you want to extend the project, add formats, or improve features, continue via fork, issues, or PRs in `yokki-vans/inkpointx`.
+Bug reports, hardware observations, translations, documentation improvements, and focused pull requests are
+welcome. When changing the interface, validate it against both 528 × 792 and 480 × 800 framebuffers and, whenever
+possible, physical X3 and X4 panels.
+
+Please run the relevant validation commands above before opening a pull request.
+
+## Support
+
+If InkPoint X is useful to you, you can support ongoing development on
+[Ko-fi](https://ko-fi.com/yokkivans).

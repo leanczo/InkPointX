@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(x4_pdf_native_harness C CXX)
+project(inkpoint_pdf_native_harness C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -28,6 +28,7 @@ set(PDFIO_SOURCES
 add_executable(pdf_native_harness
   PdfHarness.cpp
   ${REPO_ROOT}/lib/Pdf/Pdf.cpp
+  ${REPO_ROOT}/lib/Pdf/PdfRasterizer.cpp
   ${PDFIO_SOURCES}
 )
 target_compile_definitions(pdf_native_harness PRIVATE PDFIO_READ_ONLY=1)

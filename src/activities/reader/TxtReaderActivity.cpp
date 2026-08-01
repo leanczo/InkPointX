@@ -1,6 +1,7 @@
 #include "TxtReaderActivity.h"
 
 #include <BidiUtils.h>
+#include <Fb2Encoding.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -8,10 +9,13 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "ProgressFile.h"
+#include "ReaderGesturesActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
@@ -21,7 +25,9 @@ namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 4;          // Increment when cache format changes
+// Bumped to 5 for encoding-aware line wrapping: page boundaries in a version-4
+// cache were computed from mis-decoded single-byte text and no longer match.
+constexpr uint8_t CACHE_VERSION = 5;          // Increment when cache format changes
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
@@ -76,20 +82,41 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  // Confirm opens the gesture reference — the only readers with a menu are
+  // EPUB/XTC, and without this a .txt reader had no way to discover the
+  // controls at all.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    startActivityForResult(std::make_unique<ReaderGesturesActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { requestUpdate(); });
+    return;
+  }
+
   const auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
     return;
   }
 
-  if (prevTriggered && currentPage > 0) {
-    currentPage--;
-    requestUpdate();
+  if (prevTriggered) {
+    if (atEndOfBook) {
+      atEndOfBook = false;
+      requestUpdate();
+    } else if (currentPage > 0) {
+      currentPage--;
+      requestUpdate();
+    }
   } else if (nextTriggered) {
     if (currentPage + 1 < static_cast<int>(pageOffsets.size())) {
       currentPage++;
       requestUpdate();
     } else if (fullyIndexed) {
-      onGoHome();
+      // Match the EPUB/XTC readers: show the end-of-book screen first; only a
+      // second forward press leaves the book.
+      if (atEndOfBook) {
+        onGoHome();
+      } else {
+        atEndOfBook = true;
+        requestUpdate();
+      }
     }
   }
 }
@@ -125,7 +152,8 @@ void TxtReaderActivity::initializeReader() {
   // Load any pages discovered during earlier reading sessions. A new book is
   // deliberately not indexed in full here: large FB2/TXT files should open
   // immediately, with the next page offset discovered while rendering.
-  if (!loadPageIndexCache()) {
+  const bool haveIndex = loadPageIndexCache();
+  if (!haveIndex) {
     pageOffsets.clear();
     pageOffsets.push_back(0);
     totalPages = 1;
@@ -135,12 +163,40 @@ void TxtReaderActivity::initializeReader() {
   // Load saved progress
   loadProgress();
 
+  // The index was rebuilt, so the saved page number no longer locates anything
+  // and loadProgress() has just clamped it to the first page. Resume from the
+  // saved byte offset instead: page numbering restarts (it is approximate for
+  // plain text anyway, and shown with a leading "~"), but the reader opens where
+  // the reader left off rather than at the top of the book.
+  if (!haveIndex && savedByteOffset > 0 && savedByteOffset < txt->getFileSize()) {
+    LOG_DBG("TRS", "Index rebuilt; resuming from saved offset %zu", savedByteOffset);
+    pageOffsets.clear();
+    pageOffsets.push_back(savedByteOffset);
+    currentPage = 0;
+    totalPages = 1;
+    fullyIndexed = false;
+  }
+
   initialized = true;
 }
+
+namespace {
+// Number of code points in the first `byteLength` bytes of a UTF-8 string. Used
+// to translate a position in transcoded text back to a source-byte count.
+size_t countCodepoints(const std::string& text, const size_t byteLength) {
+  size_t count = 0;
+  const size_t limit = std::min(byteLength, text.size());
+  for (size_t i = 0; i < limit; i++) {
+    if ((static_cast<unsigned char>(text[i]) & 0xC0) != 0x80) count++;
+  }
+  return count;
+}
+}  // namespace
 
 bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset) {
   outLines.clear();
   const size_t fileSize = txt->getFileSize();
+  const bool transcoding = Fb2Encoding::isSupported(txt->getEncoding());
 
   if (offset >= fileSize) {
     return false;
@@ -168,7 +224,16 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
   // corrupts FreeRTOS state. The advance table persists across calls per
   // font, so the cost amortizes to ~ASCII-size after the first chunk.
   if (renderer.isSdCardFont(cachedFontId)) {
-    renderer.ensureSdCardFontReady(cachedFontId, reinterpret_cast<const char*>(buffer), /*styleMask=*/0x01);
+    // Prewarm from the decoded text: the raw bytes of a single-byte encoding are
+    // different code points, so priming with them would load the wrong glyphs and
+    // leave the wrap loop thrashing anyway.
+    if (transcoding) {
+      const std::string decoded = Fb2Encoding::toUtf8(txt->getEncoding(), reinterpret_cast<const char*>(buffer),
+                                                     chunkSize);
+      renderer.ensureSdCardFontReady(cachedFontId, decoded.c_str(), /*styleMask=*/0x01);
+    } else {
+      renderer.ensureSdCardFontReady(cachedFontId, reinterpret_cast<const char*>(buffer), /*styleMask=*/0x01);
+    }
   }
 
   // Parse lines from buffer
@@ -196,11 +261,22 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
     bool hasCR = (lineContentLen > 0 && buffer[pos + lineContentLen - 1] == '\r');
     size_t displayLen = hasCR ? lineContentLen - 1 : lineContentLen;
 
-    // Extract line content for display (without CR/LF)
-    std::string line(reinterpret_cast<char*>(buffer + pos), displayLen);
+    // Extract line content for display (without CR/LF), converting legacy
+    // single-byte text to UTF-8 so the glyph renderer receives real code points.
+    // A byte-order mark only ever appears at the very start of the file.
+    const char* lineStart = reinterpret_cast<char*>(buffer + pos);
+    size_t lineDisplayLen = displayLen;
+    if (offset + pos == 0 && txt->getContentStart() > 0 && lineDisplayLen >= txt->getContentStart()) {
+      lineStart += txt->getContentStart();
+      lineDisplayLen -= txt->getContentStart();
+    }
+    std::string line = transcoding ? Fb2Encoding::toUtf8(txt->getEncoding(), lineStart, lineDisplayLen)
+                                   : std::string(lineStart, lineDisplayLen);
 
-    // Track position within this source line (in bytes from pos)
-    size_t lineBytePos = 0;
+    // Track position within this source line (in bytes from pos). When
+    // transcoding, one source byte is exactly one code point, so source bytes are
+    // counted as code points in the converted string rather than as its bytes.
+    size_t lineBytePos = (lineStart - reinterpret_cast<char*>(buffer + pos));
 
     // Emit at least one visual line for each source line (including blank lines),
     // then continue with wrapping when needed.
@@ -277,7 +353,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
       // Skip whitespace at the break point.
       size_t skipChars = breakPos;
       while (skipChars < line.length() && line[skipChars] == ' ') skipChars++;
-      lineBytePos += skipChars;
+      lineBytePos += transcoding ? countCodepoints(line, skipChars) : skipChars;
       line = line.substr(skipChars);
     } while (!line.empty() && static_cast<int>(outLines.size()) < linesPerPage);
 
@@ -323,7 +399,16 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   if (pageOffsets.empty()) {
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_EMPTY_FILE), true, EpdFontFamily::BOLD);
+    GUI.drawReaderMessage(renderer, tr(STR_EMPTY_FILE), /*script=*/true);
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (atEndOfBook) {
+    renderer.clearScreen();
+    GUI.drawReaderMessage(renderer, tr(STR_END_OF_BOOK), /*script=*/true);
+    const auto labels = mappedInput.mapLabels("", "", tr(STR_BACK), tr(STR_HOME));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
   }
@@ -332,12 +417,20 @@ void TxtReaderActivity::render(RenderLock&&) {
   if (currentPage < 0) currentPage = 0;
   if (currentPage >= static_cast<int>(pageOffsets.size())) currentPage = pageOffsets.size() - 1;
 
-  // Load current page content
+  // Load current page content. loadPageAtOffset has early-return paths that
+  // never touch nextOffset, so seed it and honour the result: an SD read hiccup
+  // used to push an uninitialised value into the persisted page index, which
+  // then reopened the book at a garbage offset.
   size_t offset = pageOffsets[currentPage];
-  size_t nextOffset;
+  size_t nextOffset = offset;
   currentPageLines.clear();
-  loadPageAtOffset(offset, currentPageLines, nextOffset);
+  const bool pageLoaded = loadPageAtOffset(offset, currentPageLines, nextOffset);
   currentPageEndOffset = nextOffset;
+  if (!pageLoaded) {
+    renderer.clearScreen();
+    renderPage();
+    return;
+  }
 
   bool indexChanged = false;
   if (nextOffset > offset && currentPage + 1 == static_cast<int>(pageOffsets.size())) {
@@ -423,6 +516,12 @@ void TxtReaderActivity::renderPage() {
   renderLines();
   renderStatusBar();
 
+  if (SETTINGS.readerInvertColors) {
+    renderer.invertScreen();
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    return;
+  }
+
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
   if (SETTINGS.textAntiAliasing) {
@@ -441,11 +540,21 @@ void TxtReaderActivity::renderStatusBar() const {
 }
 
 void TxtReaderActivity::saveProgress() const {
-  uint8_t data[4];
+  // Bytes 0-1 hold the page number, as they always have; bytes 4-7 add the
+  // current page's byte offset. The page number alone is meaningless once the
+  // page index is rebuilt (any font, margin or alignment change does that), and
+  // the reader used to be clamped back to page 1 as a result. The offset survives
+  // re-indexing because it addresses the source file, not the layout.
+  uint8_t data[8] = {};
   data[0] = currentPage & 0xFF;
   data[1] = (currentPage >> 8) & 0xFF;
-  data[2] = 0;
-  data[3] = 0;
+  const uint32_t offset = (currentPage >= 0 && currentPage < static_cast<int>(pageOffsets.size()))
+                              ? static_cast<uint32_t>(pageOffsets[currentPage])
+                              : 0;
+  data[4] = offset & 0xFF;
+  data[5] = (offset >> 8) & 0xFF;
+  data[6] = (offset >> 16) & 0xFF;
+  data[7] = (offset >> 24) & 0xFF;
   if (!ProgressFile::writeAtomic(txt->getCachePath(), data, sizeof(data))) {
     LOG_ERR("TRS", "Failed to save progress: page %d", currentPage);
   }
@@ -454,8 +563,9 @@ void TxtReaderActivity::saveProgress() const {
 void TxtReaderActivity::loadProgress() {
   HalFile f;
   if (Storage.openFileForRead("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
+    uint8_t data[8] = {};
+    const int read = f.read(data, sizeof(data));
+    if (read >= 4) {
       currentPage = data[0] + (data[1] << 8);
       if (currentPage >= totalPages) {
         currentPage = totalPages - 1;
@@ -463,7 +573,11 @@ void TxtReaderActivity::loadProgress() {
       if (currentPage < 0) {
         currentPage = 0;
       }
-      LOG_DBG("TRS", "Loaded progress: page %d/%d", currentPage, totalPages);
+      // Files written before the offset was added are 4 bytes long.
+      savedByteOffset = read >= 8 ? static_cast<size_t>(data[4]) | (static_cast<size_t>(data[5]) << 8) |
+                                        (static_cast<size_t>(data[6]) << 16) | (static_cast<size_t>(data[7]) << 24)
+                                  : 0;
+      LOG_DBG("TRS", "Loaded progress: page %d/%d, offset %zu", currentPage, totalPages, savedByteOffset);
     }
   }
 }
@@ -553,13 +667,25 @@ bool TxtReaderActivity::loadPageIndexCache() {
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
+  // numPages comes straight off the card. A page cannot be shorter than one
+  // byte, so the file size is a hard ceiling; without it a corrupt header
+  // (0xFFFFFFFF) asks for a multi-gigabyte reserve and aborts the firmware.
+  if (numPages == 0 || numPages > txt->getFileSize()) {
+    LOG_DBG("TRS", "Cache page count %u implausible, rebuilding", static_cast<unsigned>(numPages));
+    return false;
+  }
+
   // Read page offsets
   pageOffsets.clear();
   pageOffsets.reserve(numPages);
 
   for (uint32_t i = 0; i < numPages; i++) {
     uint32_t offset;
-    serialization::readPod(f, offset);
+    if (!serialization::readPod(f, offset)) {
+      LOG_DBG("TRS", "Cache truncated at page %u, rebuilding", static_cast<unsigned>(i));
+      pageOffsets.clear();
+      return false;
+    }
     pageOffsets.push_back(offset);
   }
 
@@ -608,9 +734,8 @@ ScreenshotInfo TxtReaderActivity::getScreenshotInfo() const {
   }
   info.currentPage = currentPage + 1;
   info.totalPages = totalPages;
-  info.progressPercent = txt && txt->getFileSize() > 0
-                             ? static_cast<int>(currentPageEndOffset * 100.0f / txt->getFileSize() + 0.5f)
-                             : 0;
+  info.progressPercent =
+      txt && txt->getFileSize() > 0 ? static_cast<int>(currentPageEndOffset * 100.0f / txt->getFileSize() + 0.5f) : 0;
   if (info.progressPercent > 100) info.progressPercent = 100;
   return info;
 }

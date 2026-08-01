@@ -37,15 +37,16 @@ void LanguageSelectActivity::loop() {
     return;
   }
 
-  const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false);
+  const int pageItems =
+      UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false, BaseTheme::footerCounterTopOffset);
 
   // Handle navigation
-  buttonNavigator.onNextRelease([this] {
+  buttonNavigator.onNextPress([this] {
     selectedIndex = ButtonNavigator::nextIndex(static_cast<int>(selectedIndex), totalItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onPreviousPress([this] {
     selectedIndex = ButtonNavigator::previousIndex(static_cast<int>(selectedIndex), totalItems);
     requestUpdate();
   });
@@ -80,23 +81,25 @@ void LanguageSelectActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
   auto metrics = UITheme::getInstance().getMetrics();
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_LANGUAGE));
 
   // Current language marker
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  // Shared with every other list screen, so a row's bottom margin no longer
+  // differs by 8 px between siblings.
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, true) - contentTop);
   const auto currentLang = static_cast<uint8_t>(I18N.getLanguage());
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, totalItems, selectedIndex,
       [this](int index) { return I18N.getLanguageName(static_cast<Language>(SORTED_LANGUAGE_INDICES[index])); },
-      nullptr, nullptr,
-      [this, currentLang](int index) { return SORTED_LANGUAGE_INDICES[index] == currentLang ? tr(STR_SELECTED) : ""; },
-      true);
+      nullptr, nullptr, nullptr, false, nullptr, [this, currentLang](int index) {
+        return SORTED_LANGUAGE_INDICES[index] == currentLang ? UIAccessory::Check : UIAccessory::None;
+      });
 
   // Button hints
+  GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), totalItems);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

@@ -43,7 +43,10 @@ struct PngContext {
 // File I/O callbacks use pFile->fHandle to access the HalFile*,
 // avoiding the need for global file state.
 void* pngOpenWithHandle(const char* filename, int32_t* size) {
-  HalFile* f = new HalFile();
+  HalFile* f = new (std::nothrow) HalFile();
+  // See JpegToFramebufferConverter: nullptr is the callback's "cannot open",
+  // and a failing bare new would abort the firmware instead.
+  if (!f) return nullptr;
   if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {
     delete f;
     return nullptr;
@@ -165,29 +168,13 @@ void convertLineToGray(uint8_t* pPixels, uint8_t* grayLine, int width, int pixel
   }
 }
 
-int pngDrawCallback(PNGDRAW* pDraw) {
-  PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
-  if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
-
-  int srcY = pDraw->y;
+// Renders one already-converted grayscale source line into a single destination
+// row. Split out of pngDrawCallback so an upscaled image can emit the same source
+// line to every destination row it covers.
+void renderGrayLineToDestRow(PngContext* ctx, int dstY) {
   int srcWidth = ctx->srcWidth;
-
-  // Calculate destination Y with scaling
-  int dstY = (int)(srcY * ctx->scale);
-
-  // Skip if we already rendered this destination row (multiple source rows map to same dest)
-  if (dstY == ctx->lastDstY) return 1;
-  ctx->lastDstY = dstY;
-
-  // Check bounds
-  if (dstY >= ctx->dstHeight) return 1;
-
   int outY = ctx->config->y + dstY;
-  if (outY >= ctx->screenHeight) return 1;
-
-  // Convert entire source line to grayscale (improves cache locality)
-  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, srcWidth, pDraw->iPixelType, pDraw->pPalette,
-                    pDraw->iHasAlpha);
+  if (outY >= ctx->screenHeight) return;
 
   // Render scaled row using Bresenham-style integer stepping (no floating-point division)
   int dstWidth = ctx->dstWidth;
@@ -241,6 +228,38 @@ int pngDrawCallback(PNGDRAW* pDraw) {
       error -= dstWidth;
       srcX++;
     }
+  }
+}
+
+int pngDrawCallback(PNGDRAW* pDraw) {
+  PngContext* ctx = reinterpret_cast<PngContext*>(pDraw->pUser);
+  if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
+
+  const int srcY = pDraw->y;
+  if (ctx->srcHeight <= 0 || ctx->dstHeight <= 0) return 1;
+
+  // Destination row span this source line covers, derived from the real
+  // height ratio. The previous single row per source line was computed with the
+  // *width* scale, so with useExactDimensions (reachable from any
+  // <img style="width:100%"> narrower than the text column) an upscale left
+  // intermediate rows unwritten: white combing on the direct pass, and permanent
+  // black stripes once cached, because the cache flushes unwritten rows from a
+  // zeroed band where 0 means black.
+  int dstYStart = static_cast<int>(static_cast<int64_t>(srcY) * ctx->dstHeight / ctx->srcHeight);
+  int dstYEnd = static_cast<int>(static_cast<int64_t>(srcY + 1) * ctx->dstHeight / ctx->srcHeight);
+  if (dstYEnd <= dstYStart) dstYEnd = dstYStart + 1;  // downscale: at least the one row
+  if (dstYStart <= ctx->lastDstY) dstYStart = ctx->lastDstY + 1;
+  if (dstYStart >= ctx->dstHeight) return 1;
+  if (dstYEnd > ctx->dstHeight) dstYEnd = ctx->dstHeight;
+  if (dstYStart >= dstYEnd) return 1;
+
+  // Convert entire source line to grayscale (improves cache locality)
+  convertLineToGray(pDraw->pPixels, ctx->grayLineBuffer, ctx->srcWidth, pDraw->iPixelType, pDraw->pPalette,
+                    pDraw->iHasAlpha);
+
+  for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
+    renderGrayLineToDestRow(ctx, dstY);
+    ctx->lastDstY = dstY;
   }
 
   return 1;
@@ -373,7 +392,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
   unsigned long decodeStart = millis();
   rc = png->decode(&ctx, 0);
-  unsigned long decodeTime = millis() - decodeStart;
+  [[maybe_unused]] unsigned long decodeTime = millis() - decodeStart;
 
   free(ctx.grayLineBuffer);
   ctx.grayLineBuffer = nullptr;

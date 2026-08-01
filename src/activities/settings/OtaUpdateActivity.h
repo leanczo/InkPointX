@@ -19,7 +19,10 @@ class OtaUpdateActivity : public Activity {
   static constexpr unsigned int UNINITIALIZED_PERCENTAGE = 111;
 
   State state = WIFI_SELECTION;
-  unsigned int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
+  const char* failureReason = nullptr;
+  static const char* failureText(int result);
+  int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
+  OtaUpdater::Phase lastUpdaterPhase = OtaUpdater::Phase::IDLE;
   OtaUpdater updater;
 
   void onWifiSelectionComplete(bool success);
@@ -34,5 +37,7 @@ class OtaUpdateActivity : public Activity {
   bool preventAutoSleep() override {
     return state == CHECKING_FOR_UPDATE || state == WAITING_CONFIRMATION || state == UPDATE_IN_PROGRESS;
   }
-  bool skipLoopDelay() override { return true; }  // Prevent power-saving mode
+  bool skipLoopDelay() override {
+    return state == CHECKING_FOR_UPDATE || state == UPDATE_IN_PROGRESS || state == SHUTTING_DOWN;
+  }
 };

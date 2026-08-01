@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include "fontIds.h"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -16,11 +17,6 @@ struct Rect {
   int height;
 
   explicit Rect(int x = 0, int y = 0, int width = 0, int height = 0) : x(x), y(y), width(width), height(height) {}
-};
-
-struct TabInfo {
-  const char* label;
-  bool selected;
 };
 
 struct ThemeMetrics {
@@ -41,8 +37,7 @@ struct ThemeMetrics {
   int menuRowHeight;
   int menuSpacing;
 
-  int tabSpacing;
-  int tabBarHeight;
+  int subHeaderHeight;
 
   int scrollBarWidth;
   int scrollBarRightOffset;
@@ -114,7 +109,18 @@ enum UIIcon {
   Wifi,
   Hotspot,
   Bookmark,
+  Favorite,
+  Interface,
+  Power,
+  Reading,
+  Controls,
+  Files,
+  NetworkSync,
+  System,
+  Clock,
 };
+
+enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };
 
 enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };
 
@@ -122,7 +128,7 @@ enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };
 // Additional themes can inherit from this and override methods as needed
 
 namespace BaseMetrics {
-constexpr ThemeMetrics values = {.batteryWidth = 15,
+constexpr ThemeMetrics values = {.batteryWidth = 17,
                                  .batteryHeight = 12,
                                  .topPadding = 5,
                                  .batteryBarHeight = 20,
@@ -135,8 +141,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .listWithSubtitleRowHeight = 50,
                                  .menuRowHeight = 45,
                                  .menuSpacing = 8,
-                                 .tabSpacing = 10,
-                                 .tabBarHeight = 50,
+                                 .subHeaderHeight = 50,
                                  .scrollBarWidth = 4,
                                  .scrollBarRightOffset = 5,
                                  .homeTopPadding = 40,
@@ -145,7 +150,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .homeRecentBooksCount = 1,
                                  .homeContinueReadingInMenu = false,
                                  .homeMenuTopOffset = 10,
-                                 .buttonHintsHeight = 40,
+                                 .buttonHintsHeight = 39,
                                  .sideButtonHintsWidth = 30,
                                  .progressBarHeight = 16,
                                  .progressBarMarginTop = 1,
@@ -191,10 +196,17 @@ class BaseTheme {
  public:
   virtual ~BaseTheme() = default;
 
+  // Distance from the top of the button legend up to the "n / m" footer
+  // counter's first row. Screens that draw the counter must keep list content
+  // above this band — see UITheme::getListContentBottom.
+  static constexpr int footerCounterTopOffset = 36;
+
   // Component drawing methods
   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
-  void drawBatteryLeft(const GfxRenderer& renderer, Rect rect,
-                       bool showPercentage = true) const;  // Left aligned (reader mode)
+  // Left aligned (reader mode). fontId sizes the percent digits and the
+  // icon's vertical centring — the reader's status bar passes MICRO.
+  void drawBatteryLeft(const GfxRenderer& renderer, Rect rect, bool showPercentage = true,
+                       int fontId = SMALL_FONT_ID) const;
   void drawBatteryRight(const GfxRenderer& renderer, Rect rect,
                         bool showPercentage = true) const;  // Right aligned (UI headers)
   virtual void fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage) const;
@@ -207,19 +219,18 @@ class BaseTheme {
                         const std::function<std::string(int index)>& rowSubtitle = nullptr,
                         const std::function<UIIcon(int index)>& rowIcon = nullptr,
                         const std::function<std::string(int index)>& rowValue = nullptr, bool highlightValue = false,
-                        const std::function<bool(int index)>& rowDimmed = nullptr) const;
+                        const std::function<bool(int index)>& rowDimmed = nullptr,
+                        const std::function<UIAccessory(int index)>& rowAccessory = nullptr) const;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                           const char* subtitle = nullptr) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
                              const char* rightLabel = nullptr) const;
-  virtual void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
-                          bool selected) const;
-  virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
-                                   const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                                   bool& bufferRestored, std::function<bool()> storeCoverBuffer) const;
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                               const std::function<std::string(int index)>& buttonLabel,
                               const std::function<UIIcon(int index)>& rowIcon) const;
+  void drawSelection(const GfxRenderer& renderer, Rect rect) const;
+  virtual void drawPageDots(const GfxRenderer& renderer, int selectedPage, int pageCount) const;
+  virtual void drawFooterCounter(GfxRenderer& renderer, int selectedIndex, int itemCount) const;
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,
@@ -232,9 +243,35 @@ class BaseTheme {
                                const char* secondaryLabel = nullptr, KeyboardKeyType keyType = KeyboardKeyType::Normal,
                                bool inactiveSelection = false) const;
   virtual bool showsFileIcons() const { return false; }
+  // The shared divider treatment, inset to the content margin. Screens that
+  // need a rule outside a list (e.g. the file browser's path bar) must use this
+  // instead of drawing their own line, so weight and inset stay consistent.
+  virtual void drawDivider(const GfxRenderer& renderer, int x1, int x2, int y) const;
+  // The shared "nothing here" treatment for an empty list: centred in the content
+  // rect and direction-aware, rather than each screen hard-left-aligning its own
+  // message at an unexplained offset.
+  // "Nothing here" and "something went wrong" are the same shape: a centred line,
+  // optionally with an explanation under it. One primitive rather than each screen
+  // centring on pageHeight / 2 with its own hand-picked offsets.
+  // script=true sets the message in the handwritten accent face for human
+  // moments (empty collections and successful completion), never for errors.
+  virtual void drawEmptyState(const GfxRenderer& renderer, Rect content, const char* message,
+                              const char* detail = nullptr, bool script = false) const;
+  // A single line the reader has to notice: end of book, empty chapter, page load
+  // failure. Centred in the current viewport rather than at a fixed Y, which was
+  // above centre in portrait and near the bottom edge in landscape.
+  void drawReaderMessage(const GfxRenderer& renderer, const char* message, bool script = false) const;
 
   // Shared constants and helpers for battery drawing (used by all themes)
   static constexpr int batteryPercentSpacing = 4;
-  static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight);
+  // The charge reading is a caption, not a label: one step below the 10 px the
+  // header used, so the digits sit beside the icon instead of towering over it.
+  // Shared, because the overlay's width and its clear rect must agree with what
+  // drawBatteryRight actually draws or the group smears on partial redraws.
+  static constexpr int batteryPercentFontId = MICRO_FONT_ID;
+  static constexpr int batteryTerminalWidth = 2;
+  static Rect batteryBodyRect(Rect box, int centerY);
+  static void drawBatteryOutline(const GfxRenderer& renderer, Rect body);
+  static int batteryDigitsCenterY(const GfxRenderer& renderer, Rect rect, int fontId, const char* percentageText);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY);
 };

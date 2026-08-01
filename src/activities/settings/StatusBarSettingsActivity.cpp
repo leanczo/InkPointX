@@ -1,6 +1,8 @@
 #include "StatusBarSettingsActivity.h"
 
 #include <GfxRenderer.h>
+
+#include <algorithm>
 #include <HalClock.h>
 #include <I18n.h>
 
@@ -94,8 +96,11 @@ void StatusBarSettingsActivity::onEnter() {
     SETTINGS.statusBarProgressBar = CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   }
 
-  if (SETTINGS.statusBarTitle >= PROGRESS_BAR_THICKNESS_ITEMS) {
-    SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS::PROGRESS_BAR_NORMAL;
+  // Clamp the thickness field, not statusBarTitle again: as written this left
+  // statusBarProgressBarThickness unvalidated on the one screen that owns it,
+  // while it indexes a 3-entry name array and drives status-bar geometry.
+  if (SETTINGS.statusBarProgressBarThickness >= PROGRESS_BAR_THICKNESS_ITEMS) {
+    SETTINGS.statusBarProgressBarThickness = CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS::PROGRESS_BAR_NORMAL;
   }
 
   if (SETTINGS.statusBarTitle >= TITLE_ITEMS) {
@@ -136,23 +141,31 @@ void StatusBarSettingsActivity::loop() {
   }
 
   // Handle navigation
-  buttonNavigator.onNextRelease([this] {
+  buttonNavigator.onNextPress([this] {
     selectedIndex = ButtonNavigator::nextIndex(selectedIndex, visibleItemCount);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this] {
+  buttonNavigator.onPreviousPress([this] {
     selectedIndex = ButtonNavigator::previousIndex(selectedIndex, visibleItemCount);
     requestUpdate();
   });
 
-  buttonNavigator.onNextContinuous([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, visibleItemCount);
+  // Page like every sibling list; holding the rocker used to single-step.
+  // Matches the render() list height (content minus the preview band).
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int previewTop = renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() -
+                         verticalPreviewPadding - verticalPreviewTextPadding;
+  const int pageItems = std::max(1, GUI.getListPageItems(previewTop - metrics.verticalSpacing - contentTop, false));
+
+  buttonNavigator.onNextContinuous([this, pageItems] {
+    selectedIndex = ButtonNavigator::nextPageIndex(selectedIndex, visibleItemCount, pageItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousContinuous([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, visibleItemCount);
+  buttonNavigator.onPreviousContinuous([this, pageItems] {
+    selectedIndex = ButtonNavigator::previousPageIndex(selectedIndex, visibleItemCount, pageItems);
     requestUpdate();
   });
 }
@@ -210,7 +223,12 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CUSTOMISE_STATUS_BAR));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  // The list must stop above the live preview band at the bottom: sized to the
+  // usual content bottom it ran ten rows deep and the "Preview" caption plus
+  // the status-bar mock landed on top of the last row.
+  const int previewTop = pageHeight - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -
+                         verticalPreviewTextPadding;
+  const int contentHeight = std::max(0, previewTop - metrics.verticalSpacing - contentTop);
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, visibleItemCount, static_cast<int>(selectedIndex),
       [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr, nullptr,
@@ -244,10 +262,18 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
             return tr(STR_HIDE);
         }
       },
-      true);
+      true, nullptr,
+      // Chevrons mark the two rows that open sub-screens instead of toggling.
+      [](int index) {
+        return (index == ITEM_CLOCK_UTC_OFFSET || index == ITEM_CLOCK_SYNC) ? UIAccessory::Chevron
+                                                                            : UIAccessory::None;
+      });
 
-  // Draw button hints
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  // Two of the rows open sub-screens rather than toggling — label the button
+  // accordingly so "Toggle" doesn't promise the wrong thing.
+  const bool opensSubScreen = selectedIndex == ITEM_CLOCK_UTC_OFFSET || selectedIndex == ITEM_CLOCK_SYNC;
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), opensSubScreen ? tr(STR_SELECT) : tr(STR_TOGGLE),
+                                            tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   std::string title;

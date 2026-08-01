@@ -53,6 +53,13 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
+      - name: Install font pipeline requirements
+        # scripts/build_ui_fonts.py generates the UI font subsets during the
+        # build and needs freetype-py + fonttools. Without this the pre-build
+        # script aborts, which is why release builds only ever succeeded
+        # locally and releases had to be cut by hand.
+        run: uv pip install --system -r lib/EpdFont/scripts/requirements.txt
+
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
@@ -83,6 +90,13 @@ jobs:
       - name: Install PlatformIO Core
         run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
+      - name: Install font pipeline requirements
+        # scripts/build_ui_fonts.py generates the UI font subsets during the
+        # build and needs freetype-py + fonttools. Without this the pre-build
+        # script aborts, which is why release builds only ever succeeded
+        # locally and releases had to be cut by hand.
+        run: uv pip install --system -r lib/EpdFont/scripts/requirements.txt
+
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
@@ -108,6 +122,20 @@ jobs:
             if [ -n "$ram_line" ]; then echo "- ${ram_line}"; else echo "- RAM: not found"; fi
             if [ -n "$flash_line" ]; then echo "- ${flash_line}"; else echo "- Flash: not found"; fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce flash budget
+        # The 6.25 MB app slot is fixed for the fielded fleet (the partition
+        # table cannot change over OTA). Fail before the image can creep to
+        # 100%: 92% leaves ~0.5 MB of working headroom.
+        run: |
+          set -euo pipefail
+          used="$(grep -Eo 'used [0-9]+ bytes' -m1 pio.log | grep -Eo '[0-9]+' || echo 0)"
+          limit=6029312   # 92% of 6,553,600
+          echo "Flash used: ${used} bytes (limit ${limit})"
+          if [ "$used" -gt "$limit" ]; then
+            echo "::error::Firmware size ${used} exceeds the 92% flash budget (${limit} bytes)"
+            exit 1
+          fi
 
       - name: Upload firmware.bin artifact
         uses: actions/upload-artifact@v6

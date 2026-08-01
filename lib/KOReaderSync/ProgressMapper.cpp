@@ -604,9 +604,9 @@ class ParagraphStreamer final : public Print {
   ParagraphStreamer(const XPathStep* xpathSteps, int xpathStepCount, int charOff, int textNodeIdx = 1)
       : fwdTarget(SIZE_MAX),
         revChar(charOff),
+        targetTextNode(textNodeIdx),
         steps(xpathSteps),
-        stepCount(xpathStepCount),
-        targetTextNode(textNodeIdx) {
+        stepCount(xpathStepCount) {
     memset(stepEnteredAtDepth, -1, sizeof(stepEnteredAtDepth));
   }
 

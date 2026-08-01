@@ -28,7 +28,14 @@ void EpubReaderChapterSelectionActivity::onEnter() {
 void EpubReaderChapterSelectionActivity::onExit() { Activity::onExit(); }
 
 void EpubReaderChapterSelectionActivity::loop() {
-  const int pageItems = UITheme::getInstance().getNumberOfItemsPerPage(renderer, true, false, true, false);
+  // Mirror the render() list height (which reserves the footer counter), or a
+  // held rocker pages past rows that were never shown.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect screen = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const int contentHeight =
+      (screen.y + screen.height) - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
+  const int pageItems = std::max(1, GUI.getListPageItems(contentHeight, false));
   const int totalItems = getTotalItems();
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -49,12 +56,12 @@ void EpubReaderChapterSelectionActivity::loop() {
     finish();
   }
 
-  buttonNavigator.onNextRelease([this, totalItems] {
+  buttonNavigator.onNextPress([this, totalItems] {
     selectorIndex = ButtonNavigator::nextIndex(selectorIndex, totalItems);
     requestUpdate();
   });
 
-  buttonNavigator.onPreviousRelease([this, totalItems] {
+  buttonNavigator.onPreviousPress([this, totalItems] {
     selectorIndex = ButtonNavigator::previousIndex(selectorIndex, totalItems);
     requestUpdate();
   });
@@ -80,16 +87,36 @@ void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
                  tr(STR_SELECT_CHAPTER));
 
   const int contentTop = screen.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = screen.height - contentTop - metrics.verticalSpacing;
+  // Measure from the safe area's bottom edge: contentTop already includes
+  // screen.y, so subtracting it from screen.height dropped rows in
+  // Portrait-Inverted, where screen.y is non-zero.
+  const int contentHeight =
+      (screen.y + screen.height) - contentTop - metrics.verticalSpacing - BaseTheme::footerCounterTopOffset;
 
   const int totalItems = getTotalItems();
+  if (totalItems == 0) {
+    // An EPUB without a TOC: without this guard the list drew nothing but the
+    // selection outline, and the legend offered navigation with nowhere to go.
+    GUI.drawEmptyState(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, tr(STR_NO_CHAPTERS), nullptr,
+                       /*script=*/true);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
   GUI.drawList(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, totalItems, selectorIndex,
                [this](int index) {
                  auto item = epub->getTocItem(index);
-                 std::string indent((item.level - 1) * 2, ' ');
+                 // level is uint8_t and 0 is its default — returned for an
+                 // out-of-range index, an unloaded cache, or an <a> outside any
+                 // <ol>. Unguarded, 0 - 1 promotes to a huge size_t and the
+                 // std::string constructor aborts the firmware.
+                 const int indentWidth = item.level > 1 ? (item.level - 1) * 2 : 0;
+                 std::string indent(static_cast<size_t>(indentWidth), ' ');
                  return indent + item.title;
                });
 
+  GUI.drawFooterCounter(renderer, selectorIndex, totalItems);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

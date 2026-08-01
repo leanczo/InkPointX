@@ -114,17 +114,26 @@
         <span class="value" id="version"></span>
       </div>
       <div class="info-row">
-        <span class="label">WiFi Status</span>
-        <span class="status">Connected</span>
+        <span class="label">Device</span>
+        <span class="value" id="device"></span>
+      </div>
+      <div class="info-row">
+        <span class="label">Network Mode</span>
+        <span class="value" id="mode"></span>
       </div>
       <div class="info-row">
         <span class="label">IP Address</span>
         <span class="value" id="ip-address"></span>
       </div>
       <div class="info-row">
+        <span class="label">Uptime</span>
+        <span class="value" id="uptime"></span>
+      </div>
+      <div class="info-row">
         <span class="label">Free Memory</span>
         <span class="value" id="free-heap"></span>
       </div>
+      <p id="status-error" style="display: none; color: #e74c3c; margin: 12px 0 0; text-align: center"></p>
     </div>
 
     <div class="card">
@@ -133,7 +142,17 @@
       </p>
     </div>
   <script>
+    function formatUptime(seconds) {
+      if (typeof seconds !== 'number') return 'N/A';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (h > 0) return h + 'h ' + m + 'm';
+      if (m > 0) return m + 'm';
+      return seconds + 's';
+    }
+
     async function fetchStatus() {
+      const error = document.getElementById('status-error');
       try {
         const response = await fetch('/api/status');
         if (!response.ok) {
@@ -141,17 +160,31 @@
         }
         const data = await response.json();
         document.getElementById('version').textContent = data.version || 'N/A';
+        document.getElementById('device').textContent = data.device || 'N/A';
+        // Reported by the device rather than hardcoded: the old markup always
+        // claimed "Connected", which was simply wrong in hotspot mode.
+        document.getElementById('mode').textContent =
+          data.mode === 'AP' ? 'Hotspot' : data.mode === 'STA' ? 'Wi-Fi' + (data.rssi ? ' (' + data.rssi + ' dBm)' : '') : 'N/A';
         document.getElementById('ip-address').textContent = data.ip || 'N/A';
+        document.getElementById('uptime').textContent = formatUptime(data.uptime);
         document.getElementById('free-heap').textContent = data.freeHeap
           ? data.freeHeap.toLocaleString() + ' bytes'
           : 'N/A';
-      } catch (error) {
-        console.error('Error fetching status:', error);
+        error.style.display = 'none';
+      } catch (e) {
+        // Surface it: this is the first page reached from the QR code, and
+        // console-only errors left every field blank with no explanation.
+        console.error('Error fetching status:', e);
+        error.textContent = 'Could not read device status. Retrying...';
+        error.style.display = 'block';
       }
     }
 
-    // Fetch status on page load
-    window.onload = fetchStatus;
+    // Fetch on load, then keep the values from going stale.
+    window.onload = function () {
+      fetchStatus();
+      setInterval(fetchStatus, 10000);
+    };
   </script>
   </body>
 </html>

@@ -141,8 +141,8 @@ XtcError XtcParser::readHeader() {
   // Check version
   // Currently, version 1.0 is the only valid version, however some generators are swapping the bytes around, so we
   // accept both 1.0 and 0.1 for compatibility
-  const bool validVersion = m_header.versionMajor == 1 && m_header.versionMinor == 0 ||
-                            m_header.versionMajor == 0 && m_header.versionMinor == 1;
+  const bool validVersion = (m_header.versionMajor == 1 && m_header.versionMinor == 0) ||
+                            (m_header.versionMajor == 0 && m_header.versionMinor == 1);
   if (!validVersion) {
     LOG_DBG("XTC", "Unsupported version: %u.%u", m_header.versionMajor, m_header.versionMinor);
     return XtcError::INVALID_VERSION;
@@ -322,7 +322,11 @@ XtcError XtcParser::readChapters() {
     return XtcError::READ_ERROR;
   }
 
-  m_chapters.reserve(chapterCount);
+  // chapterCount is derived from header fields, so a bogus dataOffset in a large
+  // file can imply hundreds of thousands of chapters. Reserve conservatively and
+  // let the vector grow; under -fno-exceptions a failed reserve aborts.
+  constexpr size_t MAX_RESERVED_CHAPTERS = 4096;
+  m_chapters.reserve(std::min<size_t>(chapterCount, MAX_RESERVED_CHAPTERS));
   std::vector<uint8_t> chapterBuf(chapterSize);
   for (size_t i = 0; i < chapterCount; i++) {
     if (m_file.read(chapterBuf.data(), chapterSize) != chapterSize) {

@@ -140,7 +140,11 @@
     <div class="card">
       <h2>Upload Font</h2>
       <form class="upload-form" id="uploadForm">
-        <input type="file" id="fontFiles" webkitdirectory directory multiple required />
+        <!-- Plain multi-file picker: webkitdirectory is unsupported on iOS
+             Safari, which is the usual client here since access is via the QR
+             code on the device, and it also made picking a single .cpfont
+             impossible. The single-family check below still applies. -->
+        <input type="file" id="fontFiles" accept=".cpfont" multiple required />
         <button type="submit" class="btn btn-primary">Upload</button>
       </form>
       <p id="pickedInfo" class="family-meta" style="margin: 8px 0 0;"></p>

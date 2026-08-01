@@ -176,6 +176,14 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
 
   LOG_DBG("DAV", "PROPFIND %s depth=%d", path.c_str(), depth);
 
+  // Children are filtered further down, but the requested resource itself was
+  // not checked — so PROPFIND /.crosspoint enumerated the credential files that
+  // GET/PUT/DELETE/MKCOL all refuse to touch.
+  if (isProtectedPath(path)) {
+    s.send(403, "text/plain", "Forbidden");
+    return;
+  }
+
   // Check if path exists
   if (!Storage.exists(path.c_str()) && path != "/") {
     s.send(404, "text/plain", "Not Found");
@@ -327,8 +335,28 @@ void WebDAVHandler::handleGet(WebServer& s) {
   s.setContentLength(file.size());
   s.send(200, contentType.c_str(), "");
 
+  // Chunked with an explicit yield, like the HTTP /download path. A single
+  // whole-file client.write(file) blocked the loop for the length of the
+  // transfer, so copying a large book off the device in Finder or Explorer froze
+  // the UI for tens of seconds and could trip the idle watchdog mid-transfer.
   NetworkClient client = s.client();
-  client.write(file);
+  constexpr size_t chunkSize = 4096;
+  uint8_t buffer[chunkSize];
+  while (file.available()) {
+    const int result = file.read(buffer, chunkSize);
+    if (result <= 0) break;
+    size_t written = 0;
+    const auto bytesRead = static_cast<size_t>(result);
+    while (written < bytesRead) {
+      const size_t wrote = client.write(buffer + written, bytesRead - written);
+      if (wrote == 0) {
+        file.close();
+        return;  // peer went away
+      }
+      written += wrote;
+      yield();
+    }
+  }
   file.close();
 }
 

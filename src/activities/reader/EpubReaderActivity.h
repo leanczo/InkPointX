@@ -38,9 +38,17 @@ class EpubReaderActivity final : public Activity {
   // Normalized 0.0-1.0 progress within the target spine item, computed from book percentage.
   float pendingSpineProgress = 0.0f;
   bool pendingScreenshot = false;
+  int lastSavedSpineIndex = -1;
+  uint8_t pagesSinceProgressSave = 0;
+  unsigned long lastProgressSaveMs = 0;
   bool pendingSyncSaveError = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+  // Retained so the reader menu can open showing the rate that is actually
+  // running. The menu returns its picker value on cancel too, so without this
+  // every visit to the menu handed back a fresh 0 and silently stopped
+  // automatic page turning.
+  uint8_t currentPageTurnOption = 0;
   bool showBookmarkMessage = false;
   bool ignoreNextConfirmRelease = false;
   bool currentPageBookmarked = false;
@@ -61,6 +69,9 @@ class EpubReaderActivity final : public Activity {
     int pageNumber;
   };
   static constexpr int MAX_FOOTNOTE_DEPTH = 3;
+  // Matches FavoriteBooksStore's cap. Each bookmark stores a text summary, so an
+  // unbounded list grows the JSON file and the session heap without limit.
+  static constexpr size_t MAX_BOOKMARKS_PER_BOOK = 64;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
 
@@ -92,13 +103,20 @@ class EpubReaderActivity final : public Activity {
   void restoreSavedPosition();
 
  public:
-  explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub)
-      : Activity("EpubReader", renderer, mappedInput), epub(std::move(epub)) {}
+  explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Epub> epub,
+                              int initialRefreshCountdown)
+      : Activity("EpubReader", renderer, mappedInput),
+        epub(std::move(epub)),
+        pagesUntilFullRefresh(initialRefreshCountdown) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
   void render(RenderLock&& lock) override;
   bool isReaderActivity() const override { return true; }
+  // Automatic page turning is hands-free reading, so there are no button events
+  // to keep the inactivity timer alive. Without this the device deep-sleeps
+  // mid-session while it is still turning pages.
+  bool preventAutoSleep() override { return automaticPageTurnActive; }
   ScreenshotInfo getScreenshotInfo() const override;
   CrossPointPosition getCurrentPosition() const;
 };

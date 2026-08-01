@@ -24,6 +24,25 @@ bool isBookCacheDirectoryName(const char* name) {
          strncmp(name, FB2_PREFIX, std::size(FB2_PREFIX) - 1) == 0;
 }
 
+std::string getBookCachePath(const std::string& path) {
+  if (FsHelpers::hasEpubExtension(path)) {
+    return Epub(path, "/.crosspoint").getCachePath();
+  }
+  if (FsHelpers::hasXtcExtension(path)) {
+    return Xtc(path, "/.crosspoint").getCachePath();
+  }
+  if (FsHelpers::hasTxtExtension(path) || FsHelpers::hasMarkdownExtension(path)) {
+    return Txt(path, "/.crosspoint").getCachePath();
+  }
+  if (FsHelpers::hasFb2Extension(path)) {
+    return Fb2(path, "/.crosspoint").getCachePath();
+  }
+  if (FsHelpers::hasPdfExtension(path)) {
+    return Pdf(path, "/.crosspoint").getCachePath();
+  }
+  return "";
+}
+
 void clearBookCache(const std::string& path) {
   if (FsHelpers::hasEpubExtension(path)) {
     Epub(path, "/.crosspoint").clearCache();

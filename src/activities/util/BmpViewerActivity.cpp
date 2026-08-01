@@ -5,16 +5,27 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <JpegToBmpConverter.h>
+#include <PngToBmpConverter.h>
 
 #include <algorithm>
 
 #include "CrossPointSettings.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/SleepImageInstaller.h"
 
-BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path)
-    : Activity("BmpViewer", renderer, mappedInput), filePath(std::move(path)) {}
+namespace {
+constexpr const char* PREVIEW_PATH = "/.crosspoint/image-preview.bmp";
+}
+
+BmpViewerActivity::BmpViewerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path,
+                                     const bool returnToCallerValue, const bool browseSiblingsValue)
+    : Activity("BmpViewer", renderer, mappedInput),
+      filePath(std::move(path)),
+      returnToCaller(returnToCallerValue),
+      browseSiblings(browseSiblingsValue) {}
 
 void BmpViewerActivity::loadSiblingImages() {
   siblingImages.clear();
@@ -38,7 +49,8 @@ void BmpViewerActivity::loadSiblingImages() {
       file.getName(name, sizeof(name));
       if (name[0] != '.') {
         std::string fname(name);
-        if (fname.length() >= 4 && fname.substr(fname.length() - 4) == ".bmp") {
+        if (FsHelpers::hasBmpExtension(fname) || FsHelpers::hasJpgExtension(fname) ||
+            FsHelpers::hasPngExtension(fname)) {
           siblingImages.push_back(fname);
         }
       }
@@ -57,21 +69,73 @@ void BmpViewerActivity::loadSiblingImages() {
   }
 }
 
+bool BmpViewerActivity::prepareDisplayImage() {
+  displayPath = filePath;
+  ownsPreviewFile = false;
+  if (FsHelpers::hasBmpExtension(filePath)) return true;
+  if (!FsHelpers::hasJpgExtension(filePath) && !FsHelpers::hasPngExtension(filePath)) return false;
+
+  if (Storage.exists(PREVIEW_PATH)) Storage.remove(PREVIEW_PATH);
+
+  HalFile source;
+  HalFile destination;
+  if (!Storage.openFileForRead("IMGVIEW", filePath, source) ||
+      !Storage.openFileForWrite("IMGVIEW", PREVIEW_PATH, destination)) {
+    if (source) source.close();
+    if (destination) destination.close();
+    Storage.remove(PREVIEW_PATH);
+    return false;
+  }
+
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  const bool converted =
+      FsHelpers::hasJpgExtension(filePath)
+          ? JpegToBmpConverter::jpegFileToBmpStreamWithSize(source, destination, pageWidth, pageHeight)
+          : PngToBmpConverter::pngFileToBmpStreamWithSize(source, destination, pageWidth, pageHeight);
+  source.close();
+  destination.close();
+
+  if (!converted) {
+    Storage.remove(PREVIEW_PATH);
+    return false;
+  }
+  displayPath = PREVIEW_PATH;
+  ownsPreviewFile = true;
+  return true;
+}
+
 void BmpViewerActivity::onEnter() {
   Activity::onEnter();
 
-  if (siblingImages.empty() && !filePath.empty()) {
+  if (browseSiblings && siblingImages.empty() && !filePath.empty()) {
     loadSiblingImages();
   }
 
+  showCurrentImage();
+}
+
+// Repaint for the currently selected file. Sibling navigation and the sleep-cover
+// action used to call onEnter() again, which re-ran the activity's own entry
+// bookkeeping and the sibling scan just to redraw.
+void BmpViewerActivity::showCurrentImage() {
   HalFile file;
 
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  GUI.fillPopupProgress(renderer, popupRect, 20);  // Initial 20% progress
+  // No progress bar: the decoder reports nothing, and the old one was hardcoded to
+  // 20 % and then 50 % whatever the actual work, which is worse than no indicator.
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  if (!prepareDisplayImage()) {
+    renderer.clearScreen();
+    GUI.drawEmptyState(renderer, Rect{0, 0, pageWidth, pageHeight}, tr(STR_IMAGE_PREVIEW_FAILED));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    return;
+  }
   // 1. Open the file
-  if (Storage.openFileForRead("BMP", filePath, file)) {
+  if (Storage.openFileForRead("BMP", displayPath, file)) {
     Bitmap bitmap(file, true);
 
     // 2. Parse headers to get dimensions
@@ -105,8 +169,6 @@ void BmpViewerActivity::onEnter() {
       const auto labels =
           mappedInput.mapLabels(tr(STR_BACK), tr(STR_SET_SLEEP_COVER), (hasPrevious ? "<" : ""), (hasNext ? ">" : ""));
 
-      GUI.fillPopupProgress(renderer, popupRect, 50);
-
       renderer.clearScreen();
       // Assuming drawBitmap defaults to 0,0 crop if omitted, or pass explicitly: drawBitmap(bitmap, x, y, pageWidth,
       // pageHeight, 0, 0)
@@ -116,12 +178,15 @@ void BmpViewerActivity::onEnter() {
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       // Single pass for non-grayscale images
 
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      // A halftoned photograph is the one payload a differential update cannot
+      // reconcile cleanly, and browsing siblings stacks photo over photo with no
+      // automatic clean in between, so drive the panel with the clean waveform.
+      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
     } else {
       // Handle file parsing error
       renderer.clearScreen();
-      renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, "Invalid BMP File");
+      GUI.drawEmptyState(renderer, Rect{0, 0, pageWidth, pageHeight}, tr(STR_IMAGE_PREVIEW_FAILED));
       const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
       GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
       renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -131,7 +196,7 @@ void BmpViewerActivity::onEnter() {
   } else {
     // Handle file open error
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, "Could not open file");
+    GUI.drawEmptyState(renderer, Rect{0, 0, pageWidth, pageHeight}, tr(STR_IMAGE_PREVIEW_FAILED));
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer(HalDisplay::HALF_REFRESH);
@@ -140,6 +205,10 @@ void BmpViewerActivity::onEnter() {
 
 void BmpViewerActivity::onExit() {
   Activity::onExit();
+  if (ownsPreviewFile) {
+    Storage.remove(PREVIEW_PATH);
+    ownsPreviewFile = false;
+  }
   renderer.clearScreen();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
@@ -158,8 +227,10 @@ void BmpViewerActivity::doSetSleepCover() {
     GUI.drawPopup(renderer, tr(STR_FAILED_LOWER));
   }
 
-  delay(1000);
-  onEnter();
+  // The popup above is the confirmation. Hold it briefly, then repaint the image
+  // without re-entering the activity.
+  delay(600);
+  showCurrentImage();
 }
 
 void BmpViewerActivity::loop() {
@@ -167,36 +238,52 @@ void BmpViewerActivity::loop() {
   Activity::loop();
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    activityManager.goToFileBrowser(filePath);
+    if (returnToCaller) {
+      finish();
+    } else {
+      activityManager.goToFileBrowser(filePath);
+    }
     return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    doSetSleepCover();
+    // Confirmed first: one press on the primary button used to permanently
+    // rewrite the global sleep-screen setting with no undo.
+    const auto slash = filePath.find_last_of('/');
+    startActivityForResult(
+        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_SET_SLEEP_COVER),
+                                               slash == std::string::npos ? filePath : filePath.substr(slash + 1)),
+        [this](const ActivityResult& result) {
+          if (result.isCancelled) {
+            showCurrentImage();
+            return;
+          }
+          doSetSleepCover();
+        });
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Left) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Up)) {
     if (siblingImages.size() > 1 && currentImageIndex > 0) {
       currentImageIndex--;
       std::string dirPath = FsHelpers::extractFolderPath(filePath);
       if (dirPath.back() != '/') dirPath += "/";
       filePath = dirPath + siblingImages[currentImageIndex];
-      onEnter();
+      showCurrentImage();
     }
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+  if (mappedInput.wasPressed(MappedInputManager::Button::Right) ||
+      mappedInput.wasPressed(MappedInputManager::Button::Down)) {
     if (siblingImages.size() > 1 && currentImageIndex != -1 &&
         currentImageIndex < static_cast<int>(siblingImages.size()) - 1) {
       currentImageIndex++;
       std::string dirPath = FsHelpers::extractFolderPath(filePath);
       if (dirPath.back() != '/') dirPath += "/";
       filePath = dirPath + siblingImages[currentImageIndex];
-      onEnter();
+      showCurrentImage();
     }
     return;
   }

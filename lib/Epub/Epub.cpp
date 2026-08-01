@@ -14,6 +14,7 @@
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/TocNavParser.h"
 #include "Epub/parsers/TocNcxParser.h"
+#include <new>
 
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
   const auto containerPath = "META-INF/container.xml";
@@ -375,9 +376,9 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   LOG_DBG("EBP", "Loading ePub: %s", filepath.c_str());
 
   // Initialize spine/TOC cache
-  bookMetadataCache.reset(new BookMetadataCache(cachePath));
+  bookMetadataCache.reset(new (std::nothrow) BookMetadataCache(cachePath));
   // Always create CssParser - needed for inline style parsing even without CSS files
-  cssParser.reset(new CssParser(cachePath));
+  cssParser.reset(new (std::nothrow) CssParser(cachePath));
 
   // Try to load existing cache first
   if (bookMetadataCache->load()) {
@@ -396,7 +397,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
         }
         bookMetadataCache.reset();
         parseCssFiles();
-        bookMetadataCache.reset(new BookMetadataCache(cachePath));
+        bookMetadataCache.reset(new (std::nothrow) BookMetadataCache(cachePath));
         if (!bookMetadataCache->load()) {
           LOG_ERR("EBP", "Failed to reload cache after CSS rebuild");
           return false;
@@ -418,7 +419,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   LOG_DBG("EBP", "Cache not found, building spine/TOC cache");
   setupCacheDir();
 
-  const uint32_t indexingStart = millis();
+  [[maybe_unused]] const uint32_t indexingStart = millis();
 
   // Begin building cache - stream entries to disk immediately
   if (!bookMetadataCache->beginWrite()) {
@@ -427,7 +428,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   }
 
   // OPF Pass
-  const uint32_t opfStart = millis();
+  [[maybe_unused]] const uint32_t opfStart = millis();
   BookMetadataCache::BookMetadata bookMetadata;
   if (!bookMetadataCache->beginContentOpfPass()) {
     LOG_ERR("EBP", "Could not begin writing content.opf pass");
@@ -445,7 +446,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   LOG_DBG("EBP", "OPF pass completed in %lu ms", millis() - opfStart);
 
   // TOC Pass - try EPUB 3 nav first, fall back to NCX
-  const uint32_t tocStart = millis();
+  [[maybe_unused]] const uint32_t tocStart = millis();
   if (!bookMetadataCache->beginTocPass()) {
     LOG_ERR("EBP", "Could not begin writing toc pass");
     return false;
@@ -483,7 +484,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   }
 
   // Build final book.bin
-  const uint32_t buildStart = millis();
+  [[maybe_unused]] const uint32_t buildStart = millis();
   if (!bookMetadataCache->buildBookBin(filepath, bookMetadata, looseItemRoot)) {
     LOG_ERR("EBP", "Could not update mappings and sizes");
     return false;
@@ -503,7 +504,7 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
   }
 
   // Reload the cache from disk so it's in the correct state
-  bookMetadataCache.reset(new BookMetadataCache(cachePath));
+  bookMetadataCache.reset(new (std::nothrow) BookMetadataCache(cachePath));
   if (!bookMetadataCache->load()) {
     LOG_ERR("EBP", "Failed to reload cache after writing");
     return false;

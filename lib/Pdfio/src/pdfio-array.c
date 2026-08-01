@@ -606,34 +606,27 @@ _pdfioArrayRead(pdfio_file_t   *pdf,	// I - PDF file
                 size_t         depth)	// I - Depth of array
 {
   pdfio_array_t		*array;		// New array
-  char			*token;		// Token from file (heap keeps recursive parsing off task stack)
+  // Object arrays on the X4 are parsed while the 32 KiB Flate window is
+  // resident. A separate 1 KiB heap allocation here can fail late in a
+  // vector-heavy page even though the token itself is normally tiny. Keep a
+  // bounded automatic buffer; 512 bytes still covers PDF names, references,
+  // dimensions, font widths and metadata strings used by the reader.
+  char			token[512];	// Token from file
   _pdfio_value_t	value;		// Value
 
 
   PDFIO_DEBUG("_pdfioArrayRead(pdf=%p, tb=%p)\n", (void *)pdf, (void *)tb);
 
-  // Both arrays and dictionaries can nest deeply.  A 1KB automatic token at
-  // each level exhausts the ESP32-C3's 8KB loop-task stack on valid PDFs.
-  if ((token = (char *)malloc(1024)) == NULL)
-  {
-    _pdfioFileError(pdf, "Unable to allocate array token buffer.");
-    return (NULL);
-  }
-
   // Create an array...
   if ((array = pdfioArrayCreate(pdf)) == NULL)
-  {
-    free(token);
     return (NULL);
-  }
 
   // Read until we get "]" to end the array...
-  while (_pdfioTokenGet(tb, token, 1024))
+  while (_pdfioTokenGet(tb, token, sizeof(token)))
   {
     if (!strcmp(token, "]"))
     {
       // End of array...
-      free(token);
       return (array);
     }
 
@@ -649,7 +642,6 @@ _pdfioArrayRead(pdfio_file_t   *pdf,	// I - PDF file
     append_value(array, &value);
   }
 
-  free(token);
   return (NULL);
 }
 

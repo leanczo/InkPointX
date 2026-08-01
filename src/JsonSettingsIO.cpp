@@ -138,20 +138,32 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   }
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
+  // Sleep screen uses a dynamic UI mapping so the removed legacy DARK value
+  // does not shift the remaining persisted enum values.
+  doc["sleepScreen"] = s.sleepScreen;
   doc["frontButtonBack"] = s.frontButtonBack;
   doc["frontButtonConfirm"] = s.frontButtonConfirm;
   doc["frontButtonLeft"] = s.frontButtonLeft;
   doc["frontButtonRight"] = s.frontButtonRight;
   // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
   doc["fontFamily"] = s.fontFamily;
-  // SD card font family name — not in SettingsList, save manually
+  // Revision 1 changes the untouched legacy Noto Sans UI default to Ink Sans.
+  // Keep this separate from the numeric family value so future enum additions
+  // can be migrated without reinterpreting a user's explicit selection.
+  doc["uiFontRevision"] = 2;
+  // SD card font family names — not in SettingsList, save manually. The
+  // interface and accent faces persist the same way the reader's does; without
+  // this the selection survived only until the next boot, which on a device
+  // that sleeps by powering off means "until the user looks away".
   if (s.sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = s.sdFontFamilyName;
   }
-
-  // Language -- managed by LanguageSelectActivity, not in SettingsList.
-  // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
-  doc["language"] = (s.language < getLanguageCount()) ? LANGUAGE_CODES[s.language] : "EN";
+  if (s.uiSdFontFamilyName[0] != '\0') {
+    doc["uiSdFontFamilyName"] = s.uiSdFontFamilyName;
+  }
+  if (s.scriptSdFontFamilyName[0] != '\0') {
+    doc["scriptSdFontFamilyName"] = s.scriptSdFontFamilyName;
+  }
 
   // Language -- managed by LanguageSelectActivity, not in SettingsList.
   // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
@@ -224,6 +236,25 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     }
   }
 
+  // Dynamic sleep-screen mapping is persisted manually. Migrate the removed
+  // iPhone-style DARK clock mode to the clean light brand screen.
+  const uint8_t storedSleepScreen =
+      clamp(doc["sleepScreen"] | static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT),
+            CrossPointSettings::SLEEP_SCREEN_MODE_COUNT,
+            static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT));
+  s.sleepScreen = storedSleepScreen == static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::DARK)
+                      ? static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT)
+                      : storedSleepScreen;
+  if (storedSleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK && needsResave) {
+    *needsResave = true;
+  }
+
+  const uint8_t uiFontRevision = doc["uiFontRevision"] | static_cast<uint8_t>(0);
+  if (uiFontRevision < 2 || s.uiFontFamily != CrossPointSettings::UI_INTER) {
+    s.uiFontFamily = CrossPointSettings::UI_INTER;
+    if (needsResave) *needsResave = true;
+  }
+
   if (doc["sleepTimeoutMinutes"].isNull() && !doc["sleepTimeout"].isNull()) {
     const uint8_t legacyValue =
         clamp(doc["sleepTimeout"] | (uint8_t)CrossPointSettings::SLEEP_10_MIN, CrossPointSettings::SLEEP_TIMEOUT_COUNT,
@@ -246,10 +277,16 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
   const uint8_t storedFontFamily = doc["fontFamily"] | (uint8_t)0;
   s.fontFamily = clamp(storedFontFamily, CrossPointSettings::BUILTIN_FONT_COUNT, 0);
-  // SD card font family name — not in SettingsList, load manually
+  // SD card font family names — not in SettingsList, load manually
   const char* sfn = doc["sdFontFamilyName"] | "";
   strncpy(s.sdFontFamilyName, sfn, sizeof(s.sdFontFamilyName) - 1);
   s.sdFontFamilyName[sizeof(s.sdFontFamilyName) - 1] = '\0';
+  const char* uiSfn = doc["uiSdFontFamilyName"] | "";
+  strncpy(s.uiSdFontFamilyName, uiSfn, sizeof(s.uiSdFontFamilyName) - 1);
+  s.uiSdFontFamilyName[sizeof(s.uiSdFontFamilyName) - 1] = '\0';
+  const char* scriptSfn = doc["scriptSdFontFamilyName"] | "";
+  strncpy(s.scriptSdFontFamilyName, scriptSfn, sizeof(s.scriptSdFontFamilyName) - 1);
+  s.scriptSdFontFamilyName[sizeof(s.scriptSdFontFamilyName) - 1] = '\0';
   if (storedFontFamily == CrossPointSettings::LEGACY_OPENDYSLEXIC && s.sdFontFamilyName[0] == '\0') {
     s.fontFamily = CrossPointSettings::NOTOSERIF;
     strncpy(s.sdFontFamilyName, "OpenDyslexic", sizeof(s.sdFontFamilyName) - 1);

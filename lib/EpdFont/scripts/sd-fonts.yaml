@@ -63,6 +63,35 @@ families:
       italic:     {url: "https://raw.githubusercontent.com/notofonts/NotoSerif-Italic/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-Italic.ttf"}
       bolditalic: {url: "https://raw.githubusercontent.com/notofonts/NotoSerif-Italic/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-BoldItalic.ttf"}
 
+  - name: NotoSerifArabic
+    description: "1-bit reading serif: Noto Serif (Latin/Cyrillic) with Noto Naskh Arabic fallback"
+    intervals: latin-ext,cyrillic,vietnamese,arabic
+    sizes: [12, 14, 16, 18]
+    monochrome: true
+    mono_threshold: 6
+    force_autohint: true
+    styles:
+      regular:
+        url: "https://raw.githubusercontent.com/notofonts/NotoSerif/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-Regular.ttf"
+        fallback:
+          url: "https://raw.githubusercontent.com/google/fonts/7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf"
+          variable: {wght: 500}
+      bold:
+        url: "https://raw.githubusercontent.com/notofonts/NotoSerif/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-Bold.ttf"
+        fallback:
+          url: "https://raw.githubusercontent.com/google/fonts/7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf"
+          variable: {wght: 700}
+      italic:
+        url: "https://raw.githubusercontent.com/notofonts/NotoSerif-Italic/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-Italic.ttf"
+        fallback:
+          url: "https://raw.githubusercontent.com/google/fonts/7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf"
+          variable: {wght: 500}
+      bolditalic:
+        url: "https://raw.githubusercontent.com/notofonts/NotoSerif-Italic/main/fonts/ttf/unhinted/instance_ttf/NotoSerif-BoldItalic.ttf"
+        fallback:
+          url: "https://raw.githubusercontent.com/google/fonts/7ff85c87f93ea6cca5f41c69f2e4edcb90240f26/ofl/notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf"
+          variable: {wght: 700}
+
   - name: Merriweather
     description: "Warm serif for long-form reading (Latin, Cyrillic)"
     intervals: latin-ext,cyrillic
@@ -241,4 +270,3 @@ families:
       bold:       {url: "https://raw.githubusercontent.com/jacobxperez/lexica-ultralegible/main/fonts/ttf/LexicaUltralegible-Bold.ttf"}
       italic:     {url: "https://raw.githubusercontent.com/jacobxperez/lexica-ultralegible/main/fonts/ttf/LexicaUltralegible-Italic.ttf"}
       bolditalic: {url: "https://raw.githubusercontent.com/jacobxperez/lexica-ultralegible/main/fonts/ttf/LexicaUltralegible-BoldItalic.ttf"}
-

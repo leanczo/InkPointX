@@ -7,6 +7,7 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncClient.h"
 #include "MappedInputManager.h"
+#include "util/SyncErrorStrings.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -43,7 +44,7 @@ void KOReaderAuthActivity::performAuthentication() {
       statusMessage = tr(STR_AUTH_SUCCESS);
     } else {
       state = FAILED;
-      errorMessage = KOReaderSyncClient::errorString(result);
+      errorMessage = syncErrorText(result);
     }
   }
   requestUpdate();
@@ -81,29 +82,53 @@ void KOReaderAuthActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_KOREADER_AUTH));
-  const auto height = renderer.getLineHeight(UI_10_FONT_ID);
-  const auto top = (pageHeight - height) / 2;
 
+  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+  const Rect messageArea{0, contentTop, pageWidth,
+                         pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - contentTop};
   if (state == AUTHENTICATING) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, statusMessage.c_str());
+    GUI.drawEmptyState(renderer, messageArea, statusMessage.c_str());
+    // No legend: the blocking TLS call cannot service any input, and a
+    // labelled dead button reads worse than an empty bar.
   } else if (state == SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_AUTH_SUCCESS), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height + 10, tr(STR_SYNC_READY));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_AUTH_SUCCESS), tr(STR_SYNC_READY), /*script=*/true);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_AUTH_FAILED), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height + 10, errorMessage.c_str());
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_AUTH_FAILED), errorMessage.c_str());
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
 
 void KOReaderAuthActivity::loop() {
-  if (state == SUCCESS || state == FAILED) {
+  if (state == SUCCESS) {
     if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
         mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       finish();
+    }
+  } else if (state == FAILED) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      finish();
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      // Retry without leaving the screen: reconnect if Wi-Fi dropped,
+      // otherwise re-run the authentication straight away.
+      if (WiFi.status() == WL_CONNECTED) {
+        {
+          RenderLock lock(*this);
+          state = AUTHENTICATING;
+          statusMessage = tr(STR_AUTHENTICATING);
+        }
+        requestUpdate();
+        performAuthentication();
+      } else {
+        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                               [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
+      }
     }
   }
 }
