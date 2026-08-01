@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 class OtaUpdater {
@@ -14,7 +15,12 @@ class OtaUpdater {
     UPDATE_OLDER_ERROR,
     INTERNAL_UPDATE_ERROR,
     OOM_ERROR,
+    STORAGE_ERROR,
+    INVALID_FIRMWARE_ERROR,
+    FLASH_ERROR,
   };
+
+  enum class Phase : uint8_t { IDLE, DOWNLOADING, VERIFYING, FLASHING };
 
   OtaUpdater() = default;
   bool isUpdateNewer() const;
@@ -31,13 +37,17 @@ class OtaUpdater {
 
   size_t getTotalSize() const { return totalSize; }
 
+  Phase getPhase() const { return phase; }
+
  private:
   bool updateAvailable = false;
   std::string latestVersion;
   std::string otaUrl;
+  std::string otaDigest;
   size_t otaSize = 0;
   size_t processedSize = 0;
   size_t totalSize = 0;
   int lastProgressPercent = -1;
   size_t lastProgressBytes = 0;
+  Phase phase = Phase::IDLE;
 };

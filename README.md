@@ -366,10 +366,11 @@ the OTA slot's limit.
 ## Releases and OTA
 
 Pushing a tag builds the universal `gh_release` image and publishes `firmware.bin`, X3/X4-labelled aliases, and
-SHA-256 checksums. The on-device
-updater reads `releases/latest` and looks for exactly that asset, so a tag is all it takes to reach existing
-devices. Version comparison is semantic — major, then minor, then patch — with release candidates treated as older
-than the final tag.
+SHA-256 checksums. The on-device updater reads `releases/latest` and looks for exactly that asset. It downloads to a
+temporary SD-card file, requires an exact size and GitHub release SHA-256 match, validates the complete ESP image,
+and only then writes the inactive OTA slot. Network operations retry three times; a failed download or validation
+never selects the candidate image. Version comparison is semantic — major, then minor, then patch — with release
+candidates treated as older than the final tag.
 
 ## Repository layout
 

@@ -1,5 +1,6 @@
 #include "OtaUpdateActivity.h"
 
+#include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <WiFi.h>
@@ -20,6 +21,12 @@ const char* OtaUpdateActivity::failureText(const int result) {
       return tr(STR_SYNC_ERR_NETWORK);
     case OtaUpdater::OOM_ERROR:
       return tr(STR_MEMORY_ERROR);
+    case OtaUpdater::STORAGE_ERROR:
+      return tr(STR_SD_CARD_ERROR);
+    case OtaUpdater::INVALID_FIRMWARE_ERROR:
+      return tr(STR_INVALID_FIRMWARE);
+    case OtaUpdater::FLASH_ERROR:
+      return tr(STR_FIRMWARE_WRITE_FAILED);
     case OtaUpdater::JSON_PARSE_ERROR:
     case OtaUpdater::UPDATE_OLDER_ERROR:
     case OtaUpdater::INTERNAL_UPDATE_ERROR:
@@ -42,6 +49,14 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
     state = CHECKING_FOR_UPDATE;
   }
   requestUpdateAndWait();
+
+  // The physical e-ink screen retains the checking state. Release decompressed
+  // UI glyphs before GitHub TLS allocates its working buffers; cache access is
+  // shared with the render task, so it must happen under the render lock.
+  {
+    RenderLock lock(*this);
+    if (auto* cache = renderer.getFontCacheManager()) cache->clearCache();
+  }
 
   const auto res = updater.checkForUpdate();
   if (res != OtaUpdater::OK) {
@@ -115,10 +130,12 @@ void OtaUpdateActivity::render(RenderLock&&) {
       updaterProgress = static_cast<float>(updater.getProcessedSize()) / static_cast<float>(totalSize);
     }
     const int updatePercent = static_cast<int>(updaterProgress * 100);
-    if (updatePercent == lastUpdaterPercentage) {
+    const OtaUpdater::Phase updatePhase = updater.getPhase();
+    if (updatePercent == lastUpdaterPercentage && updatePhase == lastUpdaterPhase) {
       return;
     }
     lastUpdaterPercentage = updatePercent;
+    lastUpdaterPhase = updatePhase;
   }
 
   if (state == CHECKING_FOR_UPDATE) {
@@ -133,7 +150,13 @@ void OtaUpdateActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_UPDATE), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == UPDATE_IN_PROGRESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING));
+    const char* phaseText = tr(STR_UPDATING);
+    if (updater.getPhase() == OtaUpdater::Phase::DOWNLOADING) {
+      phaseText = tr(STR_DOWNLOADING);
+    } else if (updater.getPhase() == OtaUpdater::Phase::VERIFYING) {
+      phaseText = tr(STR_VALIDATING_FIRMWARE);
+    }
+    renderer.drawCenteredText(UI_10_FONT_ID, top, phaseText);
 
     int y = top + height + metrics.verticalSpacing;
     GUI.drawProgressBar(
@@ -153,23 +176,21 @@ void OtaUpdateActivity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF), true, EpdFontFamily::BOLD);
   } else if (state == NO_UPDATE) {
     GUI.drawEmptyState(renderer,
-                       Rect{0, top, pageWidth,
-                            pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
+                       Rect{0, top, pageWidth, pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
                        tr(STR_NO_UPDATE), nullptr, /*script=*/true);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-    GUI.drawEmptyState(renderer,
-                       Rect{0, contentTop, pageWidth,
-                            pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - contentTop},
-                       tr(STR_UPDATE_FAILED), failureReason);
+    GUI.drawEmptyState(
+        renderer,
+        Rect{0, contentTop, pageWidth, pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - contentTop},
+        tr(STR_UPDATE_FAILED), failureReason);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
     GUI.drawEmptyState(renderer,
-                       Rect{0, top, pageWidth,
-                            pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
+                       Rect{0, top, pageWidth, pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
                        tr(STR_UPDATE_COMPLETE), tr(STR_POWER_ON_HINT), /*script=*/true);
   }
 
@@ -185,6 +206,13 @@ void OtaUpdateActivity::loop() {
         state = UPDATE_IN_PROGRESS;
       }
       requestUpdateAndWait();
+
+      // Keep the already-rendered update screen on the panel while freeing
+      // font caches that would otherwise compete with TLS for contiguous heap.
+      {
+        RenderLock lock(*this);
+        if (auto* cache = renderer.getFontCacheManager()) cache->clearCache();
+      }
       const auto res = updater.installUpdate(
           [](void* ctx) {
             // immediate=true notifies the render task directly. The default deferred path only

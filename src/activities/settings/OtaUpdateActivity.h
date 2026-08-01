@@ -22,6 +22,7 @@ class OtaUpdateActivity : public Activity {
   const char* failureReason = nullptr;
   static const char* failureText(int result);
   int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
+  OtaUpdater::Phase lastUpdaterPhase = OtaUpdater::Phase::IDLE;
   OtaUpdater updater;
 
   void onWifiSelectionComplete(bool success);

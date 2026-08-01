@@ -19,6 +19,7 @@ class ReleaseJsonParser {
   bool foundFirmware() const;
   const char* getTagName() const;
   const char* getFirmwareUrl() const;
+  const char* getFirmwareDigest() const;
   size_t getFirmwareSize() const;
 
  private:
@@ -34,6 +35,7 @@ class ReleaseJsonParser {
     ASSETS,
     ASSET_NAME,
     ASSET_URL,
+    ASSET_DIGEST,
     ASSET_SIZE,
   };
 
@@ -58,11 +60,13 @@ class ReleaseJsonParser {
 
   char tagName[32];
   char firmwareUrl[512];
+  char firmwareDigest[80];
   size_t firmwareSize;
   bool tagFound;
   bool firmwareFound;
 
   char currentAssetName[32];
   char currentAssetUrl[512];
+  char currentAssetDigest[80];
   size_t currentAssetSize;
 };

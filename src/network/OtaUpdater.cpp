@@ -1,27 +1,149 @@
 #include "OtaUpdater.h"
 
-// clang-format off
-// HttpDownloader.h pulls Arduino/SdFat, whose macros collide with lwip's
-// ip4_addr.h unless seen before esp_http_client (which includes lwip). Pin this
-// order; clang-format would otherwise sort the local header last and break the
-// build.
-#include "HttpDownloader.h"
+#include <Arduino.h>
+#include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <ReleaseJsonParser.h>
-#include <esp_crt_bundle.h>
-#include <esp_http_client.h>
-#include <esp_https_ota.h>
 #include <esp_task_wdt.h>
 #include <esp_wifi.h>
-#include "FirmwareFlasher.h"
-// clang-format on
+#include <mbedtls/sha256.h>
 
+#include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <string>
+
+#include "FirmwareFlasher.h"
+#include "HttpDownloader.h"
 
 namespace {
 constexpr char latestReleaseUrl[] = "https://api.github.com/repos/yokki-vans/inkpointx/releases/latest";
 constexpr char otaStagingPath[] = "/.ota_update.bin";
+constexpr int NETWORK_ATTEMPTS = 3;
+constexpr unsigned long RETRY_DELAY_MS = 750;
+constexpr size_t HASH_CHUNK_SIZE = 4096;
+constexpr size_t MIN_TLS_FREE_HEAP = 64 * 1024;
+constexpr size_t MIN_TLS_LARGEST_BLOCK = 32 * 1024;
+constexpr int PROGRESS_STEP_PERCENT = 5;
+
+class WifiPowerSaveGuard {
+ public:
+  WifiPowerSaveGuard() {
+    restore_ = esp_wifi_set_ps(WIFI_PS_NONE) == ESP_OK;
+    if (!restore_) LOG_ERR("OTA", "Failed to disable Wi-Fi power save");
+  }
+  WifiPowerSaveGuard(const WifiPowerSaveGuard&) = delete;
+  WifiPowerSaveGuard& operator=(const WifiPowerSaveGuard&) = delete;
+  ~WifiPowerSaveGuard() {
+    if (restore_ && esp_wifi_set_ps(WIFI_PS_MIN_MODEM) != ESP_OK) {
+      LOG_ERR("OTA", "Failed to restore Wi-Fi power save");
+    }
+  }
+
+ private:
+  bool restore_ = false;
+};
+
+bool hasTlsHeadroom() {
+  const size_t freeHeap = ESP.getFreeHeap();
+  const size_t largestBlock = ESP.getMaxAllocHeap();
+  LOG_INF("OTA", "TLS preflight: free=%u largest=%u", static_cast<unsigned>(freeHeap),
+          static_cast<unsigned>(largestBlock));
+  return freeHeap >= MIN_TLS_FREE_HEAP && largestBlock >= MIN_TLS_LARGEST_BLOCK;
+}
+
+void waitBeforeRetry(const int attempt) {
+  esp_task_wdt_reset();
+  delay(RETRY_DELAY_MS * static_cast<unsigned long>(attempt));
+}
+
+bool parseSha256Digest(const char* digest, uint8_t (&expected)[32]) {
+  constexpr char prefix[] = "sha256:";
+  if (!digest || strncmp(digest, prefix, sizeof(prefix) - 1) != 0 || strlen(digest) != 71) return false;
+
+  const auto hexNibble = [](const char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+
+  const char* hex = digest + sizeof(prefix) - 1;
+  for (size_t i = 0; i < sizeof(expected); ++i) {
+    const int high = hexNibble(hex[i * 2]);
+    const int low = hexNibble(hex[i * 2 + 1]);
+    if (high < 0 || low < 0) return false;
+    expected[i] = static_cast<uint8_t>((high << 4) | low);
+  }
+  return true;
+}
+
+enum class DigestResult { OK, BAD_EXPECTED_DIGEST, OPEN_FAILED, READ_FAILED, OOM, MISMATCH };
+
+OtaUpdater::OtaUpdaterError mapFlashResult(const firmware_flash::Result result) {
+  switch (result) {
+    case firmware_flash::Result::OK:
+      return OtaUpdater::OK;
+    case firmware_flash::Result::OPEN_FAIL:
+    case firmware_flash::Result::READ_FAIL:
+      return OtaUpdater::STORAGE_ERROR;
+    case firmware_flash::Result::TOO_SMALL:
+    case firmware_flash::Result::TOO_LARGE:
+    case firmware_flash::Result::BAD_MAGIC:
+    case firmware_flash::Result::BAD_SEGMENTS:
+    case firmware_flash::Result::BAD_CHECKSUM:
+    case firmware_flash::Result::BAD_SHA:
+    case firmware_flash::Result::BAD_SIZE:
+      return OtaUpdater::INVALID_FIRMWARE_ERROR;
+    case firmware_flash::Result::OOM:
+      return OtaUpdater::OOM_ERROR;
+    case firmware_flash::Result::NO_PARTITION:
+    case firmware_flash::Result::ERASE_FAIL:
+    case firmware_flash::Result::WRITE_FAIL:
+    case firmware_flash::Result::OTADATA_FAIL:
+      return OtaUpdater::FLASH_ERROR;
+  }
+  return OtaUpdater::FLASH_ERROR;
+}
+
+DigestResult verifyReleaseDigest(const char* path, const char* digest) {
+  uint8_t expected[32];
+  if (!parseSha256Digest(digest, expected)) return DigestResult::BAD_EXPECTED_DIGEST;
+
+  HalFile file;
+  if (!Storage.openFileForRead("OTA", path, file) || !file) return DigestResult::OPEN_FAILED;
+
+  auto buffer = makeUniqueNoThrow<uint8_t[]>(HASH_CHUNK_SIZE);
+  if (!buffer) {
+    file.close();
+    return DigestResult::OOM;
+  }
+
+  mbedtls_sha256_context sha;
+  mbedtls_sha256_init(&sha);
+  mbedtls_sha256_starts(&sha, /*is224=*/0);
+
+  size_t remaining = file.fileSize();
+  while (remaining > 0) {
+    esp_task_wdt_reset();
+    const size_t requested = std::min(HASH_CHUNK_SIZE, remaining);
+    const int read = file.read(buffer.get(), requested);
+    if (read <= 0 || static_cast<size_t>(read) != requested) {
+      mbedtls_sha256_free(&sha);
+      file.close();
+      return DigestResult::READ_FAILED;
+    }
+    mbedtls_sha256_update(&sha, buffer.get(), requested);
+    remaining -= requested;
+  }
+
+  uint8_t actual[32];
+  mbedtls_sha256_finish(&sha, actual);
+  mbedtls_sha256_free(&sha);
+  file.close();
+  return memcmp(actual, expected, sizeof(actual)) == 0 ? DigestResult::OK : DigestResult::MISMATCH;
+}
 
 struct FlashProgressContext {
   OtaUpdater* updater = nullptr;
@@ -35,75 +157,6 @@ void onFlashProgress(size_t processed, size_t total, void* context) {
     return;
   }
   flashContext->updater->setProgress(processed, total, flashContext->onProgress, flashContext->callbackContext);
-}
-
-OtaUpdater::OtaUpdaterError performDirectHttpOta(const std::string& otaUrl, OtaUpdater::ProgressCallback onProgress, void* ctx,
-                                                  OtaUpdater* updater) {
-  esp_https_ota_handle_t ota_handle = NULL;
-  esp_err_t esp_err;
-
-  esp_http_client_config_t client_config = {
-      .url = otaUrl.c_str(),
-      .timeout_ms = 60000,
-      .buffer_size = 4096,
-      .buffer_size_tx = 1024,
-      // The CN/SAN check stays on: this stream is written straight to the OTA
-      // partition with no image signature to fall back on, so accepting any
-      // publicly-trusted certificate would let a spoofed host flash the device.
-      .crt_bundle_attach = esp_crt_bundle_attach,
-      .keep_alive_enable = true,
-  };
-
-  http_client_init_cb_t setUa = +[](esp_http_client_handle_t client) -> esp_err_t {
-    return esp_http_client_set_header(client, "User-Agent", "InkPoint-ESP32-" CROSSPOINT_VERSION);
-  };
-
-  esp_https_ota_config_t ota_config = {
-      .http_config = &client_config,
-      .http_client_init_cb = setUa,
-  };
-
-  esp_err = esp_https_ota_begin(&ota_config, &ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_DBG("OTA", "HTTP OTA Begin Failed: %s", esp_err_to_name(esp_err));
-    return OtaUpdater::INTERNAL_UPDATE_ERROR;
-  }
-
-  do {
-    // installUpdate() runs on the loop task and blocks it for the whole
-    // transfer, and the loop task is the one subscribed to the task watchdog.
-    // A 5.9 MB image over a weak link takes longer than the 300 s timeout, so
-    // without this feed the watchdog panics mid-flash — the update fails
-    // exactly on the connections that need the most patience. The staged SD
-    // path already feeds from HttpDownloader and FirmwareFlasher.
-    esp_task_wdt_reset();
-    esp_err = esp_https_ota_perform(ota_handle);
-    if (updater) {
-      updater->setProgress(esp_https_ota_get_image_len_read(ota_handle), updater->getTotalSize(), onProgress, ctx);
-    }
-    delay(1);
-  } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
-
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
-    return OtaUpdater::HTTP_ERROR;
-  }
-
-  if (!esp_https_ota_is_complete_data_received(ota_handle)) {
-    LOG_ERR("OTA", "esp_https_ota_is_complete_data_received Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
-    return OtaUpdater::INTERNAL_UPDATE_ERROR;
-  }
-
-  esp_err = esp_https_ota_finish(ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_finish Failed: %s", esp_err_to_name(esp_err));
-    return OtaUpdater::INTERNAL_UPDATE_ERROR;
-  }
-
-  LOG_INF("OTA", "OTA update completed (direct)");
-  return OtaUpdater::OK;
 }
 
 bool parseVersion(const char* version, int& major, int& minor, int& patch) {
@@ -184,8 +237,9 @@ void OtaUpdater::setProgress(const size_t processed, const size_t total, const P
     return;
   }
 
-  const int pct = (processed * 100) / total;
-  if (pct == lastProgressPercent) {
+  const int pct = static_cast<int>(std::min<size_t>(100, (processed * 100) / total));
+  if (pct == lastProgressPercent ||
+      (pct != 100 && lastProgressPercent >= 0 && pct - lastProgressPercent < PROGRESS_STEP_PERCENT)) {
     return;
   }
 
@@ -198,43 +252,73 @@ void OtaUpdater::setProgress(const size_t processed, const size_t total, const P
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   LOG_DBG("OTA", "Checking for update (current: %s)", CROSSPOINT_VERSION);
 
-  // Stream the ~32KB release JSON straight into the parser as it arrives.
-  // Buffering the whole body in a std::string would add a growing allocation
-  // on top of the TLS session's heap during the fetch; with -fno-exceptions an
-  // OOM there aborts. fetchUrl handles the verified-https GET, redirects, and
-  // User-Agent (see HttpDownloader).
-  ReleaseJsonParser releaseParser;
-  const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&releaseParser](const uint8_t* data, size_t len) {
-    releaseParser.feed(reinterpret_cast<const char*>(data), len);
-    return true;
-  });
-  if (!ok) {
-    LOG_ERR("OTA", "Release check fetch failed");
-    return HTTP_ERROR;
+  updateAvailable = false;
+  latestVersion.clear();
+  otaUrl.clear();
+  otaDigest.clear();
+  otaSize = 0;
+  processedSize = 0;
+  totalSize = 0;
+  phase = Phase::IDLE;
+
+  WifiPowerSaveGuard powerSaveGuard;
+  OtaUpdaterError lastError = HTTP_ERROR;
+
+  // Stream the release JSON directly into the parser to avoid a second
+  // response-sized allocation while TLS is active. A transient DNS/TLS/API
+  // failure gets three fresh clients before we report a network error.
+  for (int attempt = 1; attempt <= NETWORK_ATTEMPTS; ++attempt) {
+    if (!hasTlsHeadroom()) {
+      LOG_ERR("OTA", "Not enough contiguous heap for release check");
+      return OOM_ERROR;
+    }
+
+    ReleaseJsonParser releaseParser;
+    const bool fetched =
+        HttpDownloader::fetchUrl(latestReleaseUrl, [&releaseParser](const uint8_t* data, const size_t len) {
+          releaseParser.feed(reinterpret_cast<const char*>(data), len);
+          return true;
+        });
+    if (!fetched) {
+      LOG_ERR("OTA", "Release check attempt %d/%d failed", attempt, NETWORK_ATTEMPTS);
+      lastError = HTTP_ERROR;
+    } else if (!releaseParser.foundTag()) {
+      LOG_ERR("OTA", "Release response has no tag_name (attempt %d/%d)", attempt, NETWORK_ATTEMPTS);
+      lastError = JSON_PARSE_ERROR;
+    } else if (!releaseParser.foundFirmware()) {
+      // A tag becomes the latest release just before CI finishes uploading
+      // all assets. Retry this short publication window instead of telling a
+      // device that no update exists.
+      LOG_ERR("OTA", "Release has no firmware.bin asset (attempt %d/%d)", attempt, NETWORK_ATTEMPTS);
+      lastError = NO_UPDATE;
+    } else {
+      uint8_t expectedDigest[32];
+      const char* firmwareUrl = releaseParser.getFirmwareUrl();
+      const char* firmwareDigest = releaseParser.getFirmwareDigest();
+      const size_t firmwareSize = releaseParser.getFirmwareSize();
+      if (!firmwareUrl[0] || firmwareSize == 0 || !parseSha256Digest(firmwareDigest, expectedDigest)) {
+        LOG_ERR("OTA", "Release firmware metadata is incomplete (url=%s size=%u digest=%s)",
+                firmwareUrl[0] ? "yes" : "no", static_cast<unsigned>(firmwareSize),
+                firmwareDigest[0] ? "invalid" : "missing");
+        lastError = JSON_PARSE_ERROR;
+      } else {
+        latestVersion = releaseParser.getTagName();
+        otaUrl = firmwareUrl;
+        otaDigest = firmwareDigest;
+        otaSize = firmwareSize;
+        totalSize = otaSize;
+        updateAvailable = true;
+
+        LOG_INF("OTA", "Found update: tag=%s size=%u digest=%s", latestVersion.c_str(), static_cast<unsigned>(otaSize),
+                otaDigest.c_str());
+        return OK;
+      }
+    }
+
+    if (attempt < NETWORK_ATTEMPTS) waitBeforeRetry(attempt);
   }
 
-  LOG_DBG("OTA", "Parser results: tag=%s firmware=%s", releaseParser.foundTag() ? "yes" : "no",
-          releaseParser.foundFirmware() ? "yes" : "no");
-
-  if (!releaseParser.foundTag()) {
-    LOG_ERR("OTA", "No tag_name in release JSON");
-    return JSON_PARSE_ERROR;
-  }
-
-  if (!releaseParser.foundFirmware()) {
-    LOG_ERR("OTA", "No firmware.bin asset found");
-    return NO_UPDATE;
-  }
-
-  latestVersion = releaseParser.getTagName();
-  otaUrl = releaseParser.getFirmwareUrl();
-  otaSize = releaseParser.getFirmwareSize();
-  totalSize = otaSize;
-  updateAvailable = true;
-
-  LOG_DBG("OTA", "Found update: tag=%s size=%zu", latestVersion.c_str(), otaSize);
-  LOG_DBG("OTA", "Firmware URL: %s", otaUrl.c_str());
-  return OK;
+  return lastError;
 }
 
 bool OtaUpdater::isUpdateNewer() const {
@@ -290,77 +374,91 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return UPDATE_OLDER_ERROR;
   }
 
-  resetProgress();
-  const auto restorePowerSave = []() { esp_wifi_set_ps(WIFI_PS_MIN_MODEM); };
-  if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) {
-    LOG_ERR("OTA", "Failed to disable Wi-Fi power save for update");
-  }
-
-  setProgress(0, totalSize, onProgress, ctx);
-  const bool canStage = Storage.ready();
-
-  const auto directUpdate = [&]() {
-    const auto result = performDirectHttpOta(otaUrl, onProgress, ctx, this);
-    if (result != OtaUpdater::OK) {
-      LOG_ERR("OTA", "Direct OTA update failed");
+  const auto removeStagingFile = []() {
+    if (Storage.exists(otaStagingPath) && !Storage.remove(otaStagingPath)) {
+      LOG_ERR("OTA", "Failed to remove staging file");
     }
-    return result;
   };
 
-  if (!canStage) {
-    LOG_DBG("OTA", "Storage not ready, using direct OTA path only");
-    const auto fallbackResult = directUpdate();
-    restorePowerSave();
-    return fallbackResult;
+  if (!Storage.ready()) {
+    LOG_ERR("OTA", "SD storage is required for crash-safe OTA");
+    return STORAGE_ERROR;
   }
 
-  const auto directResult = directUpdate();
-  if (directResult == OtaUpdater::OK) {
-    restorePowerSave();
-    return directResult;
+  removeStagingFile();
+  WifiPowerSaveGuard powerSaveGuard;
+
+  phase = Phase::DOWNLOADING;
+  HttpDownloader::DownloadError downloadResult = HttpDownloader::HTTP_ERROR;
+  for (int attempt = 1; attempt <= NETWORK_ATTEMPTS; ++attempt) {
+    if (!hasTlsHeadroom()) {
+      removeStagingFile();
+      return OOM_ERROR;
+    }
+
+    resetProgress();
+    // The update screen is already physically visible. Do not invoke the
+    // render callback at 0%: rehydrating the just-cleared font cache before
+    // the TLS handshake would give back the contiguous heap we freed for it.
+    setProgress(0, otaSize, nullptr, nullptr);
+    downloadResult = HttpDownloader::downloadToFile(
+        otaUrl, otaStagingPath, [this, onProgress, ctx](const size_t downloaded, size_t /*reportedTotal*/) {
+          // The GitHub API asset size is trusted only after its release digest
+          // validates, but it is stable and avoids a redirected CDN reporting
+          // an unknown/chunked total that makes progress jump backwards.
+          setProgress(downloaded, otaSize, onProgress, ctx);
+        });
+    if (downloadResult == HttpDownloader::OK) break;
+
+    LOG_ERR("OTA", "Firmware download attempt %d/%d failed: %d", attempt, NETWORK_ATTEMPTS, downloadResult);
+    removeStagingFile();
+    if (downloadResult == HttpDownloader::FILE_ERROR) return STORAGE_ERROR;
+    if (attempt < NETWORK_ATTEMPTS) waitBeforeRetry(attempt);
+  }
+  if (downloadResult != HttpDownloader::OK) return HTTP_ERROR;
+
+  HalFile stagedFile;
+  if (!Storage.openFileForRead("OTA", otaStagingPath, stagedFile) || !stagedFile) {
+    removeStagingFile();
+    return STORAGE_ERROR;
+  }
+  const size_t stagedSize = stagedFile.fileSize();
+  stagedFile.close();
+  if (stagedSize != otaSize) {
+    LOG_ERR("OTA", "Downloaded size mismatch: got=%u expected=%u", static_cast<unsigned>(stagedSize),
+            static_cast<unsigned>(otaSize));
+    removeStagingFile();
+    return INVALID_FIRMWARE_ERROR;
   }
 
-  LOG_DBG("OTA", "Direct OTA path failed, trying staging path");
-
-  if (Storage.exists(otaStagingPath)) {
-    Storage.remove(otaStagingPath);
+  phase = Phase::VERIFYING;
+  resetProgress();
+  setProgress(0, otaSize, onProgress, ctx);
+  const DigestResult digestResult = verifyReleaseDigest(otaStagingPath, otaDigest.c_str());
+  if (digestResult != DigestResult::OK) {
+    LOG_ERR("OTA", "Release SHA-256 verification failed: %d", static_cast<int>(digestResult));
+    removeStagingFile();
+    if (digestResult == DigestResult::OOM) return OOM_ERROR;
+    if (digestResult == DigestResult::OPEN_FAILED || digestResult == DigestResult::READ_FAILED) return STORAGE_ERROR;
+    return INVALID_FIRMWARE_ERROR;
   }
+  setProgress(otaSize, otaSize, onProgress, ctx);
 
-  auto onDownloadProgress = [this, onProgress, ctx](size_t downloaded, size_t total) {
-    setProgress(downloaded, total, onProgress, ctx);
-  };
-
-  if (HttpDownloader::downloadToFile(otaUrl, otaStagingPath, onDownloadProgress) != HttpDownloader::OK) {
-    LOG_ERR("OTA", "OTA firmware download failed");
-    Storage.remove(otaStagingPath);
-    LOG_DBG("OTA", "Falling back to direct OTA path");
-    const auto fallbackResult = directUpdate();
-    restorePowerSave();
-    return fallbackResult;
-  }
-
+  phase = Phase::FLASHING;
+  resetProgress();
+  setProgress(0, otaSize, onProgress, ctx);
   FlashProgressContext flashContext{this, onProgress, ctx};
-  const auto flashResult = firmware_flash::flashFromSdPath(otaStagingPath, onFlashProgress, &flashContext);
-
+  const firmware_flash::Result flashResult =
+      firmware_flash::flashFromSdPath(otaStagingPath, onFlashProgress, &flashContext);
   if (flashResult != firmware_flash::Result::OK) {
     LOG_ERR("OTA", "Firmware flash failed: %s", firmware_flash::resultName(flashResult));
-    Storage.remove(otaStagingPath);
-    LOG_DBG("OTA", "Falling back to direct OTA path after staging flash failure");
-    const auto fallbackAfterFlash = directUpdate();
-    restorePowerSave();
-    return fallbackAfterFlash;
+    removeStagingFile();
+    return mapFlashResult(flashResult);
   }
 
-  if (!Storage.remove(otaStagingPath)) {
-    LOG_DBG("OTA", "Failed to remove staging OTA file");
-  }
-
-  if (onProgress) {
-    processedSize = totalSize;
-    onProgress(ctx);
-  }
-
-  LOG_INF("OTA", "OTA update staging and flash completed");
-  restorePowerSave();
+  removeStagingFile();
+  setProgress(otaSize, otaSize, onProgress, ctx);
+  phase = Phase::IDLE;
+  LOG_INF("OTA", "Staged OTA verified and installed successfully");
   return OK;
 }

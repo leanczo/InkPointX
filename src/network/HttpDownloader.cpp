@@ -6,11 +6,11 @@
 #include <base64.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
+#include <esp_task_wdt.h>
 
 #include <cstring>
 #include <functional>
 #include <string>
-#include <esp_task_wdt.h>
 
 namespace {
 // RX holds the response headers. 4096 fits real OPDS servers; GitHub's release
@@ -26,6 +26,14 @@ constexpr int HTTP_TX_BUF = 1024;
 // HTTPClient's uint16 setTimeout it doesn't silently truncate.
 constexpr int HTTP_TIMEOUT_MS = 60000;
 constexpr size_t READ_CHUNK = 2048;
+// ESP-IDF builds response header keys/values (and especially Location) with
+// realloc inside fetch_headers(). With assertions enabled, a late allocation
+// failure aborts the whole device instead of returning ESP_ERR_NO_MEM. Hold a
+// contiguous block through the TLS handshake, then release it immediately
+// before header parsing. If the block or TLS cannot be allocated together we
+// fail the request cleanly; after a successful handshake the parser has a
+// known reserve for GitHub's redirect and CDN headers.
+constexpr size_t RESPONSE_HEADER_RESERVE = 12 * 1024;
 
 struct Sink {
   std::function<bool(const uint8_t*, size_t)> write;  // returns false to abort the transfer
@@ -77,24 +85,48 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
   // open()/read() does not auto-follow redirects (only perform() does), so step
   // 30x responses manually. OPDS download endpoints and the GitHub release CDN
   // both redirect.
-  esp_err_t err = esp_http_client_open(client, 0);
-  if (err != ESP_OK) {
-    LOG_ERR("HTTP", "open failed: %s", esp_err_to_name(err));
+  auto openAndFetchHeaders = [client](int64_t& contentLength, int& status) {
+    auto headerReserve = makeUniqueNoThrow<uint8_t[]>(RESPONSE_HEADER_RESERVE);
+    if (!headerReserve) {
+      LOG_ERR("HTTP", "OOM: %u byte response-header reserve", static_cast<unsigned>(RESPONSE_HEADER_RESERVE));
+      return false;
+    }
+
+    const esp_err_t openResult = esp_http_client_open(client, 0);
+    if (openResult != ESP_OK) {
+      LOG_ERR("HTTP", "open failed: %s", esp_err_to_name(openResult));
+      return false;
+    }
+
+    // See RESPONSE_HEADER_RESERVE above. No OTA progress render can run before
+    // fetch_headers() returns, so this contiguous region stays available to
+    // the ESP-IDF parser during the exact allocation window that used to abort.
+    headerReserve.reset();
+    contentLength = esp_http_client_fetch_headers(client);
+    status = esp_http_client_get_status_code(client);
+    if (contentLength < 0 || status <= 0) {
+      LOG_ERR("HTTP", "response header fetch failed");
+      return false;
+    }
+    return true;
+  };
+
+  int64_t contentLength = 0;
+  int status = 0;
+  if (!openAndFetchHeaders(contentLength, status)) {
     esp_http_client_cleanup(client);
     return HttpDownloader::HTTP_ERROR;
   }
-  int64_t contentLength = esp_http_client_fetch_headers(client);
-  int status = esp_http_client_get_status_code(client);
   for (int hop = 0; isRedirect(status) && hop < 5; ++hop) {
+    // Always close the 30x response before changing URL. This also discards a
+    // redirect body instead of asking the next request to reuse a connection
+    // with unread bytes.
+    esp_http_client_close(client);
     if (esp_http_client_set_redirection(client) != ESP_OK) break;
-    err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-      LOG_ERR("HTTP", "redirect open failed: %s", esp_err_to_name(err));
+    if (!openAndFetchHeaders(contentLength, status)) {
       esp_http_client_cleanup(client);
       return HttpDownloader::HTTP_ERROR;
     }
-    contentLength = esp_http_client_fetch_headers(client);
-    status = esp_http_client_get_status_code(client);
   }
 
   if (status != 200) {
