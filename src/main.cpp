@@ -190,6 +190,7 @@ void applyInterfaceFont() {
   renderer.removeFont(UI_14_FONT_ID);
   renderer.removeFont(UI_16_FONT_ID);
   renderer.removeFont(UI_18_FONT_ID);
+  renderer.removeFont(SCRIPT_FONT_ID);
   if (renderer.getFontCacheManager()) renderer.getFontCacheManager()->clearCache();
 
   // The UI_nn identifiers are slot names, not pixel sizes. The whole scale sits one
@@ -204,13 +205,38 @@ void applyInterfaceFont() {
   // The whole scale sits one step below the previous build (user request):
   // captions 12->10, labels 14->12, row titles 16->14, headings and book
   // titles 18->16. MICRO keeps 8. The 18 pt family is no longer linked.
-  renderer.insertFont(MICRO_FONT_ID, ui8FontFamily);   // 8 px  — keyboard only
-  renderer.insertFont(SMALL_FONT_ID, ui10FontFamily);  // 10 px — legends, captions
-  renderer.insertFont(UI_10_FONT_ID, ui12FontFamily);  // 12 px — labels, values
-  renderer.insertFont(UI_12_FONT_ID, ui14FontFamily);  // 14 px — list row titles
-  renderer.insertFont(UI_14_FONT_ID, ui16FontFamily);  // 16 px — book titles
-  renderer.insertFont(UI_16_FONT_ID, ui16FontFamily);  // 16 px
-  renderer.insertFont(UI_18_FONT_ID, ui16FontFamily);  // 16 px
+  // A family on the card can stand in for the whole scale. Each slot takes the
+  // closest size it ships, and every slot it cannot cover keeps the built-in
+  // face — a card font with only two sizes is still usable, and a card that
+  // was pulled out falls back to a complete interface rather than a blank one.
+  static constexpr SdCardFontSystem::InterfaceSlot uiSlots[] = {
+      {MICRO_FONT_ID, 8, 2},  {SMALL_FONT_ID, 10, 2}, {UI_10_FONT_ID, 12, 2}, {UI_12_FONT_ID, 14, 2},
+      {UI_14_FONT_ID, 16, 2}, {UI_16_FONT_ID, 16, 2}, {UI_18_FONT_ID, 16, 2},
+  };
+  static constexpr SdCardFontSystem::InterfaceSlot accentSlot[] = {{SCRIPT_FONT_ID, 20, 6}};
+
+  sdFontSystem.unloadInterfaceFaces(renderer);
+  if (SETTINGS.uiSdFontFamilyName[0] != '\0') {
+    sdFontSystem.loadInterfaceFaces(SETTINGS.uiSdFontFamilyName, renderer, uiSlots, std::size(uiSlots));
+  }
+  if (SETTINGS.scriptSdFontFamilyName[0] != '\0') {
+    sdFontSystem.loadInterfaceFaces(SETTINGS.scriptSdFontFamilyName, renderer, accentSlot, std::size(accentSlot));
+  }
+
+  const auto fillSlot = [](const int fontId, const EpdFontFamily& family) {
+    if (renderer.getFontMap().count(fontId) == 0) renderer.insertFont(fontId, family);
+  };
+  fillSlot(MICRO_FONT_ID, ui8FontFamily);   // 8 pt  — keyboard, captions
+  fillSlot(SMALL_FONT_ID, ui10FontFamily);  // 10 pt — legends
+  fillSlot(UI_10_FONT_ID, ui12FontFamily);  // 12 pt — labels, values
+  fillSlot(UI_12_FONT_ID, ui14FontFamily);  // 14 pt — list row titles
+  fillSlot(UI_14_FONT_ID, ui16FontFamily);  // 16 pt — book titles
+  fillSlot(UI_16_FONT_ID, ui16FontFamily);
+  fillSlot(UI_18_FONT_ID, ui16FontFamily);
+  fillSlot(SCRIPT_FONT_ID, uiScriptFontFamily);  // the handwritten accent
+  LOG_DBG("MAIN", "Interface slots: script sd=%d asc=%d | rows sd=%d asc=%d",
+          (int)renderer.isSdCardFont(SCRIPT_FONT_ID), renderer.getFontAscenderSize(SCRIPT_FONT_ID),
+          (int)renderer.isSdCardFont(UI_12_FONT_ID), renderer.getFontAscenderSize(UI_12_FONT_ID));
 }
 
 void silentRestart() {
@@ -335,12 +361,14 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(NOTOSANS_16_FONT_ID, notosans16FontFamily);
   renderer.insertFont(NOTOSANS_18_FONT_ID, notosans18FontFamily);
 #endif  // OMIT_FONTS
-  applyInterfaceFont();
-  renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 16 px semibold
-  renderer.insertFont(SCRIPT_FONT_ID, uiScriptFontFamily);  // 20 px handwritten — Home author line
-
-  // Discover and load SD card fonts
+  // Before applyInterfaceFont(): the interface can be drawn in a face from the
+  // card, and it can only be bound once the registry knows the card's families.
+  // The other way round the whole UI silently fell back to the built-in face
+  // for the rest of the session, however the user had set it.
   sdFontSystem.begin(renderer);
+
+  applyInterfaceFont();
+  renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 16 pt semibold
 
   LOG_DBG("MAIN", "Fonts setup");
 }
@@ -622,6 +650,28 @@ void loop() {
         logSerial.flush();
         logSerial.setTxTimeoutMs(1);
 #if LOG_LEVEL >= 2
+      } else if (cmd.startsWith("PROFILE_UIFONT")) {
+        // CMD:PROFILE_UIFONT[:Family] — bind the interface to a card family
+        // (no argument returns to the built-in face). Buttons cannot be
+        // pressed over serial, and this is the only way to exercise the whole
+        // path: registry lookup, face load, slot binding, repaint.
+        const int sep = cmd.indexOf(':');
+        const String family = sep < 0 ? String() : cmd.substring(sep + 1);
+        strncpy(SETTINGS.uiSdFontFamilyName, family.c_str(), CrossPointSettings::SD_FONT_NAME_MAX - 1);
+        SETTINGS.uiSdFontFamilyName[CrossPointSettings::SD_FONT_NAME_MAX - 1] = '\0';
+        applyInterfaceFont();
+        SETTINGS.saveToFile();  // as the picker does, so a sleep-wake keeps it
+        LOG_INF("MAIN", "Profile route: interface font = '%s'", SETTINGS.uiSdFontFamilyName);
+        activityManager.goHome();
+      } else if (cmd.startsWith("PROFILE_ACCENTFONT")) {
+        const int sep = cmd.indexOf(':');
+        const String family = sep < 0 ? String() : cmd.substring(sep + 1);
+        strncpy(SETTINGS.scriptSdFontFamilyName, family.c_str(), CrossPointSettings::SD_FONT_NAME_MAX - 1);
+        SETTINGS.scriptSdFontFamilyName[CrossPointSettings::SD_FONT_NAME_MAX - 1] = '\0';
+        applyInterfaceFont();
+        SETTINGS.saveToFile();  // as the picker does, so a sleep-wake keeps it
+        LOG_INF("MAIN", "Profile route: accent font = '%s'", SETTINGS.scriptSdFontFamilyName);
+        activityManager.goHome();
       } else if (cmd == "PROFILE_SLEEP") {
         // Drives the power button's sleep path end to end without a finger on
         // the button: the teardown, the sleep frame, the panel shutdown and

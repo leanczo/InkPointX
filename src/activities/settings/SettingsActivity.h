@@ -24,6 +24,7 @@ enum class SettingAction {
   SdFirmwareUpdate,
   Language,
   InterfaceFont,
+  AccentFont,
   DownloadFonts,
   SelectSleepImage,
   BrowseOPDS,

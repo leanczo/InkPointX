@@ -83,7 +83,10 @@ void SettingsActivity::rebuildSettingsLists() {
     }
   }
 
-  // Interface
+  // Interface. Inserted before the interface-font row so it lands after it:
+  // the accent face is chosen the same way, from the same list.
+  interfaceSettings.insert(interfaceSettings.begin(),
+                           SettingInfo::Action(StrId::STR_ACCENT_FONT, SettingAction::AccentFont));
   interfaceSettings.insert(interfaceSettings.begin(),
                            SettingInfo::Action(StrId::STR_INTERFACE_FONT, SettingAction::InterfaceFont));
   interfaceSettings.insert(interfaceSettings.begin(),
@@ -287,7 +290,16 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::InterfaceFont:
-        startActivityForResult(std::make_unique<InterfaceFontSelectActivity>(renderer, mappedInput),
+        startActivityForResult(std::make_unique<InterfaceFontSelectActivity>(
+                                   renderer, mappedInput, InterfaceFontSelectActivity::Target::Interface),
+                               [this](const ActivityResult&) {
+                                 SETTINGS.saveToFile();
+                                 rebuildSettingsLists();
+                               });
+        break;
+      case SettingAction::AccentFont:
+        startActivityForResult(std::make_unique<InterfaceFontSelectActivity>(
+                                   renderer, mappedInput, InterfaceFontSelectActivity::Target::Accent),
                                [this](const ActivityResult&) {
                                  SETTINGS.saveToFile();
                                  rebuildSettingsLists();

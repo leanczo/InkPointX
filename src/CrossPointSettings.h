@@ -272,7 +272,13 @@ class CrossPointSettings {
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
   // SD card font family name (empty = use built-in fontFamily)
-  char sdFontFamilyName[32] = "";
+  static constexpr size_t SD_FONT_NAME_MAX = 32;
+  char sdFontFamilyName[SD_FONT_NAME_MAX] = "";
+  // Interface and accent faces taken from the card. Stored by family name,
+  // not by index: the card's contents change between boots, and an index
+  // would silently come to mean a different font.
+  char uiSdFontFamilyName[SD_FONT_NAME_MAX] = "";
+  char scriptSdFontFamilyName[SD_FONT_NAME_MAX] = "";
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Remove a book from the Recent Books list when its End-of-Book screen is reached (0 = off, 1 = on)

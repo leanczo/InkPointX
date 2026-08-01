@@ -32,7 +32,10 @@ constexpr int bookmarkStatusIconTopCrop = 2;
 constexpr int buttonHintSideMargin = 20;
 constexpr int buttonHintGroupGap = 12;
 constexpr int buttonHintHeight = 34;
-constexpr int buttonHintBottomMargin = 7;
+// Raised from 7: on some units the panel sits a couple of millimetres lower in
+// the bezel and the hint bar looked like it was sliding off the bottom edge.
+// The pills are the one element pinned to that edge, so they are what shows it.
+constexpr int buttonHintBottomMargin = 14;
 constexpr int buttonHintCornerRadius = buttonHintHeight / 2;
 constexpr int selectionCornerRadius = 12;
 

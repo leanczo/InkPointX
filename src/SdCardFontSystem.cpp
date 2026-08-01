@@ -1,7 +1,12 @@
 #include "SdCardFontSystem.h"
 
+#include <Arduino.h>
 #include <GfxRenderer.h>
+#include <SdCardFont.h>
 #include <Logging.h>
+
+#include <cstdlib>
+#include <new>
 
 #include "CrossPointSettings.h"
 
@@ -108,4 +113,84 @@ int SdCardFontSystem::resolveFontId(const char* familyName, uint8_t /*fontSizeEn
   // enum is implicit — always return the single loaded font ID for this family.
   // ensureLoaded() must have been called with the current settings before this.
   return manager_.getFontId(familyName);
+}
+
+int SdCardFontSystem::loadInterfaceFaces(const char* familyName, GfxRenderer& renderer, const InterfaceSlot* slots,
+                                         const size_t slotCount) {
+  if (!familyName || !*familyName || !slots || slotCount == 0) return 0;
+  const auto* family = registry_.findFamily(familyName);
+  if (!family || family->files.empty()) {
+    LOG_ERR("SDFS", "Interface font family not on card: %s", familyName);
+    return 0;
+  }
+
+  // The whole interface stays resident at once, unlike the reader's single
+  // face, so leave the heap enough room for a chapter to still paginate.
+  constexpr uint32_t MIN_FREE_HEAP = 60000;
+
+  int bound = 0;
+  for (size_t i = 0; i < slotCount; ++i) {
+    // Closest available size wins. A family that ships only 12 and 16 pt maps
+    // the small end of the scale onto 12 and the large end onto 16 instead of
+    // refusing to load.
+    const SdCardFontFileInfo* best = nullptr;
+    int bestDelta = 0;
+    for (const auto& file : family->files) {
+      const int delta = std::abs(static_cast<int>(file.pointSize) - static_cast<int>(slots[i].pointSize));
+      if (!best || delta < bestDelta) {
+        best = &file;
+        bestDelta = delta;
+      }
+    }
+    if (!best || bestDelta > static_cast<int>(slots[i].maxDelta)) {
+      LOG_DBG("SDFS", "No %u pt face within %u pt in %s: slot keeps the built-in", slots[i].pointSize,
+              slots[i].maxDelta, familyName);
+      continue;
+    }
+
+    // Already loaded for an earlier slot: register the same face again rather
+    // than paying for a second copy of identical glyph data.
+    SdCardFont* face = nullptr;
+    for (const auto& loadedFace : uiFaces_) {
+      if (loadedFace.path == best->path) {
+        face = loadedFace.font;
+        break;
+      }
+    }
+
+    if (!face) {
+      if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
+        LOG_ERR("SDFS", "Stopping interface font load at %s: %u bytes free", best->path.c_str(),
+                (unsigned)ESP.getFreeHeap());
+        break;
+      }
+      auto* loaded = new (std::nothrow) SdCardFont();
+      if (!loaded) break;
+      if (!loaded->load(best->path.c_str())) {
+        LOG_ERR("SDFS", "Cannot load interface face %s", best->path.c_str());
+        delete loaded;
+        continue;
+      }
+      uiFaces_.push_back({loaded, best->path});
+      face = loaded;
+    }
+
+    renderer.registerSdCardFont(slots[i].fontId, face);
+    renderer.insertFont(slots[i].fontId,
+                        EpdFontFamily(face->getEpdFont(0), face->getEpdFont(1), face->getEpdFont(2),
+                                      face->getEpdFont(3)));
+    uiBoundIds_.push_back(slots[i].fontId);
+    ++bound;
+  }
+
+  LOG_DBG("SDFS", "Interface family %s: %d of %u slots from %u file(s)", familyName, bound, (unsigned)slotCount,
+          (unsigned)uiFaces_.size());
+  return bound;
+}
+
+void SdCardFontSystem::unloadInterfaceFaces(GfxRenderer& renderer) {
+  for (const int id : uiBoundIds_) renderer.removeFont(id);
+  uiBoundIds_.clear();
+  for (auto& face : uiFaces_) delete face.font;
+  uiFaces_.clear();
 }

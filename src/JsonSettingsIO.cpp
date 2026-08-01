@@ -151,9 +151,18 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   // Keep this separate from the numeric family value so future enum additions
   // can be migrated without reinterpreting a user's explicit selection.
   doc["uiFontRevision"] = 2;
-  // SD card font family name — not in SettingsList, save manually
+  // SD card font family names — not in SettingsList, save manually. The
+  // interface and accent faces persist the same way the reader's does; without
+  // this the selection survived only until the next boot, which on a device
+  // that sleeps by powering off means "until the user looks away".
   if (s.sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = s.sdFontFamilyName;
+  }
+  if (s.uiSdFontFamilyName[0] != '\0') {
+    doc["uiSdFontFamilyName"] = s.uiSdFontFamilyName;
+  }
+  if (s.scriptSdFontFamilyName[0] != '\0') {
+    doc["scriptSdFontFamilyName"] = s.scriptSdFontFamilyName;
   }
 
   // Language -- managed by LanguageSelectActivity, not in SettingsList.
@@ -268,10 +277,16 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   // Font family — uses dynamic getter/setter in SettingsList so the generic loop skips it.
   const uint8_t storedFontFamily = doc["fontFamily"] | (uint8_t)0;
   s.fontFamily = clamp(storedFontFamily, CrossPointSettings::BUILTIN_FONT_COUNT, 0);
-  // SD card font family name — not in SettingsList, load manually
+  // SD card font family names — not in SettingsList, load manually
   const char* sfn = doc["sdFontFamilyName"] | "";
   strncpy(s.sdFontFamilyName, sfn, sizeof(s.sdFontFamilyName) - 1);
   s.sdFontFamilyName[sizeof(s.sdFontFamilyName) - 1] = '\0';
+  const char* uiSfn = doc["uiSdFontFamilyName"] | "";
+  strncpy(s.uiSdFontFamilyName, uiSfn, sizeof(s.uiSdFontFamilyName) - 1);
+  s.uiSdFontFamilyName[sizeof(s.uiSdFontFamilyName) - 1] = '\0';
+  const char* scriptSfn = doc["scriptSdFontFamilyName"] | "";
+  strncpy(s.scriptSdFontFamilyName, scriptSfn, sizeof(s.scriptSdFontFamilyName) - 1);
+  s.scriptSdFontFamilyName[sizeof(s.scriptSdFontFamilyName) - 1] = '\0';
   if (storedFontFamily == CrossPointSettings::LEGACY_OPENDYSLEXIC && s.sdFontFamilyName[0] == '\0') {
     s.fontFamily = CrossPointSettings::NOTOSERIF;
     strncpy(s.sdFontFamilyName, "OpenDyslexic", sizeof(s.sdFontFamilyName) - 1);

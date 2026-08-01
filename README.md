@@ -212,6 +212,12 @@ The text pipeline supports:
 - contextual Arabic shaping for both translated UI strings and dynamic book, author, and file names;
 - mirrored accessories and layout behavior for RTL content.
 
+The interface font and the handwritten accent face can also come from the card:
+**Settings › Interface › Interface font** and **Accent font** list the built-in face first, then every family
+installed in `/.fonts/`. A slot takes a card size only when the family ships one within 2 pt of it, so the layout
+keeps its proportions; slots the family cannot cover stay on the built-in face. Reader packs typically start at
+12 pt, which covers everything except the smallest captions.
+
 Reader fonts are independent from the UI font. Optimized `.cpfont` families can be installed in `/.fonts/` or
 `/fonts/` on microSD or uploaded from the web font manager. The reader font pipeline includes a Noto Serif family
 for Latin/Cyrillic/Vietnamese with Noto Naskh Arabic fallback. See

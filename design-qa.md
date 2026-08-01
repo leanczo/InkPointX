@@ -1397,3 +1397,46 @@ smears on partial redraws.
 The metric box went from 15 to 17 px wide so the body could be 15x10 rather than
 13x10; every consumer derives its layout from that metric, so the header
 reservation and the reader's status cluster follow.
+
+## 2.0.7 — interface fonts from the card, and the hint bar — 2026-07-31
+
+Two requests: offer the card's fonts for the interface and for the accent face
+in Settings › Interface, and lift the button hints off the bottom edge, because
+on some units the panel sits lower in the bezel and the pills looked like they
+were sliding off the screen.
+
+The hint bar's bottom margin went from 7 px to 14, and the height the layout
+reserves for it from 32 to 39, so content keeps the same clearance above it.
+(The two had disagreed by 9 px, which the rounded pill ends had been hiding.)
+
+Fonts: the card already held 21 families for the reader, but the interface was
+built-in only. Both pickers now list the built-in face first and then every
+family on the card, and both selections persist by family *name* — an index
+would come to mean a different font as soon as the card's contents changed.
+
+The parts that needed care:
+
+- A slot takes a card size only when the family ships one within 2 pt of it.
+  Reader packs run 12-18 pt while the interface scale starts at 8, and a face
+  50% too large does not read as "bigger", it breaks the rows it is measured
+  into. Typical packs therefore cover everything except the smallest captions.
+  The accent line is sized by eye rather than by layout, so it accepts ±6.
+- Card faces keep only an eight-glyph overflow ring beyond what was prewarmed,
+  and a miss costs an SD seek — roughly 110 ms. The reader prewarms a page
+  before painting it; interface text is drawn string by string with no such
+  pass, so the first attempt thrashed that ring on every label. drawText and
+  getTextWidth now batch a string's glyphs first: measured on the device, zero
+  overflow reads and a settings screen still rendering in 706 ms.
+- SdCardFontManager::unloadAll() called clearSdCardFonts(), dropping every
+  registration rather than its own. With the interface able to come off the
+  card, changing the reader's font would have left the UI faces in the family
+  map with no way to fetch their glyphs.
+- setupDisplayAndFonts() applied the interface font before discovering the
+  card, so a saved selection was silently ignored for the whole session.
+- The two new settings were not in SettingsList, which drives the JSON writer,
+  so nothing persisted them. On a device whose sleep is a power-off that means
+  the selection lasted until the user looked away.
+
+Verified on the device for both targets: the interface in IBM Plex Mono (6 of 7
+slots bound, one file per distinct size), the accent header in Alegreya, and the
+accent selection still bound 747 ms into the next boot.
