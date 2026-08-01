@@ -64,6 +64,8 @@ class Pdf {
   void* progressContext = nullptr;
   uint8_t* rasterScratch = nullptr;
   size_t rasterScratchSize = 0;
+  uint16_t rasterWidth = 480;
+  uint16_t rasterHeight = 760;
 
   static ssize_t inputRead(void* context, void* data, size_t length);
   static off_t inputSeek(void* context, off_t offset, int whence);
@@ -117,6 +119,10 @@ class Pdf {
   void setRasterScratch(uint8_t* buffer, size_t size) {
     rasterScratch = buffer;
     rasterScratchSize = size;
+  }
+  void setRasterGeometry(uint16_t width, uint16_t height) {
+    rasterWidth = width;
+    rasterHeight = height;
   }
 
   [[nodiscard]] const std::string& getPath() const { return filepath; }

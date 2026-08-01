@@ -5,15 +5,15 @@
 <h1 align="center">InkPoint X</h1>
 
 <p align="center">
-  Open-source reader firmware designed for the XTEINK X4.
+  Open-source reader firmware designed for the XTEINK X3 and X4.
   <br>
   A focused library, capable file management, multilingual typography, and an e-ink-native interface.
 </p>
 
 <p align="center">
-  <img alt="Version 2.0.0" src="https://img.shields.io/badge/version-2.0.0-000000">
-  <img alt="Target: XTEINK X4" src="https://img.shields.io/badge/target-XTEINK%20X4-111111">
-  <img alt="Display: 480 × 800 monochrome" src="https://img.shields.io/badge/display-480%C3%97800%20e--ink-555555">
+  <img alt="Version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-000000">
+  <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
+  <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-black"></a>
   <a href="https://ko-fi.com/yokkivans"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/support-Ko--fi-F16061?logo=kofi&logoColor=white"></a>
@@ -26,13 +26,23 @@
 
 ## Overview
 
-InkPoint X is a complete firmware experience for the XTEINK X4 rather than a collection of isolated reader patches.
+InkPoint X is a complete firmware experience for the XTEINK X3 and X4 rather than a collection of isolated reader patches.
 The interface, input model, font system, library, file operations, network transfer, settings, and e-ink refresh
-strategy are designed as one system for the device's 480 × 800 monochrome panel and physical controls.
+strategy adapt at boot to the X3's 528 × 792 or X4's 480 × 800 monochrome panel and physical controls.
 
 The project is based on [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) and keeps its
 open architecture while adding an independent InkPoint X product layer, expanded document support, a redesigned
-interface, and X4-specific display tuning.
+interface, and controller-specific display tuning.
+
+## What's new in 2.1
+
+- one runtime-detecting ESP32-C3 image supports both XTEINK X3 and X4;
+- X3 support covers both UC8253 and newer UC8279 panel-controller production runs;
+- X3 battery percentage, DS3231 clock, QMI8658 tilt gestures, microSD power rail, wake and deep sleep use the active hardware profile;
+- PDF music, diagrams and other fixed-layout graphics rasterize at the active device width (528 px on X3, 480 px on X4), with geometry-aware caches;
+- X3 Quick Resume uses its differential display path to avoid unnecessary full-screen flashes.
+
+See [the X3 implementation notes](docs/X3_SUPPORT_RU.md) for hardware details and the validation matrix.
 
 ### Design principles
 
@@ -141,7 +151,7 @@ The detailed interface specification is available in [docs/inkpoint-x-ui.md](doc
 
 - discovers **BMP**, **JPEG**, and **PNG** images across the card;
 - includes images and screenshots created while reading;
-- opens images in a viewer adapted to the X4 display;
+- opens images in a viewer adapted to the active X3/X4 display;
 - uses corrected 1-bit scaling and dithering to avoid block and moiré artifacts.
 
 ### File manager
@@ -225,7 +235,7 @@ for Latin/Cyrillic/Vietnamese with Noto Naskh Arabic fallback. See
 
 ## E-ink behavior
 
-InkPoint X contains an X4-specific refresh policy built around the panel's actual controller behavior:
+InkPoint X contains a panel-aware refresh policy built around the active controller's actual behavior:
 
 - controller RAM is synchronized after updates so differential refreshes compare against a valid previous frame;
 - interactive navigation avoids full-screen black flashes;
@@ -234,7 +244,7 @@ InkPoint X contains an X4-specific refresh policy built around the panel's actua
 - grayscale and 1-bit image paths use panel-aware conversion;
 - home-cover thumbnails are generated at their final layout size, avoiding a second rescale of an already-dithered
   image;
-- button debounce is tuned for the X4 ADC ladder so one physical press produces one action.
+- button debounce is tuned for the shared X3/X4 ADC ladder so one physical press produces one action.
 
 E-ink cannot behave exactly like an emissive phone display, but normal navigation is designed to feel immediate
 without trading away panel cleanliness.
@@ -249,7 +259,8 @@ firmware fails to start, the bootloader rolls back to the previous slot automati
 
 ### Prebuilt firmware
 
-Download `firmware.bin` from [Releases](https://github.com/yokki-vans/InkPointX/releases).
+Download `firmware.bin` from [Releases](https://github.com/yokki-vans/InkPointX/releases). It is a universal X3/X4 image;
+the device-labelled X3 and X4 files in the same release are byte-identical aliases for convenience.
 
 #### Recovery update from microSD
 
@@ -275,7 +286,7 @@ esptool --chip esp32c3 \
 Replace `/dev/ttyACM0` with the actual serial port. On macOS it is usually named `/dev/cu.usbmodem*`.
 
 > [!CAUTION]
-> Flash only binaries built for the XTEINK X4, do not disconnect power while writing, and keep a recovery-capable
+> Flash only InkPoint X binaries built for the XTEINK X3/X4 ESP32-C3 family, do not disconnect power while writing, and keep a recovery-capable
 > microSD card available when testing development builds.
 
 ## Build from source
@@ -348,13 +359,14 @@ Run static analysis:
 pio check -e default --fail-on-defect=medium
 ```
 
-Version 2.0.0 passes all **117 host tests**, localization validation across 27 languages, release compilation, and
-static analysis with no high- or medium-severity findings. Continuous integration additionally enforces a hard
-flash budget so the image cannot silently grow into the OTA slot's limit.
+Release validation includes the host suite, localization coverage across 27 languages, development and release
+compilation, static analysis, PDF conversion checks, and a hard flash budget so the image cannot silently grow into
+the OTA slot's limit.
 
 ## Releases and OTA
 
-Pushing a tag builds `gh_release` and publishes a GitHub release with `firmware.bin` attached. The on-device
+Pushing a tag builds the universal `gh_release` image and publishes `firmware.bin`, X3/X4-labelled aliases, and
+SHA-256 checksums. The on-device
 updater reads `releases/latest` and looks for exactly that asset, so a tag is all it takes to reach existing
 devices. Version comparison is semantic — major, then minor, then patch — with release candidates treated as older
 than the final tag.
@@ -364,7 +376,7 @@ than the final tag.
 ```text
 src/                         Firmware activities, settings, stores, and UI
 lib/                         Readers, rendering, fonts, bidi, i18n, and HAL
-open-x4-sdk/                 X4 display, input, storage, and hardware libraries
+freeink-sdk/                 X3/X4 display, input, storage, and hardware libraries
 scripts/                     Code generation, font subsetting, and validation
 test/                        Host-side unit and policy tests
 docs/                        User, developer, attribution, and visual QA docs
@@ -373,9 +385,9 @@ platformio.ini               ESP32-C3 build environments
 partitions.csv               16 MB flash partition layout
 ```
 
-The `open-x4-sdk` submodule points to
-[`yokki-vans/community-sdk`](https://github.com/yokki-vans/community-sdk), which contains the X4 refresh, input,
-and storage fixes required by this firmware.
+The `freeink-sdk` submodule points to
+[`Free-Ink/freeink-sdk`](https://github.com/Free-Ink/freeink-sdk), which provides the runtime X3/X4 board profiles,
+panel drivers, input, sensors, storage and power management used by this firmware.
 
 ## Data and storage
 
@@ -401,8 +413,8 @@ e-reader community. Third-party components, fonts, and icons retain their origin
 ## Contributing
 
 Bug reports, hardware observations, translations, documentation improvements, and focused pull requests are
-welcome. When changing the interface, validate it against the 480 × 800 framebuffer and, whenever possible, the
-physical X4 panel.
+welcome. When changing the interface, validate it against both 528 × 792 and 480 × 800 framebuffers and, whenever
+possible, physical X3 and X4 panels.
 
 Please run the relevant validation commands above before opening a pull request.
 

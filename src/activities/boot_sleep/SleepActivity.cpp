@@ -3,6 +3,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Txt.h>
@@ -336,7 +337,13 @@ void SleepActivity::renderLastScreenSleepScreen() const {
   renderer.drawImageTransparent(MoonIcon, 0, pageHeight - MOONICON_HEIGHT, MOONICON_WIDTH, MOONICON_HEIGHT);
   UITheme::getInstance().clearSystemBatteryOverlay(renderer);
   renderer.markFrameOverlayDrawn();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  if (gpio.deviceIsX3()) {
+    // The X3 controller retains the displayed page, so a differential base
+    // update can add the moon without a full-screen quick-resume flash.
+    renderer.displayGrayscaleBase(HalDisplay::FAST_REFRESH);
+  } else {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  }
 }
 
 void SleepActivity::renderBlankSleepScreen() const {

@@ -74,6 +74,12 @@ bool ReaderActivity::isPdfFile(const std::string& path) { return FsHelpers::hasP
 
 bool ReaderActivity::isBmpFile(const std::string& path) { return FsHelpers::hasBmpExtension(path); }
 
+int ReaderActivity::initialRefreshCountdown() const {
+  if (!allowFastInitialRefresh) return 0;
+  const int refreshFrequency = SETTINGS.getRefreshFrequency();
+  return refreshFrequency > 1 ? refreshFrequency : 2;
+}
+
 std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   if (!Storage.exists(path.c_str())) {
     LOG_ERR("READER", "File does not exist: %s", path.c_str());
@@ -179,10 +185,14 @@ std::unique_ptr<Epub> ReaderActivity::loadPdfAsEpub(const std::string& path) {
   if (!pdf) return nullptr;
   lastPdfProgressBucket = -1;
   pdf->setProgressCallback(pdfProgressCallback, this);
-  // PDF graphics pages need up to ~41 KB at 480 px wide. Lend the existing
-  // 48 KB display framebuffer while the package is built instead of asking the
-  // ESP32-C3 heap for another large contiguous allocation. Progress redraws
-  // clear this same buffer before each display update.
+  // Render against the active panel's portrait geometry: X4 is 480x800, X3 is
+  // 528x792. Reserve 40 vertical pixels for reader chrome and keep the generated
+  // cache device-specific so moving one SD card between models regenerates it.
+  const uint16_t portraitWidth = std::min(renderer.getDisplayWidth(), renderer.getDisplayHeight());
+  const uint16_t portraitHeight = std::max(renderer.getDisplayWidth(), renderer.getDisplayHeight());
+  pdf->setRasterGeometry(portraitWidth, portraitHeight > 40 ? portraitHeight - 40 : portraitHeight);
+  // Lend the existing display framebuffer while the package is built instead
+  // of asking the ESP32-C3 heap for another large contiguous allocation.
   pdf->setRasterScratch(renderer.getWriteTarget(),
                         static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight());
   // User-selected SD fonts are reloaded automatically after the one-time PDF
@@ -222,7 +232,8 @@ void ReaderActivity::goToLibrary(const std::string& fromBookPath) {
 void ReaderActivity::onGoToEpubReader(std::unique_ptr<Epub> epub) {
   const auto epubPath = epub->getPath();
   currentBookPath = epubPath;
-  activityManager.replaceActivity(std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub)));
+  activityManager.replaceActivity(
+      std::make_unique<EpubReaderActivity>(renderer, mappedInput, std::move(epub), initialRefreshCountdown()));
 }
 
 void ReaderActivity::onGoToBmpViewer(const std::string& path) {
@@ -232,13 +243,15 @@ void ReaderActivity::onGoToBmpViewer(const std::string& path) {
 void ReaderActivity::onGoToXtcReader(std::unique_ptr<Xtc> xtc) {
   const auto xtcPath = xtc->getPath();
   currentBookPath = xtcPath;
-  activityManager.replaceActivity(std::make_unique<XtcReaderActivity>(renderer, mappedInput, std::move(xtc)));
+  activityManager.replaceActivity(
+      std::make_unique<XtcReaderActivity>(renderer, mappedInput, std::move(xtc), initialRefreshCountdown()));
 }
 
 void ReaderActivity::onGoToTxtReader(std::unique_ptr<Txt> txt) {
   const auto txtPath = txt->getPath();
   currentBookPath = txtPath;
-  activityManager.replaceActivity(std::make_unique<TxtReaderActivity>(renderer, mappedInput, std::move(txt)));
+  activityManager.replaceActivity(
+      std::make_unique<TxtReaderActivity>(renderer, mappedInput, std::move(txt), initialRefreshCountdown()));
 }
 
 void ReaderActivity::onEnter() {

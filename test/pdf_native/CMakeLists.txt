@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(x4_pdf_native_harness C CXX)
+project(inkpoint_pdf_native_harness C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)

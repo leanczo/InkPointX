@@ -1,6 +1,6 @@
 # Architecture Overview
 
-CrossPoint is firmware for the Xteink X4 (unaffiliated with Xteink), built with PlatformIO targeting the ESP32-C3 microcontroller.
+InkPoint X is firmware for the Xteink X3 and X4 (unaffiliated with Xteink), built with PlatformIO for their shared ESP32-C3 platform. One binary detects the device and panel controller at boot.
 
 At a high level, it is firmware that uses an activity-driven application architecture loop with persistent settings/state, SD-card-first caching, and a rendering pipeline optimized for e-ink constraints.
 
@@ -8,7 +8,7 @@ At a high level, it is firmware that uses an activity-driven application archite
 
 ```mermaid
 graph TD
-    A[Hardware: ESP32-C3 + SD + E-ink + Buttons] --> B[open-x4-sdk]
+    A[Hardware: ESP32-C3 + SD + E-ink + Buttons] --> B[FreeInk SDK]
     B --> C[lib/hal wrappers]
     C --> D[src/main.cpp runtime loop]
     D --> E[Activities layer]
@@ -195,10 +195,10 @@ When editing related source assets, regenerate via normal build steps/scripts.
 - `src/`: app orchestration, settings/state, and activity implementations
 - `src/network/`: web server and OTA/update networking
 - `src/components/`: theming and shared UI components
-- `lib/hal/`: hardware abstraction wrappers around open-x4-sdk
+- `lib/hal/`: hardware abstraction wrappers around FreeInk SDK
 - `lib/Epub/`: EPUB parser, layout, CSS handling, and hyphenation
 - `lib/`: supporting libraries (fonts, text, filesystem helpers, etc.)
-- `open-x4-sdk/`: hardware SDK submodule (display, input, storage, battery)
+- `freeink-sdk/`: hardware SDK submodule (board profiles, display, input, storage, battery, RTC, IMU, power)
 - `docs/`: user and technical documentation
 
 ## Embedded constraints that shape design

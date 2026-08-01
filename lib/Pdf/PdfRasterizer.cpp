@@ -16,8 +16,7 @@
 #include <vector>
 
 namespace {
-constexpr int RASTER_WIDTH = 480;
-constexpr int MAX_RASTER_HEIGHT = 760;
+constexpr int MAX_SUPPORTED_RASTER_WIDTH = 528;
 constexpr size_t MAX_FONT_BYTES = 256 * 1024;
 constexpr size_t FONT_READ_CACHE_BYTES = 256;
 constexpr size_t PDF_TOKEN_SIZE = 1024;
@@ -1095,7 +1094,12 @@ bool writeMonochromePng(const std::string& path, const uint8_t* pixels, const in
   bool success = writeAll(file, signature, sizeof(signature)) && writePngChunk(file, "IHDR", ihdr, sizeof(ihdr));
 
   const int rowBytes = (width + 7) / 8;
-  std::array<uint8_t, RASTER_WIDTH + 12> block{};
+  if (width <= 0 || width > MAX_SUPPORTED_RASTER_WIDTH) {
+    file.close();
+    Storage.remove(path.c_str());
+    return false;
+  }
+  std::array<uint8_t, MAX_SUPPORTED_RASTER_WIDTH + 12> block{};
   uint32_t adler = 1;
   const uint8_t filter = 0;
   for (int row = 0; success && row < height; ++row) {
@@ -1172,6 +1176,10 @@ bool PdfRasterizer::pageNeedsRasterization(pdfio_obj_t* page) {
 }
 
 bool PdfRasterizer::renderPage(pdfio_obj_t* page, const std::string& outputPath, std::string& error) {
+  if (rasterWidth == 0 || rasterWidth > MAX_SUPPORTED_RASTER_WIDTH || maxRasterHeight == 0) {
+    error = "Unsupported PDF raster geometry";
+    return false;
+  }
   pdfio_rect_t box{};
   if (!inheritedRect(page, "CropBox", box) && !inheritedRect(page, "MediaBox", box)) {
     error = "PDF page has no media box";
@@ -1183,10 +1191,10 @@ bool PdfRasterizer::renderPage(pdfio_obj_t* page, const std::string& outputPath,
     error = "PDF page has invalid dimensions";
     return false;
   }
-  int width = RASTER_WIDTH;
+  int width = rasterWidth;
   int height = static_cast<int>(std::lround(width * sourceHeight / sourceWidth));
-  if (height > MAX_RASTER_HEIGHT) {
-    height = MAX_RASTER_HEIGHT;
+  if (height > maxRasterHeight) {
+    height = maxRasterHeight;
     width = std::max(1, static_cast<int>(std::lround(height * sourceWidth / sourceHeight)));
   }
   const int rowBytes = (width + 7) / 8;

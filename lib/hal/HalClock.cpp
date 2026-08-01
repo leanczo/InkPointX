@@ -13,14 +13,6 @@
 
 HalClock halClock;  // Singleton instance
 
-// DS3231 register layout (BCD encoded):
-//   0x00: Seconds  (bits 6-4 = tens, bits 3-0 = ones)
-//   0x01: Minutes  (bits 6-4 = tens, bits 3-0 = ones)
-//   0x02: Hours    (bit 6 = 12/24 mode, bits 5-4 = tens, bits 3-0 = ones)
-
-static uint8_t bcdToDec(uint8_t bcd) { return ((bcd >> 4) * 10) + (bcd & 0x0F); }
-static uint8_t decToBcd(uint8_t dec) { return ((dec / 10) << 4) | (dec % 10); }
-
 namespace {
 constexpr time_t MIN_VALID_EPOCH = 1704067200;  // 2024-01-01 00:00:00 UTC
 constexpr time_t MAX_VALID_EPOCH = 4102444800;  // 2100-01-01 00:00:00 UTC
@@ -60,34 +52,13 @@ uint8_t clampUtcOffset(const uint8_t biased) { return biased <= 104 ? biased : 4
 }  // namespace
 
 void HalClock::begin() {
-  if (!gpio.deviceIsX3()) {
-    _available = false;
-    _softwareTimeTrusted = isValidEpoch(time(nullptr));
+  _softwareTimeTrusted = isValidEpoch(time(nullptr));
+  _available = _sdkRtc.begin();
+  if (!_available) {
+    LOG_INF("CLK", "Hardware RTC not available");
     return;
   }
-
-  // I2C is already initialised by HalPowerManager::begin() for X3.
-  // Probe the DS3231 by reading the seconds register.
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);
-  if (Wire.endTransmission(false) != 0) {
-    LOG_INF("CLK", "DS3231 RTC not found");
-    _available = false;
-    return;
-  }
-  Wire.requestFrom(I2C_ADDR_DS3231, (uint8_t)1);
-  if (Wire.available() < 1) {
-    _available = false;
-    return;
-  }
-  Wire.read();  // discard — just testing connectivity
-
-  _available = true;
-  LOG_INF("CLK", "DS3231 RTC found");
-
-  // Prime the cache with an initial read
-  uint8_t h, m;
-  getTime(h, m);
+  LOG_INF("CLK", "Hardware RTC found");
 
   // Seed the ESP system clock from the full RTC calendar when it has already
   // been initialised. Older CrossPoint builds wrote only H:M:S, so an invalid
@@ -126,18 +97,8 @@ bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
     return true;
   }
 
-  // Read 3 bytes starting at register 0x00: seconds, minutes, hours
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);
-  if (Wire.endTransmission(false) != 0) {
-    if (!_hasCachedTime) return false;
-    _lastPollMs = now;
-    hour = _cachedHour;
-    minute = _cachedMinute;
-    return true;
-  }
-  Wire.requestFrom(I2C_ADDR_DS3231, (uint8_t)3);
-  if (Wire.available() < 3) {
+  Rtc::DateTime rtcTime;
+  if (!_sdkRtc.now(rtcTime)) {
     if (!_hasCachedTime) return false;
     _lastPollMs = now;
     hour = _cachedHour;
@@ -145,22 +106,8 @@ bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
     return true;
   }
 
-  Wire.read();  // seconds — not needed
-  const uint8_t rawMin = Wire.read();
-  const uint8_t rawHour = Wire.read();
-
-  _cachedMinute = bcdToDec(rawMin & 0x7F);
-  // Handle 12/24h mode: bit 6 high = 12h mode
-  if (rawHour & 0x40) {
-    // 12h mode: bit 5 = PM, bits 4-0 = hours (1-12)
-    uint8_t h12 = bcdToDec(rawHour & 0x1F);
-    bool pm = rawHour & 0x20;
-    if (h12 == 12) h12 = 0;
-    _cachedHour = pm ? (h12 + 12) : h12;
-  } else {
-    // 24h mode: bits 5-0 = hours (0-23)
-    _cachedHour = bcdToDec(rawHour & 0x3F);
-  }
+  _cachedHour = rtcTime.hour;
+  _cachedMinute = rtcTime.minute;
   _lastPollMs = now;
   _hasCachedTime = true;
 
@@ -215,35 +162,17 @@ bool HalClock::getDateTime(struct tm& result, uint8_t utcOffsetQuarterHoursBiase
 bool HalClock::readDateTimeFromRTC(struct tm& result) const {
   if (!_available) return false;
 
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);
-  if (Wire.endTransmission(false) != 0) return false;
-  Wire.requestFrom(I2C_ADDR_DS3231, static_cast<uint8_t>(7));
-  if (Wire.available() < 7) return false;
-
-  const uint8_t rawSecond = Wire.read();
-  const uint8_t rawMinute = Wire.read();
-  const uint8_t rawHour = Wire.read();
-  const uint8_t rawWeekday = Wire.read();
-  const uint8_t rawDay = Wire.read();
-  const uint8_t rawMonth = Wire.read();
-  const uint8_t rawYear = Wire.read();
+  Rtc::DateTime rtcTime;
+  if (!_sdkRtc.now(rtcTime)) return false;
 
   result = {};
-  result.tm_sec = bcdToDec(rawSecond & 0x7F);
-  result.tm_min = bcdToDec(rawMinute & 0x7F);
-  if (rawHour & 0x40) {
-    uint8_t hour12 = bcdToDec(rawHour & 0x1F);
-    const bool pm = rawHour & 0x20;
-    if (hour12 == 12) hour12 = 0;
-    result.tm_hour = pm ? hour12 + 12 : hour12;
-  } else {
-    result.tm_hour = bcdToDec(rawHour & 0x3F);
-  }
-  result.tm_wday = rawWeekday > 0 ? (rawWeekday - 1) % 7 : 0;
-  result.tm_mday = bcdToDec(rawDay & 0x3F);
-  result.tm_mon = bcdToDec(rawMonth & 0x1F) - 1;
-  result.tm_year = 100 + bcdToDec(rawYear);  // DS3231 years 00..99 => 2000..2099
+  result.tm_sec = rtcTime.second;
+  result.tm_min = rtcTime.minute;
+  result.tm_hour = rtcTime.hour;
+  result.tm_wday = rtcTime.weekday;
+  result.tm_mday = rtcTime.day;
+  result.tm_mon = rtcTime.month - 1;
+  result.tm_year = rtcTime.year - 1900;
 
   return result.tm_sec < 60 && result.tm_min < 60 && result.tm_hour < 24 && result.tm_mday >= 1 &&
          result.tm_mday <= 31 && result.tm_mon >= 0 && result.tm_mon < 12;
@@ -253,17 +182,15 @@ bool HalClock::writeDateTimeToRTC(const struct tm& value) {
   assert(value.tm_hour >= 0 && value.tm_hour < 24);
   assert(value.tm_min >= 0 && value.tm_min < 60);
   assert(value.tm_sec >= 0 && value.tm_sec < 60);
-  Wire.beginTransmission(I2C_ADDR_DS3231);
-  Wire.write(DS3231_SEC_REG);                                  // Start at register 0x00
-  Wire.write(decToBcd(static_cast<uint8_t>(value.tm_sec)));    // Seconds
-  Wire.write(decToBcd(static_cast<uint8_t>(value.tm_min)));    // Minutes
-  Wire.write(decToBcd(static_cast<uint8_t>(value.tm_hour)));   // Hours, 24h mode
-  Wire.write(decToBcd(static_cast<uint8_t>(value.tm_wday + 1)));
-  Wire.write(decToBcd(static_cast<uint8_t>(value.tm_mday)));
-  Wire.write(decToBcd(static_cast<uint8_t>(value.tm_mon + 1)));
-  Wire.write(decToBcd(static_cast<uint8_t>((value.tm_year + 1900) % 100)));
-  if (Wire.endTransmission() != 0) {
-    LOG_ERR("CLK", "Failed to write date/time to DS3231");
+  const Rtc::DateTime rtcTime{static_cast<uint16_t>(value.tm_year + 1900),
+                              static_cast<uint8_t>(value.tm_mon + 1),
+                              static_cast<uint8_t>(value.tm_mday),
+                              static_cast<uint8_t>(value.tm_hour),
+                              static_cast<uint8_t>(value.tm_min),
+                              static_cast<uint8_t>(value.tm_sec),
+                              static_cast<uint8_t>(value.tm_wday)};
+  if (!_sdkRtc.set(rtcTime)) {
+    LOG_ERR("CLK", "Failed to write date/time to hardware RTC");
     return false;
   }
 

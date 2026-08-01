@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Wire.h>
+#include <Rtc.h>
 
 #include <ctime>
 
@@ -17,6 +17,7 @@ class HalClock {
   mutable bool _hasCachedTime = false;
   mutable unsigned long _lastPollMs = 0;
   bool _softwareTimeTrusted = false;
+  mutable Rtc _sdkRtc;
 
   static constexpr unsigned long CLOCK_POLL_MS = 10000;  // 10 seconds
 

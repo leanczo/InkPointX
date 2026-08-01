@@ -11,11 +11,12 @@
 // and other pages built from vector paths and embedded TrueType glyphs).
 //
 // The caller can lend the display framebuffer as scratch storage. Rendering is
-// performed at the X4's portrait width and the resulting 1-bit PNG is cached on
-// the SD card, where the regular EPUB image pipeline can display it.
+// performed at the active device's portrait geometry and the resulting 1-bit
+// PNG is cached on the SD card for the regular EPUB image pipeline.
 class PdfRasterizer {
  public:
-  PdfRasterizer(uint8_t* scratch, size_t scratchSize) : scratch(scratch), scratchSize(scratchSize) {}
+  PdfRasterizer(uint8_t* scratch, size_t scratchSize, uint16_t width, uint16_t height)
+      : scratch(scratch), scratchSize(scratchSize), rasterWidth(width), maxRasterHeight(height) {}
 
   static bool pageNeedsRasterization(pdfio_obj_t* page);
 
@@ -24,4 +25,6 @@ class PdfRasterizer {
  private:
   uint8_t* scratch = nullptr;
   size_t scratchSize = 0;
+  uint16_t rasterWidth = 480;
+  uint16_t maxRasterHeight = 760;
 };
