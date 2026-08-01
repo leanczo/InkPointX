@@ -136,13 +136,13 @@ void drawAccessory(const GfxRenderer& renderer, const UIAccessory accessory, con
 
 void LyraTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage) const {
   const bool charging = gpio.isUsbConnected();
-  const int fillWidth =
-      charging ? rect.width - 6
-               : std::clamp(static_cast<int>(percentage) * (rect.width - 6) / 100, 0, rect.width - 6);
+  // rect is the body now, terminal excluded, so the inset is two per side.
+  const int maxFill = rect.width - 4;
+  const int fillWidth = charging ? maxFill : std::clamp(static_cast<int>(percentage) * maxFill / 100, 0, maxFill);
   if (fillWidth > 0) {
     renderer.fillRoundedRect(rect.x + 2, rect.y + 2, fillWidth, rect.height - 4, 1, Color::Black);
   }
-  if (charging) drawBatteryLightningBolt(renderer, rect.x + 4, rect.y + 2);
+  if (charging) drawBatteryLightningBolt(renderer, rect.x + 3, rect.y + 2);
 }
 
 void LyraTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {

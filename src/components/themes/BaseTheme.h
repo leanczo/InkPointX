@@ -128,7 +128,7 @@ enum class KeyboardKeyType { Normal, Shift, Mode, Space, Del, Ok, Disabled };
 // Additional themes can inherit from this and override methods as needed
 
 namespace BaseMetrics {
-constexpr ThemeMetrics values = {.batteryWidth = 15,
+constexpr ThemeMetrics values = {.batteryWidth = 17,
                                  .batteryHeight = 12,
                                  .topPadding = 5,
                                  .batteryBarHeight = 20,
@@ -264,6 +264,14 @@ class BaseTheme {
 
   // Shared constants and helpers for battery drawing (used by all themes)
   static constexpr int batteryPercentSpacing = 4;
-  static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight);
+  // The charge reading is a caption, not a label: one step below the 10 px the
+  // header used, so the digits sit beside the icon instead of towering over it.
+  // Shared, because the overlay's width and its clear rect must agree with what
+  // drawBatteryRight actually draws or the group smears on partial redraws.
+  static constexpr int batteryPercentFontId = MICRO_FONT_ID;
+  static constexpr int batteryTerminalWidth = 2;
+  static Rect batteryBodyRect(Rect box, int centerY);
+  static void drawBatteryOutline(const GfxRenderer& renderer, Rect body);
+  static int batteryDigitsCenterY(const GfxRenderer& renderer, Rect rect, int fontId, const char* percentageText);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY);
 };

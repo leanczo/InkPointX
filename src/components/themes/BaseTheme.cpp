@@ -83,28 +83,47 @@ void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int 
 
 }  // namespace
 
-void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight) {
-  if (battWidth < 7 || rectHeight < 6) return;
-  renderer.drawRoundedRect(x, y, battWidth - 2, rectHeight, 1, 3, true);
-  renderer.fillRoundedRect(x + battWidth - 1, y + rectHeight / 2 - 2, 2, 4, 1, Color::Black);
+Rect BaseTheme::batteryBodyRect(const Rect box, const int centerY) {
+  // A battery reads as a battery at its proportions, not at its outline. The
+  // old icon was 13x12 with a radius-3 corner — square, heavily rounded, and
+  // with a 1 px gap before its terminal, so it read as a rounded box with a
+  // speck next to it. Three quarters of the box height puts the body near the
+  // 3:2 of the real thing, and the terminal is drawn flush against it.
+  // Five sixths of the box: ten pixels against the twelve-pixel digits beside
+  // it, which is the ratio a status bar wants — the icon reads as the same size
+  // as the number without matching it stroke for stroke. Three quarters left it
+  // looking dainty next to the text.
+  const int bodyHeight = std::clamp(box.height * 5 / 6, 7, box.height);
+  const int bodyWidth = box.width - batteryTerminalWidth;
+  return Rect{box.x, centerY - bodyHeight / 2, bodyWidth, bodyHeight};
+}
+
+void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, const Rect body) {
+  if (body.width < 7 || body.height < 6) return;
+  // Radius 1: at nine pixels tall anything more rounds the corners into the
+  // 2 px wall and the fill inside stops looking level.
+  renderer.drawRoundedRect(body.x, body.y, body.width, body.height, 1, 1, true);
+  const int terminalHeight = std::clamp(body.height / 3, 3, 5);
+  renderer.fillRoundedRect(body.x + body.width, body.y + (body.height - terminalHeight) / 2, batteryTerminalWidth,
+                           terminalHeight, 1, Color::Black);
 }
 
 void BaseTheme::drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY) {
-  // Draw lightning bolt (white/inverted on black fill for visibility)
-  renderer.drawLine(boltX + 4, boltY + 0, boltX + 5, boltY + 0, false);
-  renderer.drawLine(boltX + 3, boltY + 1, boltX + 4, boltY + 1, false);
-  renderer.drawLine(boltX + 2, boltY + 2, boltX + 5, boltY + 2, false);
-  renderer.drawLine(boltX + 3, boltY + 3, boltX + 4, boltY + 3, false);
-  renderer.drawLine(boltX + 2, boltY + 4, boltX + 3, boltY + 4, false);
-  renderer.drawLine(boltX + 1, boltY + 5, boltX + 4, boltY + 5, false);
-  renderer.drawLine(boltX + 2, boltY + 6, boltX + 3, boltY + 6, false);
-  renderer.drawLine(boltX + 1, boltY + 7, boltX + 2, boltY + 7, false);
+  // Knocked out white on the black fill. Five rows, four columns: the body's
+  // interior is five pixels tall now, and the previous eight-row bolt was
+  // drawn past the fill into the outline.
+  renderer.drawLine(boltX + 2, boltY + 0, boltX + 3, boltY + 0, false);
+  renderer.drawLine(boltX + 1, boltY + 1, boltX + 2, boltY + 1, false);
+  renderer.drawLine(boltX + 0, boltY + 2, boltX + 3, boltY + 2, false);
+  renderer.drawLine(boltX + 1, boltY + 3, boltX + 2, boltY + 3, false);
+  renderer.drawLine(boltX + 0, boltY + 4, boltX + 1, boltY + 4, false);
 }
 
 void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage) const {
   const bool charging = gpio.isUsbConnected();
 
-  const int maxFillWidth = rect.width - 6;
+  // rect is the body, terminal excluded: inset two pixels on every side.
+  const int maxFillWidth = rect.width - 4;
   const int fillHeight = rect.height - 4;
   if (maxFillWidth <= 0 || fillHeight <= 0) {
     return;
@@ -117,7 +136,7 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
   }
 
   // When charging, ensure minimum fill so lightning bolt is fully visible
-  constexpr int minFillForBolt = 8;
+  constexpr int minFillForBolt = 6;
   if (charging && filledWidth < minFillForBolt) {
     filledWidth = std::min(minFillForBolt, maxFillWidth);
   }
@@ -127,44 +146,59 @@ void BaseTheme::fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t
   }
 
   if (charging) {
-    drawBatteryLightningBolt(renderer, rect.x + 4, rect.y + 2);
+    drawBatteryLightningBolt(renderer, rect.x + 3, rect.y + 2);
   }
+}
+
+int BaseTheme::batteryDigitsCenterY(const GfxRenderer& renderer, const Rect rect, const int fontId,
+                                    const char* percentageText) {
+  // Align the icon to the digits themselves. The old code offset it by two
+  // fifths of the line height (and by a hardcoded ten pixels in the header),
+  // which is the font's box, not its marks: change the size and the icon
+  // drifts off centre. Ask the font where the ink of these digits sits.
+  int inkTop = 0, inkHeight = 0;
+  if (percentageText && renderer.getTextInkBounds(fontId, percentageText, &inkTop, &inkHeight)) {
+    return rect.y + inkTop + inkHeight / 2;
+  }
+  // Nothing to align to (percentage hidden): hold the same optical position by
+  // centring on the text line the digits would have occupied.
+  const int lineHeight = renderer.getLineHeight(fontId);
+  return rect.y + (lineHeight > 0 ? lineHeight / 2 : rect.height / 2);
 }
 
 void BaseTheme::drawBatteryLeft(const GfxRenderer& renderer, Rect rect, const bool showPercentage,
                                 const int fontId) const {
   // Left aligned: icon on left, percentage on right (reader mode)
   const uint16_t percentage = powerManager.getBatteryPercentage();
-  // Centred on the digits' cap band, not the line-box top — derived from the
-  // font so the reader's micro status bar and the UI's caption size both align.
-  const int y = rect.y + renderer.getLineHeight(fontId) * 2 / 5;
+  const auto percentageText = std::to_string(percentage) + "%";
 
   if (showPercentage) {
-    const auto percentageText = std::to_string(percentage) + "%";
     renderer.drawText(fontId, rect.x + batteryPercentSpacing + rect.width, rect.y, percentageText.c_str());
   }
 
-  const Rect iconRect{rect.x, y, rect.width, rect.height};
-  drawBatteryOutline(renderer, rect.x, y, rect.width, rect.height);
-  fillBatteryIcon(renderer, iconRect, percentage);
+  const int centerY = batteryDigitsCenterY(renderer, rect, fontId, showPercentage ? percentageText.c_str() : nullptr);
+  const Rect body = batteryBodyRect(rect, centerY);
+  drawBatteryOutline(renderer, body);
+  fillBatteryIcon(renderer, body, percentage);
 }
 
 void BaseTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const bool showPercentage) const {
   // Right aligned: percentage on left, icon on right (UI headers)
   // rect.x is already positioned for the icon (drawHeader calculated it)
   const uint16_t percentage = powerManager.getBatteryPercentage();
-  // Same vertical correction as drawBatteryLeft: centre on the digits.
-  const int y = rect.y + 10;
+  const auto percentageText = std::to_string(percentage) + "%";
 
   if (showPercentage) {
-    const auto percentageText = std::to_string(percentage) + "%";
-    const int textWidth = renderer.getTextWidth(SMALL_FONT_ID, percentageText.c_str());
-    renderer.drawText(SMALL_FONT_ID, rect.x - textWidth - batteryPercentSpacing, rect.y, percentageText.c_str());
+    const int textWidth = renderer.getTextWidth(batteryPercentFontId, percentageText.c_str());
+    renderer.drawText(batteryPercentFontId, rect.x - textWidth - batteryPercentSpacing, rect.y,
+                      percentageText.c_str());
   }
 
-  const Rect iconRect{rect.x, y, rect.width, rect.height};
-  drawBatteryOutline(renderer, rect.x, y, rect.width, rect.height);
-  fillBatteryIcon(renderer, iconRect, percentage);
+  const int centerY = batteryDigitsCenterY(renderer, rect, batteryPercentFontId,
+                                           showPercentage ? percentageText.c_str() : nullptr);
+  const Rect body = batteryBodyRect(rect, centerY);
+  drawBatteryOutline(renderer, body);
+  fillBatteryIcon(renderer, body, percentage);
 }
 
 void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const size_t current,

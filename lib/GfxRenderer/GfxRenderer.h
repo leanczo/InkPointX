@@ -223,6 +223,12 @@ class GfxRenderer {
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  // Where the *ink* of `text` actually sits, relative to the y that drawText()
+  // is given, and how tall it is. Line height and ascender describe the font's
+  // box, not the marks in it: centring an icon on digits needs the marks.
+  // Returns false for an unknown font or empty text; both outputs are then 0.
+  bool getTextInkBounds(int fontId, const char* text, int* topOffset, int* height,
+                        EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than

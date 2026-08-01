@@ -18,6 +18,11 @@ const EpdFont* EpdFontFamily::getFont(const Style style) const {
   return regular;
 }
 
+void EpdFontFamily::getTextBounds(const char* string, const int startX, const int startY, int* minX, int* minY,
+                                  int* maxX, int* maxY, const Style style) const {
+  getFont(style)->getTextBounds(string, startX, startY, minX, minY, maxX, maxY);
+}
+
 void EpdFontFamily::getTextDimensions(const char* string, int* w, int* h, const Style style) const {
   getFont(style)->getTextDimensions(string, w, h);
 }

@@ -1366,3 +1366,34 @@ English reaches a drawing call.
 
 Still not verified on hardware beyond a boot: the panel, the reader and the
 network features need a person holding the device.
+
+## 2.0.6 — the battery indicator — 2026-07-31
+
+User report: the icon in the top-right corner does not sit on the centre of the
+percentage text; replace the icon with something more suitable, make the reading
+a little smaller, and centre the two on each other.
+
+The icon was 13x12 with a radius-3 corner and a 2 px terminal one pixel clear of
+the body — square, heavily rounded, and detached, so it read as a rounded box
+with a speck beside it rather than as a battery. It is now a 15x10 body (five
+sixths of the metric box, which is the 3:2 the object actually has) with a
+radius-1 corner and the terminal drawn flush against it. The charging bolt was
+eight rows tall and drew past the fill into the outline; it is five rows now and
+knocks out white inside the fill.
+
+The centring was two fudge factors: two fifths of the line height in the reader
+and a hardcoded ten pixels in the header. Both describe the font's box, not the
+marks in it, so any change of size drifted. GfxRenderer::getTextInkBounds asks
+the font where the ink of these particular digits sits (EpdFont::getTextBounds
+already knew; it was private and unused), and the icon is centred on that.
+Measured on the device: header digits rows 27-38, icon rows 28-37 — both centred
+on 32.5; reader digits and icon both centred on 782.5.
+
+The reading dropped one step, from the 10 pt face to the 8 pt one: 15 px of ink
+to 12 px. The overlay's reserved width and its clear rectangle read the same
+shared constant, because a percentage drawn in one size and cleared in another
+smears on partial redraws.
+
+The metric box went from 15 to 17 px wide so the body could be 15x10 rather than
+13x10; every consumer derives its layout from that metric, so the header
+reservation and the reader's status cluster follow.

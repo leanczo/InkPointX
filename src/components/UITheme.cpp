@@ -150,7 +150,7 @@ int UITheme::getSystemBatteryOverlayWidth(const GfxRenderer& renderer) const {
 
   int width = currentMetrics.batteryWidth;
   if (SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS) {
-    width += BaseTheme::batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, "100%");
+    width += BaseTheme::batteryPercentSpacing + renderer.getTextWidth(BaseTheme::batteryPercentFontId, "100%");
   }
   return width;
 }
@@ -171,10 +171,11 @@ void UITheme::clearSystemBatteryOverlay(const GfxRenderer& renderer) const {
   const int iconX = renderer.getScreenWidth() - currentMetrics.contentSidePadding - currentMetrics.batteryWidth;
   const int textY = currentMetrics.topPadding + 14;
   const int groupWidth =
-      currentMetrics.batteryWidth + BaseTheme::batteryPercentSpacing + renderer.getTextWidth(SMALL_FONT_ID, "100%");
+      currentMetrics.batteryWidth + BaseTheme::batteryPercentSpacing +
+      renderer.getTextWidth(BaseTheme::batteryPercentFontId, "100%");
   const int clearLeft = iconX - (groupWidth - currentMetrics.batteryWidth) - 3;
   const int clearHeight =
-      std::max(renderer.getLineHeight(SMALL_FONT_ID), currentMetrics.batteryHeight + 6) + 6;
+      std::max(renderer.getLineHeight(BaseTheme::batteryPercentFontId), currentMetrics.batteryHeight + 6) + 6;
 
   // Clear the complete group so quick-resume sleep cannot retain the indicator.
   renderer.fillRect(clearLeft, textY - 3, groupWidth + 6, clearHeight, false);

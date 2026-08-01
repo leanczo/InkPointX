@@ -2,13 +2,15 @@
 #include "EpdFontData.h"
 
 class EpdFont {
-  void getTextBounds(const char* string, int startX, int startY, int* minX, int* minY, int* maxX, int* maxY) const;
-
  public:
   const EpdFontData* data;
   explicit EpdFont(const EpdFontData* data) : data(data) {}
   ~EpdFont() = default;
   void getTextDimensions(const char* string, int* w, int* h) const;
+  /// Ink bounding box with the cursor at (startX, startY). Y grows upward from
+  /// the baseline: maxY is the top of the ink, minY its bottom. Public because
+  /// centring a glyph on text needs the marks, not the font's box.
+  void getTextBounds(const char* string, int startX, int startY, int* minX, int* minY, int* maxX, int* maxY) const;
 
   const EpdGlyph* getGlyph(uint32_t cp) const;
 

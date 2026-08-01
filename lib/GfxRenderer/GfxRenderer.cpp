@@ -1798,6 +1798,27 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
   return widthPx;
 }
 
+bool GfxRenderer::getTextInkBounds(const int fontId, const char* text, int* topOffset, int* height,
+                                   const EpdFontFamily::Style style) const {
+  if (topOffset) *topOffset = 0;
+  if (height) *height = 0;
+  if (text == nullptr || *text == '\0') return false;
+
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) return false;
+
+  int minX = 0, minY = 0, maxX = 0, maxY = 0;
+  fontIt->second.getTextBounds(text, 0, 0, &minX, &minY, &maxX, &maxY, style);
+  if (maxY <= minY) return false;  // whitespace only: no ink to measure
+
+  // getTextBounds measures upward from the baseline; drawText puts the baseline
+  // `ascender` pixels below the y it is handed. So the ink starts that far down
+  // minus its own rise above the baseline.
+  if (topOffset) *topOffset = getFontAscenderSize(fontId) - maxY;
+  if (height) *height = maxY - minY;
+  return true;
+}
+
 int GfxRenderer::getFontAscenderSize(const int fontId) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
