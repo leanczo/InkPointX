@@ -11,6 +11,7 @@
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
 #include <esp_https_ota.h>
+#include <esp_task_wdt.h>
 #include <esp_wifi.h>
 #include "FirmwareFlasher.h"
 // clang-format on
@@ -69,6 +70,13 @@ OtaUpdater::OtaUpdaterError performDirectHttpOta(const std::string& otaUrl, OtaU
   }
 
   do {
+    // installUpdate() runs on the loop task and blocks it for the whole
+    // transfer, and the loop task is the one subscribed to the task watchdog.
+    // A 5.9 MB image over a weak link takes longer than the 300 s timeout, so
+    // without this feed the watchdog panics mid-flash — the update fails
+    // exactly on the connections that need the most patience. The staged SD
+    // path already feeds from HttpDownloader and FirmwareFlasher.
+    esp_task_wdt_reset();
     esp_err = esp_https_ota_perform(ota_handle);
     if (updater) {
       updater->setProgress(esp_https_ota_get_image_len_read(ota_handle), updater->getTotalSize(), onProgress, ctx);

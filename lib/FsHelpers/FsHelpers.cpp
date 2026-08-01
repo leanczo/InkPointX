@@ -49,6 +49,10 @@ std::string normalisePath(const std::string& path) {
           if (!components.empty()) {
             components.pop_back();
           }
+        } else if (component == ".") {
+          // "." was kept as a literal component, so a WebDAV client sending
+          // /Books/./x.epub asked the card for a directory named "." and got
+          // a miss. Dropping it is what every other path normaliser does.
         } else {
           components.push_back(component);
         }
