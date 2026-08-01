@@ -28,6 +28,7 @@ set(PDFIO_SOURCES
 add_executable(pdf_native_harness
   PdfHarness.cpp
   ${REPO_ROOT}/lib/Pdf/Pdf.cpp
+  ${REPO_ROOT}/lib/Pdf/PdfRasterizer.cpp
   ${PDFIO_SOURCES}
 )
 target_compile_definitions(pdf_native_harness PRIVATE PDFIO_READ_ONLY=1)

@@ -35,6 +35,7 @@ class Pdf {
   struct PageImage {
     std::string resourceName;
     std::string filename;
+    bool fullPage = false;
   };
 
   struct InputContext {
@@ -55,11 +56,14 @@ class Pdf {
   uint64_t sourceSize = 0;
   size_t pageCount = 0;
   bool loaded = false;
+  bool packageBuiltDuringLoad = false;
   pdfio_file_t* document = nullptr;
   HalFile imageRecords;
   size_t imageCount = 0;
   ProgressCallback progressCallback = nullptr;
   void* progressContext = nullptr;
+  uint8_t* rasterScratch = nullptr;
+  size_t rasterScratchSize = 0;
 
   static ssize_t inputRead(void* context, void* data, size_t length);
   static off_t inputSeek(void* context, off_t offset, int whence);
@@ -89,6 +93,7 @@ class Pdf {
 
   bool extractPageImages(pdfio_obj_t* page, size_t pageIndex, std::vector<PageImage>& pageImages);
   bool extractJpeg(pdfio_obj_t* imageObject, const std::string& outputPath);
+  bool recordImage(const std::string& filename);
   bool writePage(pdfio_obj_t* page, size_t pageIndex, const std::vector<PageImage>& pageImages);
   bool writeContainerFile() const;
   bool writeStyleFile() const;
@@ -109,6 +114,10 @@ class Pdf {
     progressCallback = callback;
     progressContext = context;
   }
+  void setRasterScratch(uint8_t* buffer, size_t size) {
+    rasterScratch = buffer;
+    rasterScratchSize = size;
+  }
 
   [[nodiscard]] const std::string& getPath() const { return filepath; }
   [[nodiscard]] const std::string& getCachePath() const { return cachePath; }
@@ -120,4 +129,5 @@ class Pdf {
   [[nodiscard]] uint64_t getSourceSize() const { return sourceSize; }
   [[nodiscard]] size_t getPageCount() const { return pageCount; }
   [[nodiscard]] bool isLoaded() const { return loaded; }
+  [[nodiscard]] bool builtPackageDuringLoad() const { return packageBuiltDuringLoad; }
 };

@@ -5,12 +5,18 @@
 #include <Memory.h>
 #include <I18n.h>
 
+#include <array>
+#include <cstring>
+
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "Epub.h"
 #include "EpubReaderActivity.h"
 #include "Fb2.h"
+#include "InterfaceFont.h"
 #include "Pdf.h"
 #include "SdCardFontSystem.h"
+#include "SilentRestart.h"
 #include "Txt.h"
 #include "TxtReaderActivity.h"
 #include "Xtc.h"
@@ -18,6 +24,42 @@
 #include "activities/util/BmpViewerActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+
+namespace {
+class PdfFontMemoryPause {
+  GfxRenderer& renderer;
+  std::array<char, CrossPointSettings::SD_FONT_NAME_MAX> readerName{};
+  std::array<char, CrossPointSettings::SD_FONT_NAME_MAX> interfaceName{};
+  std::array<char, CrossPointSettings::SD_FONT_NAME_MAX> scriptName{};
+  bool shouldResume = true;
+
+ public:
+  explicit PdfFontMemoryPause(GfxRenderer& renderer) : renderer(renderer) {
+    memcpy(readerName.data(), SETTINGS.sdFontFamilyName, readerName.size());
+    memcpy(interfaceName.data(), SETTINGS.uiSdFontFamilyName, interfaceName.size());
+    memcpy(scriptName.data(), SETTINGS.scriptSdFontFamilyName, scriptName.size());
+    SETTINGS.sdFontFamilyName[0] = '\0';
+    SETTINGS.uiSdFontFamilyName[0] = '\0';
+    SETTINGS.scriptSdFontFamilyName[0] = '\0';
+    applyInterfaceFont();
+    sdFontSystem.ensureLoaded(renderer);
+    memcpy(SETTINGS.sdFontFamilyName, readerName.data(), readerName.size());
+    memcpy(SETTINGS.uiSdFontFamilyName, interfaceName.data(), interfaceName.size());
+    memcpy(SETTINGS.scriptSdFontFamilyName, scriptName.data(), scriptName.size());
+  }
+
+  ~PdfFontMemoryPause() { resume(); }
+
+  void resume() {
+    if (!shouldResume) return;
+    shouldResume = false;
+    sdFontSystem.ensureLoaded(renderer);
+    applyInterfaceFont();
+  }
+
+  void leaveUnloadedForRestart() { shouldResume = false; }
+};
+}  // namespace
 
 bool ReaderActivity::isXtcFile(const std::string& path) { return FsHelpers::hasXtcExtension(path); }
 
@@ -137,10 +179,32 @@ std::unique_ptr<Epub> ReaderActivity::loadPdfAsEpub(const std::string& path) {
   if (!pdf) return nullptr;
   lastPdfProgressBucket = -1;
   pdf->setProgressCallback(pdfProgressCallback, this);
+  // PDF graphics pages need up to ~41 KB at 480 px wide. Lend the existing
+  // 48 KB display framebuffer while the package is built instead of asking the
+  // ESP32-C3 heap for another large contiguous allocation. Progress redraws
+  // clear this same buffer before each display update.
+  pdf->setRasterScratch(renderer.getWriteTarget(),
+                        static_cast<size_t>(renderer.getDisplayWidthBytes()) * renderer.getDisplayHeight());
+  // User-selected SD fonts are reloaded automatically after the one-time PDF
+  // conversion restart. Releasing them here gives PDFio enough headroom to
+  // parse all seven embedded score fonts without dropping late dictionaries.
+  PdfFontMemoryPause fontMemoryPause(renderer);
   if (!pdf->load()) {
     LOG_ERR("READER", "Failed to load PDF: %s", pdf->getLastError().c_str());
     return nullptr;
   }
+  if (pdf->builtPackageDuringLoad()) {
+    // PDF parsing and multi-pass font rasterization leave plenty of total
+    // memory but fragment the largest contiguous block below PNGdec's ~44 KiB
+    // requirement. The completed package is already durable on SD, so resume
+    // it after one splash-free restart with a clean heap.
+    APP_STATE.openEpubPath = path;
+    APP_STATE.saveToFile();
+    fontMemoryPause.leaveUnloadedForRestart();
+    silentRestartToReader();
+    return nullptr;
+  }
+  fontMemoryPause.resume();
   auto epub = makeUniqueNoThrow<Epub>(path, "/.crosspoint", pdf->getPackagePath());
   if (!epub || !epub->load(true, SETTINGS.embeddedStyle == 0)) {
     LOG_ERR("READER", "Failed to load EPUB-compatible PDF package");

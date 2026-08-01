@@ -19,6 +19,8 @@ static void *shared_flate_state = NULL;
 static void *shared_flate_window = NULL;
 static void *shared_flate_cbuffer = NULL;
 static bool shared_flate_in_use = false;
+static pdfio_stream_t *shared_stream = NULL;
+static bool shared_stream_in_use = false;
 
 static void
 release_stream_flate_storage(pdfio_stream_t *st)
@@ -39,24 +41,56 @@ release_stream_flate_storage(pdfio_stream_t *st)
 #endif // PDFIO_PNGDEC_ZLIB
 
 
+static pdfio_stream_t *
+allocate_stream_object(void)
+{
+#ifdef PDFIO_PNGDEC_ZLIB
+  if (shared_stream && !shared_stream_in_use)
+  {
+    memset(shared_stream, 0, sizeof(pdfio_stream_t));
+    shared_stream_in_use = true;
+    return (shared_stream);
+  }
+#endif // PDFIO_PNGDEC_ZLIB
+  return ((pdfio_stream_t *)calloc(1, sizeof(pdfio_stream_t)));
+}
+
+
+static void
+release_stream_object(pdfio_stream_t *st)
+{
+#ifdef PDFIO_PNGDEC_ZLIB
+  if (st == shared_stream)
+  {
+    shared_stream_in_use = false;
+    return;
+  }
+#endif // PDFIO_PNGDEC_ZLIB
+  free(st);
+}
+
+
 bool
 pdfioPrepareFlateWorkspace(void)
 {
 #ifdef PDFIO_PNGDEC_ZLIB
-  if (shared_flate_state && shared_flate_window)
+  if (shared_flate_state && shared_flate_window && shared_flate_cbuffer && shared_stream)
     return (true);
 
   shared_flate_window = malloc(32768);
   shared_flate_state = calloc(1, sizeof(struct inflate_state));
   shared_flate_cbuffer = malloc(1024);
-  if (!shared_flate_window || !shared_flate_state || !shared_flate_cbuffer)
+  shared_stream = (pdfio_stream_t *)calloc(1, sizeof(pdfio_stream_t));
+  if (!shared_flate_window || !shared_flate_state || !shared_flate_cbuffer || !shared_stream)
   {
     free(shared_flate_state);
     free(shared_flate_window);
     free(shared_flate_cbuffer);
+    free(shared_stream);
     shared_flate_state = NULL;
     shared_flate_window = NULL;
     shared_flate_cbuffer = NULL;
+    shared_stream = NULL;
     return (false);
   }
 #endif // PDFIO_PNGDEC_ZLIB
@@ -68,14 +102,16 @@ void
 pdfioReleaseFlateWorkspace(void)
 {
 #ifdef PDFIO_PNGDEC_ZLIB
-  if (shared_flate_in_use)
+  if (shared_flate_in_use || shared_stream_in_use)
     return;
   free(shared_flate_state);
   free(shared_flate_window);
   free(shared_flate_cbuffer);
+  free(shared_stream);
   shared_flate_state = NULL;
   shared_flate_window = NULL;
   shared_flate_cbuffer = NULL;
+  shared_stream = NULL;
 #endif // PDFIO_PNGDEC_ZLIB
 }
 
@@ -261,7 +297,7 @@ pdfioStreamClose(pdfio_stream_t *st)	// I - Stream
 #ifdef PDFIO_PNGDEC_ZLIB
   release_stream_flate_storage(st);
 #endif // PDFIO_PNGDEC_ZLIB
-  free(st);
+  release_stream_object(st);
 
   return (ret);
 }
@@ -525,7 +561,7 @@ _pdfioStreamOpen(pdfio_obj_t *obj,	// I - Object
   PDFIO_DEBUG("_pdfioStreamOpen(obj=%p(%u), decode=%s)\n", (void *)obj, (unsigned)obj->number, decode ? "true" : "false");
 
   // Allocate a new stream object...
-  if ((st = (pdfio_stream_t *)calloc(1, sizeof(pdfio_stream_t))) == NULL)
+  if ((st = allocate_stream_object()) == NULL)
   {
     _pdfioFileError(obj->pdf, "Unable to allocate memory for a stream.");
     return (NULL);
@@ -780,7 +816,7 @@ _pdfioStreamOpen(pdfio_obj_t *obj,	// I - Object
 #ifdef PDFIO_PNGDEC_ZLIB
   release_stream_flate_storage(st);
 #endif // PDFIO_PNGDEC_ZLIB
-  free(st);
+  release_stream_object(st);
   return (NULL);
 
 }
