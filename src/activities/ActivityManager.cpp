@@ -148,13 +148,16 @@ void ActivityManager::loop() {
       currentActivity = std::move(pendingActivity);
       prepareDisplayForActivity(*currentActivity);
 
-      lock.unlock();  // onEnter may acquire its own lock
       if (currentActivity->isReaderActivity()) {
         // UI glyphs are cached across menu redraws for responsiveness. Release
         // that bounded cache before book parsing/layout, where heap headroom is
         // more important and the reader has its own per-page font prewarm.
+        // Inside the lock: freeing decompressed glyph data while the render
+        // task is blitting one is a use-after-free, and a render notification
+        // queued before the switch can start the moment the lock drops.
         if (auto* fontCache = renderer.getFontCacheManager()) fontCache->clearCache();
       }
+      lock.unlock();  // onEnter may acquire its own lock
       currentActivity->onEnter();
 
       // onEnter may request another pending action, we will handle it in the next loop iteration

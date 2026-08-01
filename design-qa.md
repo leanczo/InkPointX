@@ -1322,3 +1322,47 @@ by sha256.
 Not verified this round: anything on hardware. The device has been asleep since
 the 2.0.2 sleep test and its USB port only returns after a physical power-button
 press.
+
+## 2.0.4 — second review round — 2026-07-31
+
+The delegated subsystem audits failed again on an API session limit, so this
+round is also hand-done, favouring checks that scale mechanically over reading
+26,000 lines.
+
+Network (the largest area no one had reviewed):
+
+- OTA starved the task watchdog. installUpdate() runs on the loop task and
+  blocks it for the whole transfer, and that task is the one subscribed to the
+  300 s watchdog. The direct HTTPS path never fed it, so a 5.9 MB image below
+  roughly 20 KB/s panicked mid-flash — the update failed exactly on the
+  connections that need the most patience. Rollback protected the running slot.
+- The OPDS parser had two unbounded buffers: character data per field, and the
+  entry vector. A server that returns its whole library in one feed walked the
+  heap to exhaustion, and under -fno-exceptions that terminates the firmware
+  instead of failing the fetch. Fields cap at 2 KB, entries at 512.
+- FsHelpers::normalisePath kept "." as a literal component, so /Books/./x.epub
+  asked the card for a directory named ".".
+
+Concurrency (two real races between the main loop and the render task):
+
+- Changing the interface font unregistered seven font IDs and freed the glyph
+  cache from an activity's loop(), with no render lock. The render task reads
+  both while drawing: a mutated map mid-lookup and a freed glyph under the
+  blitter. applyInterfaceFont() now holds the lock for the whole swap.
+- The reader's glyph-cache release on activity install happened just after the
+  lock was dropped, where a render notification queued before the switch can
+  start immediately. Moved inside the lock.
+
+A dead setting made real: "Quick-return from footnotes" was offered in
+Controls, persisted, and read by nothing — the power button returned from a
+footnote whether the user asked for it or not. It now decides that branch.
+
+Mechanical sweeps that came back clean: no std::stoi-family calls (each one
+would abort under -fno-exceptions); the four .at() call sites are all
+bounds-guarded by their callers; of 44 settings exposed in the UI, 43 are
+consumed (lineSpacing and refreshFrequency through getters, the 44th fixed
+above); all 485 user-visible string ids are reachable from code; no hardcoded
+English reaches a drawing call.
+
+Still not verified on hardware beyond a boot: the panel, the reader and the
+network features need a person holding the device.

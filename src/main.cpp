@@ -33,6 +33,7 @@
 #include "WifiCredentialStore.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/RenderLock.h"
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
@@ -173,6 +174,15 @@ void drawSystemFrameOverlay(const GfxRenderer& target) {
 }
 
 void applyInterfaceFont() {
+  // Swapping the interface faces unregisters seven font IDs and frees the
+  // decompressed glyph cache. The render task reads both while it draws, and
+  // the two settings screens that change the face call this straight from
+  // their loop() on the main task — so without the lock the map is mutated
+  // mid-lookup and the cache is freed under a glyph that is being blitted.
+  // Held for the whole swap: a half-applied font map is not a valid state to
+  // render from either. begin() creates the mutex before setup() reaches the
+  // first call here, so this is also safe during boot.
+  RenderLock lock;
   renderer.removeFont(MICRO_FONT_ID);
   renderer.removeFont(SMALL_FONT_ID);
   renderer.removeFont(UI_10_FONT_ID);

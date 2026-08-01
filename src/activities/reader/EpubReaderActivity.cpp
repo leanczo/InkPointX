@@ -452,7 +452,12 @@ void EpubReaderActivity::loop() {
   if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::FOOTNOTES &&
       mappedInput.wasReleased(MappedInputManager::Button::Power) &&
       !mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    if (footnoteDepth > 0) {
+    // "Quick-return from footnotes" (pwrBtnFootnoteBack) decides this branch.
+    // The toggle was offered in Controls, saved, and then read by nothing: the
+    // power button returned from a footnote whether the user wanted it to or
+    // not. With it off the power button keeps opening footnotes — including
+    // ones inside a footnote — and BACK is the way out, which it already is.
+    if (footnoteDepth > 0 && SETTINGS.pwrBtnFootnoteBack) {
       restoreSavedPosition();
     } else {
       if (currentPageFootnotes.size() == 1) {
