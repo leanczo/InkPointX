@@ -152,7 +152,10 @@ void OtaUpdateActivity::render(RenderLock&&) {
     y += height + metrics.verticalSpacing;
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF), true, EpdFontFamily::BOLD);
   } else if (state == NO_UPDATE) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NO_UPDATE), true, EpdFontFamily::BOLD);
+    GUI.drawEmptyState(renderer,
+                       Rect{0, top, pageWidth,
+                            pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
+                       tr(STR_NO_UPDATE), nullptr, /*script=*/true);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {
@@ -164,8 +167,10 @@ void OtaUpdateActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height + metrics.verticalSpacing, tr(STR_POWER_ON_HINT));
+    GUI.drawEmptyState(renderer,
+                       Rect{0, top, pageWidth,
+                            pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - top},
+                       tr(STR_UPDATE_COMPLETE), tr(STR_POWER_ON_HINT), /*script=*/true);
   }
 
   renderer.displayBuffer();

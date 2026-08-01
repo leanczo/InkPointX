@@ -282,7 +282,8 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   const Rect messageArea{screen.x, contentTop, screen.width,
                          screen.y + screen.height - metrics.buttonHintsHeight - metrics.verticalSpacing - contentTop};
   if (state == NO_CREDENTIALS) {
-    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_CREDENTIALS_MSG), tr(STR_KOREADER_SETUP_HINT));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_CREDENTIALS_MSG), tr(STR_KOREADER_SETUP_HINT),
+                       /*script=*/true);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -373,7 +374,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == NO_REMOTE_PROGRESS) {
-    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_REMOTE_MSG), tr(STR_UPLOAD_PROMPT));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_REMOTE_MSG), tr(STR_UPLOAD_PROMPT), /*script=*/true);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_UPLOAD), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -382,7 +383,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   }
 
   if (state == UPLOAD_COMPLETE) {
-    GUI.drawEmptyState(renderer, messageArea, tr(STR_UPLOAD_SUCCESS));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_UPLOAD_SUCCESS), nullptr, /*script=*/true);
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

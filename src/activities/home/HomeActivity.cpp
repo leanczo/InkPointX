@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Utf8.h>
 
 #include <algorithm>
 #include <array>
@@ -106,12 +107,30 @@ std::string filenameWithoutExtension(const std::string& path) {
   return path.substr(start, length);
 }
 
+int homeAuthorFontId(const GfxRenderer& renderer, const char* text) {
+  // A downloaded accent family has a real 18 pt RTL face. The built-in Caveat
+  // cut does not, and duplicating Noto Hebrew/Arabic in a second embedded size
+  // would consume almost 0.5 MB of the OTA partition. Reuse the compact 16 pt
+  // structural face only for those scripts; all Caveat-supported authors keep
+  // the smaller handwritten treatment.
+  if (renderer.isSdCardFont(SCRIPT_SMALL_FONT_ID) || !text) return SCRIPT_SMALL_FONT_ID;
+  auto* cursor = reinterpret_cast<const unsigned char*>(text);
+  while (*cursor) {
+    const uint32_t cp = utf8NextCodepoint(&cursor);
+    if ((cp >= 0x0590 && cp <= 0x08FF) || (cp >= 0xFB1D && cp <= 0xFDFF) ||
+        (cp >= 0xFE70 && cp <= 0xFEFF)) {
+      return UI_16_FONT_ID;
+    }
+  }
+  return SCRIPT_SMALL_FONT_ID;
+}
+
 int calculateHomeCoverSlotHeight(const GfxRenderer& renderer, const int titleLineCount, const bool hasAuthor) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_14_FONT_ID);
   const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int authorBlockHeight =
-      hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + renderer.getLineHeight(SCRIPT_FONT_ID) : 0;
+      hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) : 0;
   const int detailTailHeight = HOME_COVER_TO_TITLE_GAP + titleBlockHeight + authorBlockHeight + HOME_METADATA_GAP +
                                HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_BAR_GAP + captionLineHeight +
                                HOME_TIME_TO_ACTION_GAP + HOME_CONTINUE_HEIGHT;
@@ -451,9 +470,10 @@ void HomeActivity::render(RenderLock&&) {
     if (hasAuthor) {
       detailCursorY += HOME_TITLE_TO_AUTHOR_GAP;
       const char* authorLabel = hasRecentBook ? recentBook->author.c_str() : tr(STR_OPEN_LIBRARY_HINT);
-      const std::string author = renderer.truncatedText(SCRIPT_FONT_ID, authorLabel, textWidth);
-      renderer.drawCenteredText(SCRIPT_FONT_ID, detailCursorY, author.c_str());
-      detailCursorY += renderer.getLineHeight(SCRIPT_FONT_ID);
+      const int authorFontId = homeAuthorFontId(renderer, authorLabel);
+      const std::string author = renderer.truncatedText(authorFontId, authorLabel, textWidth);
+      renderer.drawCenteredText(authorFontId, detailCursorY, author.c_str());
+      detailCursorY += renderer.getLineHeight(authorFontId);
     }
     detailCursorY += HOME_METADATA_GAP;
 

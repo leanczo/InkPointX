@@ -21,6 +21,10 @@
 // Minimum file size (in bytes) to show indexing popup - smaller chapters don't benefit from it
 constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
+// A progress update is a physical e-ink refresh, not a cheap LCD repaint.
+// Reporting every 1% made a large chapter spend roughly 100 seconds refreshing
+// its progress bar instead of indexing.
+constexpr int PROGRESS_STEP_PERCENT = 10;
 
 // Hard cap on the number of anchor IDs recorded per chapter. Legitimate navigation
 // anchors (TOC entries, footnotes, cross-references) rarely exceed a few hundred per
@@ -1315,7 +1319,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   const size_t chapterBytes = file.size();
   const bool reportProgress = popupFn && chapterBytes >= MIN_SIZE_FOR_POPUP;
   size_t bytesParsed = 0;
-  int lastReportedPercent = -1;
+  int lastReportedPercent = 0;
   if (reportProgress) {
     popupFn(0);
   }
@@ -1348,12 +1352,13 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
     if (reportProgress) {
       bytesParsed += len;
-      // Repaint only on a whole percent: e-ink cannot show more, and each frame
-      // costs a refresh.
+      // Keep progress useful without making the panel refresh the dominant
+      // indexing cost. Always report completion even if the last jump is short.
       const int percent = chapterBytes > 0 ? static_cast<int>((bytesParsed * 100) / chapterBytes) : 100;
-      if (percent != lastReportedPercent) {
-        lastReportedPercent = percent;
-        popupFn(percent > 100 ? 100 : percent);
+      const int clampedPercent = percent > 100 ? 100 : percent;
+      if (clampedPercent == 100 || clampedPercent - lastReportedPercent >= PROGRESS_STEP_PERCENT) {
+        lastReportedPercent = clampedPercent;
+        popupFn(clampedPercent);
       }
     }
 

@@ -3,6 +3,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <numeric>
 
 #include "HalDisplay.h"
 #include "components/UITheme.h"
@@ -28,13 +29,14 @@ void ConfirmationActivity::onEnter() {
     safeBodyLines = renderer.wrappedText(bodyFontId, body.c_str(), maxTextWidth, 5);
   }
 
-  int widestText = 0;
-  for (const auto& line : safeHeadingLines) {
-    widestText = std::max(widestText, renderer.getTextWidth(headingFontId, line.c_str(), EpdFontFamily::BOLD));
-  }
-  for (const auto& line : safeBodyLines) {
-    widestText = std::max(widestText, renderer.getTextWidth(bodyFontId, line.c_str()));
-  }
+  int widestText = std::accumulate(
+      safeHeadingLines.cbegin(), safeHeadingLines.cend(), 0, [this](const int widest, const std::string& line) {
+        return std::max(widest, renderer.getTextWidth(headingFontId, line.c_str(), EpdFontFamily::BOLD));
+      });
+  widestText = std::accumulate(
+      safeBodyLines.cbegin(), safeBodyLines.cend(), widestText, [this](const int widest, const std::string& line) {
+        return std::max(widest, renderer.getTextWidth(bodyFontId, line.c_str()));
+      });
   cardWidth = std::min(maxCardWidth, std::max(300, widestText + margin * 2));
   cardHeight = margin * 2;
   cardHeight += static_cast<int>(safeHeadingLines.size()) * headingLineHeight;

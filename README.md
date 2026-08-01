@@ -61,9 +61,9 @@ element, and the result was verified by reading the device's own framebuffer rat
 
 - **A calmer home screen.** The reading card is one clear hierarchy instead of five near-equal centred rows: a
   larger cover, the title, the author, then a single progress band that carries percent, pages and invested time.
-- **A handwritten accent voice.** Caveat sets the moments that are about a person rather than a function — the home
-  greeting and hub headers, the author line, empty collections, and the end-of-book screen. Functional text, list
-  rows, settings and every error state stay in the structural face on purpose.
+- **A handwritten accent voice.** Caveat sets the moments that are about a person rather than a function — home
+  greetings and hub headers, the quieter author line, empty states, successful completion, and end-of-book screens.
+  Functional text, list rows, settings, progress, and every error state stay in the structural face on purpose.
 - **A type scale one step smaller** across the whole interface, so long book titles fit where they used to
   ellipsize, without making any list denser.
 - **A minimal reader status bar.** The reading page's bottom lane uses the smallest legible size, and the pixels it

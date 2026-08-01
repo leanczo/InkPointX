@@ -5,6 +5,7 @@
 #include <SdCardFont.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <new>
 
@@ -150,13 +151,9 @@ int SdCardFontSystem::loadInterfaceFaces(const char* familyName, GfxRenderer& re
 
     // Already loaded for an earlier slot: register the same face again rather
     // than paying for a second copy of identical glyph data.
-    SdCardFont* face = nullptr;
-    for (const auto& loadedFace : uiFaces_) {
-      if (loadedFace.path == best->path) {
-        face = loadedFace.font;
-        break;
-      }
-    }
+    const auto existing = std::find_if(uiFaces_.cbegin(), uiFaces_.cend(),
+                                       [best](const InterfaceFace& loadedFace) { return loadedFace.path == best->path; });
+    SdCardFont* face = existing == uiFaces_.cend() ? nullptr : existing->font;
 
     if (!face) {
       if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
@@ -191,6 +188,6 @@ int SdCardFontSystem::loadInterfaceFaces(const char* familyName, GfxRenderer& re
 void SdCardFontSystem::unloadInterfaceFaces(GfxRenderer& renderer) {
   for (const int id : uiBoundIds_) renderer.removeFont(id);
   uiBoundIds_.clear();
-  for (auto& face : uiFaces_) delete face.font;
+  for (const auto& face : uiFaces_) delete face.font;
   uiFaces_.clear();
 }

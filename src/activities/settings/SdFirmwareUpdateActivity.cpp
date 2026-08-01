@@ -250,8 +250,7 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
     y += lineHeight + metrics.verticalSpacing;
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF));
   } else if (state == State::SUCCESS) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, tr(STR_RESTARTING_HINT));
+    GUI.drawEmptyState(renderer, messageRect, tr(STR_UPDATE_COMPLETE), tr(STR_RESTARTING_HINT), /*script=*/true);
   } else if (state == State::FAILED) {
     // drawEmptyState wraps: several locales' messages are wider than the
     // panel and drawCenteredText clipped them at both ends.

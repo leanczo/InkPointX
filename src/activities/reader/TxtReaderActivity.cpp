@@ -399,7 +399,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   if (pageOffsets.empty()) {
     renderer.clearScreen();
-    GUI.drawReaderMessage(renderer, tr(STR_EMPTY_FILE));
+    GUI.drawReaderMessage(renderer, tr(STR_EMPTY_FILE), /*script=*/true);
     renderer.displayBuffer();
     return;
   }

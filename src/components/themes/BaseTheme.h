@@ -253,8 +253,8 @@ class BaseTheme {
   // "Nothing here" and "something went wrong" are the same shape: a centred line,
   // optionally with an explanation under it. One primitive rather than each screen
   // centring on pageHeight / 2 with its own hand-picked offsets.
-  // script=true sets the message in the handwritten accent face — for empty
-  // collections ("no favorites yet"), never for errors.
+  // script=true sets the message in the handwritten accent face for human
+  // moments (empty collections and successful completion), never for errors.
   virtual void drawEmptyState(const GfxRenderer& renderer, Rect content, const char* message,
                               const char* detail = nullptr, bool script = false) const;
   // A single line the reader has to notice: end of book, empty chapter, page load

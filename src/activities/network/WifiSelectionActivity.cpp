@@ -578,7 +578,7 @@ void WifiSelectionActivity::renderNetworkList(const Rect* screen, const ThemeMet
   if (networks.empty()) {
     // No networks found or scan failed
     GUI.drawEmptyState(renderer, Rect{screen->x, contentTop, screen->width, contentHeight}, tr(STR_NO_NETWORKS),
-                       tr(STR_PRESS_OK_SCAN));
+                       tr(STR_PRESS_OK_SCAN), /*script=*/true);
   } else {
     GUI.drawList(
         renderer, Rect{screen->x, contentTop, screen->width, contentHeight}, static_cast<int>(networks.size()),
@@ -634,7 +634,7 @@ void WifiSelectionActivity::renderConnected(const Rect* screen, const ThemeMetri
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = screen->y + (screen->height - height * 4) / 2;
 
-  UITheme::drawCenteredText(renderer, *screen, UI_12_FONT_ID, top - 30, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
+  UITheme::drawCenteredText(renderer, *screen, SCRIPT_FONT_ID, top - 30, tr(STR_CONNECTED));
 
   const std::string ssidInfo =
       renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID).c_str(),
@@ -683,7 +683,7 @@ void WifiSelectionActivity::renderSavePrompt(const Rect* screen, const ThemeMetr
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = screen->y + (screen->height - height * 3) / 2;
 
-  UITheme::drawCenteredText(renderer, *screen, UI_12_FONT_ID, top - 40, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
+  UITheme::drawCenteredText(renderer, *screen, SCRIPT_FONT_ID, top - 40, tr(STR_CONNECTED));
 
   const std::string ssidInfo =
       renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID).c_str(),

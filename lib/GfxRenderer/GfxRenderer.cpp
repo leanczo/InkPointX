@@ -82,13 +82,21 @@ void GfxRenderer::prepareSdCardGlyphs(const int fontId, const char* utf8Text, co
                                       const bool metadataOnly) const {
   const auto it = sdCardFonts_.find(fontId);
   if (it == sdCardFonts_.end() || !utf8Text || *utf8Text == '\0') return;
-  // Card fonts keep only an eight-glyph overflow ring beyond what was prewarmed,
-  // and a miss costs an SD seek — around 110 ms each. The reader prewarms a whole
-  // page before it paints, but interface text is drawn string by string with no
-  // such pass, so a card face in the UI thrashed that ring on every label. One
-  // batched prewarm per string turns the whole label into a single pass.
-  const auto styleIndex = static_cast<uint8_t>(style) & 0x03U;
-  it->second->prewarm(utf8Text, static_cast<uint8_t>(1U << styleIndex), metadataOnly);
+  const auto styleMask = static_cast<uint8_t>(1U << (static_cast<uint8_t>(style) & 0x03U));
+  if (it->second->hasPrewarmedGlyphs(utf8Text, styleMask, metadataOnly)) return;
+  // Card fonts keep only a small overflow ring beyond what was prewarmed, and a
+  // miss costs an SD seek. Themes normally prepare all visible labels as one
+  // batch; this fallback handles individual strings outside those theme paths.
+  // UI strings are normally measured immediately before they are drawn. A
+  // full preparation here avoids doing the same SD reads once for metrics and
+  // again for bitmaps, while FontCacheManager merges sibling UI groups.
+  if (fontCacheManager_ && fontCacheManager_->prepareSdCardGlyphs(fontId, utf8Text, styleMask)) return;
+  it->second->prewarm(utf8Text, styleMask, false);
+}
+
+void GfxRenderer::beginFrame() const {
+  frameOverlayDrawn_ = false;
+  if (fontCacheManager_) fontCacheManager_->beginFrame();
 }
 
 void GfxRenderer::begin() {
@@ -387,7 +395,13 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   std::string visual;
   const char* renderedText = resolveVisualText(text, visual, baseDir);
 
-  prepareSdCardGlyphs(fontId, renderedText, style, /*metadataOnly=*/true);
+  // A reader page is scanned and prewarmed as one unit. Re-prewarming the SD
+  // font for every measured word would replace that page cache and turn each
+  // subsequent glyph into another SD seek.
+  if (!fontCacheManager_ ||
+      (!fontCacheManager_->isScanning() && !fontCacheManager_->isPagePrewarmedFor(fontId))) {
+    prepareSdCardGlyphs(fontId, renderedText, style, /*metadataOnly=*/true);
+  }
 
   int w = 0, h = 0;
   fontIt->second.getTextDimensions(renderedText, &w, &h, style);
@@ -410,15 +424,6 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   std::string visual;
   const char* renderedText = resolveVisualText(text, visual, baseDir);
 
-  prepareSdCardGlyphs(fontId, renderedText, style, /*metadataOnly=*/false);
-
-  const int yPos = y + getFontAscenderSize(fontId);
-  int lastBaseX = x;
-  int lastBaseLeft = 0;
-  int lastBaseWidth = 0;
-  int lastBaseTop = 0;
-  int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
-
   if (fontCacheManager_ && fontCacheManager_->isScanning()) {
     fontCacheManager_->recordText(renderedText, fontId, style);
     return;
@@ -430,6 +435,17 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     return;
   }
   const auto& font = fontIt->second;
+
+  if (!fontCacheManager_ || !fontCacheManager_->isPagePrewarmedFor(fontId)) {
+    prepareSdCardGlyphs(fontId, renderedText, style, /*metadataOnly=*/false);
+  }
+
+  const int yPos = y + getFontAscenderSize(fontId);
+  int lastBaseX = x;
+  int lastBaseLeft = 0;
+  int lastBaseWidth = 0;
+  int lastBaseTop = 0;
+  int32_t prevAdvanceFP = 0;  // 12.4 fixed-point: prev glyph's advance + next kern for snap
 
   const char* textCursor = renderedText;
   uint32_t cp;

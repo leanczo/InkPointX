@@ -124,8 +124,11 @@ EpdFontFamily ui8FontFamily(&ui8MediumFont, &ui8SemiBoldFont);
 EpdFont ui10MediumFont(&ui_10_medium);
 EpdFont ui10SemiBoldFont(&ui_10_semibold);
 EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
-// Handwritten accent face (Caveat 600): the Home author line. Single face —
-// the script IS the emphasis, it has no bold/italic variants.
+// Handwritten accent voice (Caveat 600). The smaller cut keeps the Home author
+// subordinate to the title; both are single-face families because the script
+// itself supplies the emphasis.
+EpdFont uiScriptSmallFont(&ui_script_18);
+EpdFontFamily uiScriptSmallFontFamily(&uiScriptSmallFont);
 EpdFont uiScriptFont(&ui_script_20);
 EpdFontFamily uiScriptFontFamily(&uiScriptFont);
 
@@ -190,6 +193,7 @@ void applyInterfaceFont() {
   renderer.removeFont(UI_14_FONT_ID);
   renderer.removeFont(UI_16_FONT_ID);
   renderer.removeFont(UI_18_FONT_ID);
+  renderer.removeFont(SCRIPT_SMALL_FONT_ID);
   renderer.removeFont(SCRIPT_FONT_ID);
   if (renderer.getFontCacheManager()) renderer.getFontCacheManager()->clearCache();
 
@@ -213,14 +217,17 @@ void applyInterfaceFont() {
       {MICRO_FONT_ID, 8, 2},  {SMALL_FONT_ID, 10, 2}, {UI_10_FONT_ID, 12, 2}, {UI_12_FONT_ID, 14, 2},
       {UI_14_FONT_ID, 16, 2}, {UI_16_FONT_ID, 16, 2}, {UI_18_FONT_ID, 16, 2},
   };
-  static constexpr SdCardFontSystem::InterfaceSlot accentSlot[] = {{SCRIPT_FONT_ID, 20, 6}};
+  static constexpr SdCardFontSystem::InterfaceSlot accentSlots[] = {
+      {SCRIPT_SMALL_FONT_ID, 18, 6},
+      {SCRIPT_FONT_ID, 20, 6},
+  };
 
   sdFontSystem.unloadInterfaceFaces(renderer);
   if (SETTINGS.uiSdFontFamilyName[0] != '\0') {
     sdFontSystem.loadInterfaceFaces(SETTINGS.uiSdFontFamilyName, renderer, uiSlots, std::size(uiSlots));
   }
   if (SETTINGS.scriptSdFontFamilyName[0] != '\0') {
-    sdFontSystem.loadInterfaceFaces(SETTINGS.scriptSdFontFamilyName, renderer, accentSlot, std::size(accentSlot));
+    sdFontSystem.loadInterfaceFaces(SETTINGS.scriptSdFontFamilyName, renderer, accentSlots, std::size(accentSlots));
   }
 
   const auto fillSlot = [](const int fontId, const EpdFontFamily& family) {
@@ -233,10 +240,13 @@ void applyInterfaceFont() {
   fillSlot(UI_14_FONT_ID, ui16FontFamily);  // 16 pt — book titles
   fillSlot(UI_16_FONT_ID, ui16FontFamily);
   fillSlot(UI_18_FONT_ID, ui16FontFamily);
+  fillSlot(SCRIPT_SMALL_FONT_ID, uiScriptSmallFontFamily);  // quieter author line
   fillSlot(SCRIPT_FONT_ID, uiScriptFontFamily);  // the handwritten accent
-  LOG_DBG("MAIN", "Interface slots: script sd=%d asc=%d | rows sd=%d asc=%d",
-          (int)renderer.isSdCardFont(SCRIPT_FONT_ID), renderer.getFontAscenderSize(SCRIPT_FONT_ID),
-          (int)renderer.isSdCardFont(UI_12_FONT_ID), renderer.getFontAscenderSize(UI_12_FONT_ID));
+  LOG_DBG("MAIN", "Interface slots: script=%d/%d sd=%d/%d | rows sd=%d asc=%d",
+          renderer.getFontAscenderSize(SCRIPT_SMALL_FONT_ID), renderer.getFontAscenderSize(SCRIPT_FONT_ID),
+          (int)renderer.isSdCardFont(SCRIPT_SMALL_FONT_ID),
+          (int)renderer.isSdCardFont(SCRIPT_FONT_ID), (int)renderer.isSdCardFont(UI_12_FONT_ID),
+          renderer.getFontAscenderSize(UI_12_FONT_ID));
 }
 
 void silentRestart() {

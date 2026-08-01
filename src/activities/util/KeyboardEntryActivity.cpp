@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <iterator>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -573,9 +574,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const int tipMaxWidth = pageWidth - metrics.contentSidePadding * 2;
   std::vector<std::string> tipLines;
   const auto addTip = [&](const char* tip) {
-    for (auto& tipLine : renderer.wrappedText(SMALL_FONT_ID, tip, tipMaxWidth, 2)) {
-      tipLines.push_back(std::move(tipLine));
-    }
+    auto wrapped = renderer.wrappedText(SMALL_FONT_ID, tip, tipMaxWidth, 2);
+    tipLines.insert(tipLines.end(), std::make_move_iterator(wrapped.begin()), std::make_move_iterator(wrapped.end()));
   };
 
   if (cursorMode) {

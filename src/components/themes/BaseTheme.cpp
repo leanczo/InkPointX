@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <numeric>
 #include <string>
 
 #include "I18n.h"
@@ -569,8 +570,8 @@ void BaseTheme::drawSelection(const GfxRenderer& renderer, const Rect rect) cons
 
 void BaseTheme::drawPageDots(const GfxRenderer& renderer, const int selectedPage, const int pageCount) const {
   if (pageCount <= 1) return;
-  constexpr int dotSize = 7;
-  constexpr int dotGap = 10;
+  constexpr int dotSize = 9;
+  constexpr int dotGap = 11;
   const int totalWidth = pageCount * dotSize + (pageCount - 1) * dotGap;
   const int startX = (renderer.getScreenWidth() - totalWidth) / 2;
   const int y =
@@ -649,10 +650,11 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
   auto lines = renderer.wrappedText(UI_12_FONT_ID, message, maxTextWidth, 4, popupFontFamily);
   if (lines.empty()) lines.emplace_back("");
 
-  int textWidth = 0;
-  for (const auto& line : lines) {
-    textWidth = std::max(textWidth, renderer.getTextWidth(UI_12_FONT_ID, line.c_str(), popupFontFamily));
-  }
+  const int textWidth =
+      std::accumulate(lines.cbegin(), lines.cend(), 0, [&renderer, popupFontFamily](const int widest,
+                                                                                  const std::string& line) {
+        return std::max(widest, renderer.getTextWidth(UI_12_FONT_ID, line.c_str(), popupFontFamily));
+      });
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
   const int textHeight = lineHeight * static_cast<int>(lines.size());
   const int w = std::min(maxPopupWidth, std::max(180, textWidth + marginX * 2));
@@ -848,7 +850,7 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
 void BaseTheme::drawReaderMessage(const GfxRenderer& renderer, const char* message, const bool script) const {
   if (!message || message[0] == '\0') return;
-  // script styles the end-of-book moment; error messages stay structural.
+  // Script styles quiet reader moments; error messages stay structural.
   const int fontId = script ? SCRIPT_FONT_ID : UI_12_FONT_ID;
   const auto style = script ? EpdFontFamily::REGULAR : EpdFontFamily::BOLD;
   const int maxWidth = std::max(0, renderer.getScreenWidth() - BaseMetrics::values.contentSidePadding * 2);
@@ -900,7 +902,19 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
                             keyType == KeyboardKeyType::Ok || keyType == KeyboardKeyType::Disabled;
 
   if (isSelected) {
-    drawSelection(renderer, rect);
+    if (inactiveSelection) {
+      // Cursor editing owns the input focus, but the keyboard position must
+      // remain easy to find when focus returns to the grid.
+      if (cr > 0) {
+        renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 3, cr, true);
+      } else {
+        renderer.drawRect(rect.x, rect.y, rect.width, rect.height, 3);
+      }
+    } else if (cr > 0) {
+      renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, cr, Color::Black);
+    } else {
+      renderer.fillRect(rect.x, rect.y, rect.width, rect.height, true);
+    }
   } else {
     if (metrics.keyboardFillUnselected) {
       if (keyType == KeyboardKeyType::Disabled) {
@@ -929,11 +943,13 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
     }
   }
 
+  const bool drawBlackContent = !isSelected || inactiveSelection;
+
   if (keyType == KeyboardKeyType::Space) {
     const int lineHalfWidth = rect.width * 3 / 10;
     const int centerX = rect.x + rect.width / 2;
     const int lineY = rect.y + rect.height / 2 + 3;
-    renderer.drawLine(centerX - lineHalfWidth, lineY, centerX + lineHalfWidth, lineY, 3, true);
+    renderer.drawLine(centerX - lineHalfWidth, lineY, centerX + lineHalfWidth, lineY, 3, drawBlackContent);
     return;
   }
 
@@ -942,11 +958,11 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
     const int centerY = rect.y + rect.height / 2;
     const int arrowLen = rect.width / 4;
     const int arrowHead = std::max(metrics.keyboardMinArrowHeadSize, arrowLen / 2);
-    renderer.drawLine(centerX - arrowLen / 2, centerY, centerX + arrowLen / 2, centerY, 3, true);
+    renderer.drawLine(centerX - arrowLen / 2, centerY, centerX + arrowLen / 2, centerY, 3, drawBlackContent);
     renderer.drawLine(centerX - arrowLen / 2, centerY, centerX - arrowLen / 2 + arrowHead, centerY - arrowHead, 3,
-                      true);
+                      drawBlackContent);
     renderer.drawLine(centerX - arrowLen / 2, centerY, centerX - arrowLen / 2 + arrowHead, centerY + arrowHead, 3,
-                      true);
+                      drawBlackContent);
     return;
   }
 
@@ -973,11 +989,11 @@ void BaseTheme::drawKeyboardKey(const GfxRenderer& renderer, Rect rect, const ch
   const int textX = rect.x + std::max(2, (rect.width - itemWidth) / 2);
   const int textY = rect.y + (rect.height - renderer.getLineHeight(keyFontId)) / 2;
 
-  renderer.drawText(keyFontId, textX, textY, fitted.c_str(), true);
+  renderer.drawText(keyFontId, textX, textY, fitted.c_str(), drawBlackContent);
 
   if (hasSecondary) {
     const int secWidth = renderer.getTextWidth(MICRO_FONT_ID, secondaryLabel);
     renderer.drawText(MICRO_FONT_ID, rect.x + rect.width - secWidth - metrics.keyboardSecondaryLabelRightPadding,
-                      rect.y + metrics.keyboardSecondaryLabelTopPadding, secondaryLabel, true);
+                      rect.y + metrics.keyboardSecondaryLabelTopPadding, secondaryLabel, drawBlackContent);
   }
 }

@@ -142,7 +142,7 @@ class GfxRenderer {
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
   void setFrameOverlayHook(const FrameOverlayHook hook) { frameOverlayHook_ = hook; }
   void setFrameOverlayEnabled(const bool enabled) { frameOverlayEnabled_ = enabled; }
-  void beginFrame() const { frameOverlayDrawn_ = false; }
+  void beginFrame() const;
   void markFrameOverlayDrawn() const { frameOverlayDrawn_ = true; }
   void requestCleanRefresh() { display.requestCleanRefresh(); }
   void requestFullRefresh() { display.requestFullRefresh(); }

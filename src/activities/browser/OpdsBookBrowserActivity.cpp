@@ -194,7 +194,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   if (entries.empty()) {
-    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_ENTRIES));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_NO_ENTRIES), nullptr, /*script=*/true);
   } else {
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
     const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;

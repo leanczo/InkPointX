@@ -309,9 +309,9 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
 
   if (!canStage) {
     LOG_DBG("OTA", "Storage not ready, using direct OTA path only");
-    const auto directResult = directUpdate();
+    const auto fallbackResult = directUpdate();
     restorePowerSave();
-    return directResult;
+    return fallbackResult;
   }
 
   const auto directResult = directUpdate();
@@ -334,9 +334,9 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     LOG_ERR("OTA", "OTA firmware download failed");
     Storage.remove(otaStagingPath);
     LOG_DBG("OTA", "Falling back to direct OTA path");
-    const auto directResult = directUpdate();
+    const auto fallbackResult = directUpdate();
     restorePowerSave();
-    return directResult;
+    return fallbackResult;
   }
 
   FlashProgressContext flashContext{this, onProgress, ctx};
@@ -346,9 +346,9 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     LOG_ERR("OTA", "Firmware flash failed: %s", firmware_flash::resultName(flashResult));
     Storage.remove(otaStagingPath);
     LOG_DBG("OTA", "Falling back to direct OTA path after staging flash failure");
-    const auto directResult = directUpdate();
+    const auto fallbackAfterFlash = directUpdate();
     restorePowerSave();
-    return directResult;
+    return fallbackAfterFlash;
   }
 
   if (!Storage.remove(otaStagingPath)) {

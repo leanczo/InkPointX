@@ -91,7 +91,7 @@ void KOReaderAuthActivity::render(RenderLock&&) {
     // No legend: the blocking TLS call cannot service any input, and a
     // labelled dead button reads worse than an empty bar.
   } else if (state == SUCCESS) {
-    GUI.drawEmptyState(renderer, messageArea, tr(STR_AUTH_SUCCESS), tr(STR_SYNC_READY));
+    GUI.drawEmptyState(renderer, messageArea, tr(STR_AUTH_SUCCESS), tr(STR_SYNC_READY), /*script=*/true);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FAILED) {

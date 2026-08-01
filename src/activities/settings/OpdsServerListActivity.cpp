@@ -105,7 +105,8 @@ void OpdsServerListActivity::render(RenderLock&&) {
   const int itemCount = getItemCount();
 
   if (itemCount == 0) {
-    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_SERVERS));
+    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_SERVERS), nullptr,
+                       /*script=*/true);
   } else {
     const auto& servers = OPDS_STORE.getServers();
     const auto serverCount = static_cast<int>(servers.size());

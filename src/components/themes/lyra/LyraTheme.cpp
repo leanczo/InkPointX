@@ -228,21 +228,22 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   const int pageStartIndex = selectedIndex >= 0 ? selectedIndex / pageItems * pageItems : 0;
   const int pageEndIndex = std::min(itemCount, pageStartIndex + pageItems);
 
-  // Batch the visible labels before drawing. The compressed built-in fonts
-  // are grouped by Unicode range; warming in group order avoids repeatedly
-  // inflating the same 10-35 KB block as rows alternate regular/bold text.
+  // Batch the visible labels before drawing. Warm both styles for the whole
+  // page, not only the currently selected row: moving the selection changes
+  // which title is bold, and SD-card fonts otherwise replace their bold mini
+  // cache on every key press.
   std::string regularText;
   std::string boldText;
   std::string subtitleGlyphs;
   for (int i = pageStartIndex; i < pageEndIndex; ++i) {
     const std::string title = rowTitle(i);
     regularText.append(title).push_back('\n');
-    if (i == selectedIndex) boldText.append(title).push_back('\n');
+    boldText.append(title).push_back('\n');
     if (rowSubtitle) subtitleGlyphs.append(rowSubtitle(i)).push_back('\n');
     if (rowValue) {
       const std::string value = rowValue(i);
       regularText.append(value).push_back('\n');
-      if (highlightValue && i == selectedIndex) boldText.append(value).push_back('\n');
+      if (highlightValue) boldText.append(value).push_back('\n');
     }
   }
   if (auto* cache = renderer.getFontCacheManager()) {
@@ -443,15 +444,13 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
   std::string labels;
-  std::string selectedLabel;
   for (int i = 0; i < buttonCount; ++i) {
     const std::string label = buttonLabel(i);
     labels.append(label).push_back('\n');
-    if (i == selectedIndex) selectedLabel = label;
   }
   if (auto* cache = renderer.getFontCacheManager()) {
     cache->warmGlyphCache(UI_12_FONT_ID, labels.c_str(), 1U << EpdFontFamily::REGULAR);
-    cache->warmGlyphCache(UI_12_FONT_ID, selectedLabel.c_str(), 1U << EpdFontFamily::BOLD);
+    cache->warmGlyphCache(UI_12_FONT_ID, labels.c_str(), 1U << EpdFontFamily::BOLD);
   }
 
   for (int i = 0; i < buttonCount; ++i) {

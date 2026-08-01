@@ -1173,11 +1173,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                                   SETTINGS.imageRendering, SETTINGS.focusReadingEnabled)) {
       LOG_DBG("ERS", "Cache not found, building...");
 
-      GUI.drawPopup(renderer, tr(STR_INDEXING));
+      const Rect indexingPopup = GUI.drawPopup(renderer, tr(STR_INDEXING));
 
-      const auto popupFn = [this](const int percent) {
-        const Rect popup = GUI.drawPopup(renderer, tr(STR_INDEXING));
-        GUI.fillPopupProgress(renderer, popup, percent);
+      const auto popupFn = [this, indexingPopup](const int percent) {
+        GUI.fillPopupProgress(renderer, indexingPopup, percent);
       };
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
@@ -1249,7 +1248,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 
   if (section->pageCount == 0) {
     LOG_DBG("ERS", "No pages to render");
-    GUI.drawReaderMessage(renderer, tr(STR_EMPTY_CHAPTER));
+    GUI.drawReaderMessage(renderer, tr(STR_EMPTY_CHAPTER), /*script=*/true);
     renderStatusBar();
     renderer.displayBuffer();
     automaticPageTurnActive = false;

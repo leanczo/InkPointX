@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <SdCardFont.h>
 
+#include <algorithm>
 #include <cstring>
 
 FontCacheManager::FontCacheManager(const std::map<int, EpdFontFamily>& fontMap,
@@ -54,7 +55,15 @@ void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t st
 }
 
 void FontCacheManager::warmGlyphCache(const int fontId, const char* utf8Text, const uint8_t styleMask) {
-  if (!fontDecompressor_ || !utf8Text || *utf8Text == '\0') return;
+  if (!utf8Text || *utf8Text == '\0') return;
+
+  // UI themes already batch every visible label by font and style. Card fonts
+  // used to ignore that batch, then rebuild their mini cache for each label,
+  // causing hundreds of SD seeks per menu step. Prepare the batch once and let
+  // GfxRenderer's coverage check reuse it for all subsequent strings.
+  if (prepareSdCardGlyphs(fontId, utf8Text, styleMask)) return;
+
+  if (!fontDecompressor_) return;
   const auto font = fontMap_.find(fontId);
   if (font == fontMap_.end()) return;
 
@@ -68,6 +77,30 @@ void FontCacheManager::warmGlyphCache(const int fontId, const char* utf8Text, co
       LOG_DBG("FCM", "warmGlyphCache: %d glyph(s) not cached for style %u", missed, styleIndex);
     }
   }
+}
+
+void FontCacheManager::beginFrame() { uiFontsSeenThisFrame_.clear(); }
+
+bool FontCacheManager::prepareSdCardGlyphs(const int fontId, const char* utf8Text, const uint8_t styleMask) {
+  const auto found = sdCardFonts_.find(fontId);
+  if (found == sdCardFonts_.end()) return false;
+  if (!utf8Text || *utf8Text == '\0') return true;
+
+  SdCardFont* font = found->second;
+  const bool firstUseThisFrame =
+      std::find(uiFontsSeenThisFrame_.begin(), uiFontsSeenThisFrame_.end(), font) == uiFontsSeenThisFrame_.end();
+  if (firstUseThisFrame) uiFontsSeenThisFrame_.push_back(font);
+  if (font->hasPrewarmedGlyphs(utf8Text, styleMask, false)) return true;
+
+  // A first miss means the screen changed enough that retaining the previous
+  // screen is counterproductive. Later misses in this same frame are separate
+  // UI groups and must extend, rather than replace, the new screen cache.
+  if (firstUseThisFrame) font->clearCache();
+  const int missed = font->prewarm(utf8Text, styleMask, false, !firstUseThisFrame);
+  if (missed > 0) {
+    LOG_DBG("FCM", "warmGlyphCache(SD): %d glyph(s) not cached (styleMask=0x%02X)", missed, styleMask);
+  }
+  return true;
 }
 
 void FontCacheManager::logStats(const char* label) {
@@ -86,9 +119,16 @@ void FontCacheManager::resetStats() {
 
 bool FontCacheManager::isScanning() const { return scanMode_ == ScanMode::Scanning; }
 
+bool FontCacheManager::isPagePrewarmedFor(const int fontId) const {
+  return scanMode_ == ScanMode::PagePrewarmed && prewarmedFontId_ == fontId;
+}
+
 void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::Style style) {
   scanText_ += text;
-  if (scanFontId_ < 0) scanFontId_ = fontId;
+  if (scanFontId_ == 0) {
+    scanFontId_ = fontId;
+    LOG_DBG("FCM", "Page scan started with font %d", fontId);
+  }
   const uint8_t baseStyle = static_cast<uint8_t>(style) & 0x03;
   const unsigned char* p = reinterpret_cast<const unsigned char*>(text);
   uint32_t cpCount = 0;
@@ -103,6 +143,7 @@ void FontCacheManager::recordText(const char* text, int fontId, EpdFontFamily::S
 
 FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manager_(&manager) {
   manager_->scanMode_ = ScanMode::Scanning;
+  manager_->prewarmedFontId_ = 0;
   // Page-scoped release only: destroying the whole glyph cache here meant a
   // full 16 KB free/re-inflate cycle per page turn with zero reuse.
   manager_->releasePageBuffers();
@@ -110,12 +151,15 @@ FontCacheManager::PrewarmScope::PrewarmScope(FontCacheManager& manager) : manage
   manager_->scanText_.clear();
   manager_->scanText_.reserve(2048);  // Pre-allocate to avoid heap fragmentation from repeated concat
   memset(manager_->scanStyleCounts_, 0, sizeof(manager_->scanStyleCounts_));
-  manager_->scanFontId_ = -1;
+  manager_->scanFontId_ = 0;
 }
 
 void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
-  manager_->scanMode_ = ScanMode::None;
-  if (manager_->scanText_.empty()) return;
+  if (manager_->scanMode_ != ScanMode::Scanning) return;
+  if (manager_->scanText_.empty() || manager_->scanFontId_ == 0) {
+    manager_->scanMode_ = ScanMode::None;
+    return;
+  }
 
   // Build style bitmask from all styles that appeared during the scan
   uint8_t styleMask = 0;
@@ -125,6 +169,10 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
   if (styleMask == 0) styleMask = 1;  // default to regular
 
   manager_->prewarmCache(manager_->scanFontId_, manager_->scanText_.c_str(), styleMask);
+  manager_->prewarmedFontId_ = manager_->scanFontId_;
+  manager_->scanMode_ = ScanMode::PagePrewarmed;
+  LOG_DBG("FCM", "Page cache ready: font=%d text=%u bytes styles=0x%02X", manager_->prewarmedFontId_,
+          static_cast<unsigned>(manager_->scanText_.size()), styleMask);
 
   // Free scan string memory
   manager_->scanText_.clear();
@@ -133,7 +181,9 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 
 FontCacheManager::PrewarmScope::~PrewarmScope() {
   if (active_) {
-    endScanAndPrewarm();  // no-op if already called (scanText_ is empty)
+    endScanAndPrewarm();
+    manager_->scanMode_ = ScanMode::None;
+    manager_->prewarmedFontId_ = 0;
     manager_->releasePageBuffers();
   }
 }

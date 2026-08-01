@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <string>
 
 #include "CrossPointSettings.h"
@@ -19,9 +20,9 @@ void InterfaceFontSelectActivity::rebuildOptions() {
 
   options.clear();
   options.emplace_back();  // the built-in face, stored as an empty name
-  for (const auto& family : sdFontSystem.registry().getFamilies()) {
-    options.push_back(family.name);
-  }
+  const auto& families = sdFontSystem.registry().getFamilies();
+  std::transform(families.cbegin(), families.cend(), std::back_inserter(options),
+                 [](const SdCardFontFamilyInfo& family) { return family.name; });
 
   const char* current = targetSetting();
   selectedIndex = 0;

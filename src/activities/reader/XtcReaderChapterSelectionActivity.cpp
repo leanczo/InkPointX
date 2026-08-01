@@ -98,7 +98,8 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
 
   const auto& chapters = xtc->getChapters();
   if (chapters.empty()) {
-    GUI.drawEmptyState(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, tr(STR_NO_CHAPTERS));
+    GUI.drawEmptyState(renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, tr(STR_NO_CHAPTERS), nullptr,
+                       /*script=*/true);
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
