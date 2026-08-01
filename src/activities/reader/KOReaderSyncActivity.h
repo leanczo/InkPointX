@@ -27,11 +27,11 @@ class KOReaderSyncActivity final : public Activity {
                                 std::optional<uint16_t> currentParagraphIndex = std::nullopt)
       : Activity("KOReaderSync", renderer, mappedInput),
         epubPath(epubPath),
+        localChapterName(std::move(localChapterName)),
         currentSpineIndex(currentSpineIndex),
         currentPage(currentPage),
         totalPagesInSpine(totalPagesInSpine),
         currentParagraphIndex(currentParagraphIndex),
-        localChapterName(std::move(localChapterName)),
         remoteProgress{},
         remotePosition{},
         localProgress(std::move(localKoPos)) {}

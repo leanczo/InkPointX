@@ -619,6 +619,13 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
   };
 
   switch (action) {
+    // Orientation and auto-turn are not actions: the menu cycles their values
+    // in place and returns them alongside the action, and the handler above
+    // applies both before we get here. Named so the compiler can keep checking
+    // this switch for genuinely unhandled entries.
+    case EpubReaderMenuActivity::MenuAction::ROTATE_SCREEN:
+    case EpubReaderMenuActivity::MenuAction::AUTO_PAGE_TURN:
+      break;
     case EpubReaderMenuActivity::MenuAction::GO_TO_PAGE: {
       if (!section || section->pageCount == 0) break;
       const int initialPage = section->currentPage + 1;

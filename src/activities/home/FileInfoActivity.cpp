@@ -41,7 +41,6 @@ void FileInfoActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
   const std::array<std::string, 3> labels = {tr(STR_FILENAME), tr(STR_ITEM_TYPE), tr(STR_FILE_SIZE)};
   const size_t slash = path.find_last_of('/');
   const std::string name = slash == std::string::npos ? path : path.substr(slash + 1);

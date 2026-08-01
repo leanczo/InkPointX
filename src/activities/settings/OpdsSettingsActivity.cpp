@@ -200,7 +200,6 @@ void OpdsSettingsActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
   // New server creation uses STR_ADD_SERVER; editing shows the server's own
   // name (the old title borrowed "OPDS Browser" from a different feature).
   const char* header = isNewServer ? tr(STR_ADD_SERVER)

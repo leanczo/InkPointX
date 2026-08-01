@@ -1265,3 +1265,60 @@ Known limit, stated plainly: pollBusy caps a stuck panel at 30 s, and the task
 watchdog covers a wedged main loop, but a render task that stalls inside an SD
 operation is still only visible as an unresponsive UI. If diag.log ever shows
 "dirty + task-wdt" on a screen with no long work, that is the thread to pull.
+
+## 2.0.3 — firmware-wide review — 2026-07-31
+
+A full review pass. Six parallel subsystem audits were launched and all six died
+on an API session limit, so what follows is what I verified myself: broad
+mechanical sweeps across the whole tree, plus targeted reads of the paths where
+a defect costs the user something. That is honest coverage, not exhaustive
+line-by-line coverage of 26,000 lines.
+
+Fixed — allocation failures that rebooted the device. With -fno-exceptions a
+failing bare `new` does not throw, it terminates the firmware. The earlier
+nothrow sweep missed four sites, each on a path a user reaches normally: the
+PNG scaling accumulators (any cover that needs resizing), the file handles in
+the JPEG and PNG decoders (any image inside a book), and the captive-portal DNS
+server (allocated exactly when the heap is tightest, with the AP up). Each now
+degrades: no cover, skipped image, portal without the redirect.
+
+Fixed — atomic writes could lose a file outright. Both writers replace a file
+as remove-then-rename, because SdFat will not rename over an existing name. A
+power loss inside that window left the payload complete under "<path>.tmp" and
+no canonical file — and nothing ever looked there again. Settings did not go
+one save stale, they reset; a reading position was not slightly old, it was
+gone. Reads now claim an orphaned .tmp on the first miss. The config loaders
+gate on exists() before reading, so they call the recovery explicitly first.
+
+Fixed — ctype calls on signed chars in the vendored PDF parser (three sites the
+library's own `& 255` idiom had missed): a byte above 0x7F in a malformed hex
+string indexes the ctype table out of range and is classified from whatever
+precedes it.
+
+Fixed — the compiler had never been asked. -Wall -Wextra are now permanent
+build flags, and every warning they raised in our own code is gone: an
+unreachable strlen(NULL) in the access-point path (rewritten so the open-network
+form is explicit), two member-initializer lists whose order lied about itself, a
+precedence-ambiguous EPUB pagebreak test and the same in the XTC version check
+(both already meant what they read as), four format specifiers that disagreed
+with their arguments, a footer-counter buffer one character short of its own
+worst case, thirteen dead layout locals, and a memset over a type with member
+initializers. Debug-only timing variables are marked [[maybe_unused]] rather
+than silenced by flag. A clean release build now emits zero warnings from our
+code.
+
+Verified and left alone: settings JSON load clamps every value by type
+(ENUM/TOGGLE/VALUE) so a hand-edited file cannot drive an out-of-range index;
+the OTA semver comparison (and its live behaviour, confirmed earlier on the
+device); the reader's position restore, which clamps a stored page against the
+re-paginated chapter; the deep-sleep path, driven end to end on the device with
+no panic; RenderLock's ownership transfer and the lock order between the main
+loop and the render task (no inversion); the sleep-wallpaper ring buffer;
+keyboard entry; cppcheck at its lowest severity (style only); no unsafe string
+functions and no millis() rollover comparisons anywhere in the tree; the ESP32
+core's softAP does handle a null passphrase; the font pipeline pins its sources
+by sha256.
+
+Not verified this round: anything on hardware. The device has been asleep since
+the 2.0.2 sleep test and its USB port only returns after a physical power-button
+press.

@@ -117,7 +117,6 @@ void GalleryActivity::loop() {
 void GalleryActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_GALLERY));

@@ -20,6 +20,10 @@ bool OpdsServerStore::saveToFile() const {
 }
 
 bool OpdsServerStore::loadFromFile() {
+  // An atomic write interrupted between its remove and its rename leaves the
+  // payload under "<path>.tmp" and no canonical file, which every exists()
+  // gate below would read as "the user has no saved data". Claim it first.
+  Storage.recoverInterruptedWrite(OPDS_FILE_JSON);
   if (Storage.exists(OPDS_FILE_JSON)) {
     String json = Storage.readFile(OPDS_FILE_JSON);
     if (!json.isEmpty()) {

@@ -249,7 +249,6 @@ void LibraryActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
   const char* title = mode == Mode::Favorites ? tr(STR_FAVORITES) : tr(STR_BOOKS);
 
   std::string sortValue;

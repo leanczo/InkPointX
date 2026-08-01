@@ -17,6 +17,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
+#include <new>
 
 namespace {
 // AP Mode configuration
@@ -199,13 +200,12 @@ void CrossPointWebServerActivity::startAccessPoint() {
   delay(100);
 
   // Start soft AP
-  bool apStarted;
-  if (AP_PASSWORD && strlen(AP_PASSWORD) >= 8) {
-    apStarted = WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
-  } else {
-    // Open network (no password)
-    apStarted = WiFi.softAP(AP_SSID, nullptr, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
-  }
+  // An empty passphrase is the core's open-network form, and AP_PASSWORD is a
+  // build-time constant: with the open default the old runtime branch compiled
+  // down to an unreachable strlen(NULL). The core rejects a passphrase shorter
+  // than WPA2's eight characters on its own, and reports it in apStarted.
+  const char* const apPassphrase = AP_PASSWORD ? AP_PASSWORD : "";
+  const bool apStarted = WiFi.softAP(AP_SSID, apPassphrase, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
 
   if (!apStarted) {
     LOG_ERR("WEBACT", "ERROR: Failed to start Access Point!");
@@ -232,10 +232,17 @@ void CrossPointWebServerActivity::startAccessPoint() {
   // Start DNS server for captive portal behavior
   // This redirects all DNS queries to our IP, making any domain typed resolve to us
   stopDnsServer();
-  dnsServer = new DNSServer();
-  dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
-  dnsServer->start(DNS_PORT, "*", apIP);
-  LOG_DBG("WEBACT", "DNS server started for captive portal");
+  dnsServer = new (std::nothrow) DNSServer();
+  if (dnsServer) {
+    dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
+    dnsServer->start(DNS_PORT, "*", apIP);
+    LOG_DBG("WEBACT", "DNS server started for captive portal");
+  } else {
+    // Heap is at its tightest with the AP up. The captive-portal redirect is
+    // a convenience; the transfer page still answers on the printed address,
+    // so lose the redirect rather than the whole feature.
+    LOG_ERR("WEBACT", "No heap for the captive-portal DNS server; continuing without it");
+  }
 
   LOG_DBG("WEBACT", "Free heap after AP start: %d bytes", ESP.getFreeHeap());
 

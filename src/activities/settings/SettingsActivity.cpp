@@ -396,7 +396,6 @@ void SettingsActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
 

@@ -43,7 +43,10 @@ struct PngContext {
 // File I/O callbacks use pFile->fHandle to access the HalFile*,
 // avoiding the need for global file state.
 void* pngOpenWithHandle(const char* filename, int32_t* size) {
-  HalFile* f = new HalFile();
+  HalFile* f = new (std::nothrow) HalFile();
+  // See JpegToFramebufferConverter: nullptr is the callback's "cannot open",
+  // and a failing bare new would abort the firmware instead.
+  if (!f) return nullptr;
   if (!Storage.openFileForRead("PNG", std::string(filename), *f)) {
     delete f;
     return nullptr;

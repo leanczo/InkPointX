@@ -51,7 +51,11 @@ struct JpegContext {
 // File I/O callbacks use pFile->fHandle to access the HalFile*,
 // avoiding the need for global file state.
 void* jpegOpen(const char* filename, int32_t* size) {
-  HalFile* f = new HalFile();
+  HalFile* f = new (std::nothrow) HalFile();
+  // The decoder's open callback already contracts nullptr as "cannot open",
+  // so an out-of-memory image degrades to a skipped image instead of an
+  // abort: with -fno-exceptions a failing bare new terminates the firmware.
+  if (!f) return nullptr;
   if (!Storage.openFileForRead("JPG", std::string(filename), *f)) {
     delete f;
     return nullptr;

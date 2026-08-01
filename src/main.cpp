@@ -594,7 +594,7 @@ void loop() {
         RenderLock renderLock;
         const uint32_t bufferSize = display.getBufferSize();
         logSerial.setTxTimeoutMs(1000);
-        logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
+        logSerial.printf("SCREENSHOT_START:%u\n", (unsigned)bufferSize);
         uint8_t* buf = display.getFrameBuffer();
         uint32_t bytesSent = 0;
         while (bytesSent < bufferSize) {

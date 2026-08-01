@@ -102,6 +102,10 @@ bool CrossPointSettings::saveToFile() const {
 
 bool CrossPointSettings::loadFromFile() {
   // Try JSON first
+  // An atomic write interrupted between its remove and its rename leaves the
+  // payload under "<path>.tmp" and no canonical file, which every exists()
+  // gate below would read as "the user has no saved data". Claim it first.
+  Storage.recoverInterruptedWrite(SETTINGS_FILE_JSON);
   if (Storage.exists(SETTINGS_FILE_JSON)) {
     String json = Storage.readFile(SETTINGS_FILE_JSON);
     if (!json.isEmpty()) {

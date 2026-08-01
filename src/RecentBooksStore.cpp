@@ -128,6 +128,10 @@ RecentBook RecentBooksStore::getDataFromBook(std::string path) const {
 
 bool RecentBooksStore::loadFromFile() {
   // Try JSON first
+  // An atomic write interrupted between its remove and its rename leaves the
+  // payload under "<path>.tmp" and no canonical file, which every exists()
+  // gate below would read as "the user has no saved data". Claim it first.
+  Storage.recoverInterruptedWrite(RECENT_BOOKS_FILE_JSON);
   if (Storage.exists(RECENT_BOOKS_FILE_JSON)) {
     String json = Storage.readFile(RECENT_BOOKS_FILE_JSON);
     if (!json.isEmpty()) {

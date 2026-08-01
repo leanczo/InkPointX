@@ -44,7 +44,6 @@ void InterfaceFontSelectActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int width = renderer.getScreenWidth();
-  const int height = renderer.getScreenHeight();
   constexpr std::array<StrId, CrossPointSettings::UI_FONT_FAMILY_COUNT> fontNames = {
       StrId::STR_UI_FONT_NAME};
 

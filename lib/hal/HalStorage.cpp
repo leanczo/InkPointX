@@ -76,7 +76,12 @@ bool HalStorage::readFileToStream(const char* path, Print& out, size_t chunkSize
 }
 
 size_t HalStorage::readFileToBuffer(const char* path, char* buffer, size_t bufferSize, size_t maxBytes) {
-  HAL_STORAGE_WRAPPED_CALL(readFileToBuffer, path, buffer, bufferSize, maxBytes);
+  StorageLock lock;
+  const size_t read = SDCard.readFileToBuffer(path, buffer, bufferSize, maxBytes);
+  if (read == 0 && recoverInterruptedWrite(path)) {
+    return SDCard.readFileToBuffer(path, buffer, bufferSize, maxBytes);
+  }
+  return read;
 }
 
 bool HalStorage::writeFile(const char* path, const String& content) {
@@ -155,10 +160,34 @@ bool HalStorage::rename(const char* oldPath, const char* newPath) {
 
 bool HalStorage::rmdir(const char* path) { HAL_STORAGE_WRAPPED_CALL(rmdir, path); }
 
+bool HalStorage::recoverInterruptedWrite(const char* path) {
+  // Both atomic writers in this firmware (writeFile here, ProgressFile in the
+  // reader) replace a file as remove-then-rename, because SdFat's rename will
+  // not overwrite. A power loss inside that two-operation window left the
+  // payload complete under "<path>.tmp" and no canonical file at all — and
+  // nothing ever looked there again, so a settings file or a reading position
+  // was lost outright rather than merely being one save stale. Recover it on
+  // the first read that misses. Called only from a failed open, so the extra
+  // directory lookup is not on any hot path.
+  StorageLock lock;
+  if (SDCard.exists(path)) return false;
+  const String tmpPath = String(path) + ".tmp";
+  if (!SDCard.exists(tmpPath.c_str())) return false;
+  if (!SDCard.rename(tmpPath.c_str(), path)) {
+    LOG_ERR("SD", "Found %s but could not rename it into place", tmpPath.c_str());
+    return false;
+  }
+  LOG_INF("SD", "Recovered an interrupted write: %s", path);
+  return true;
+}
+
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
   StorageLock lock;  // ensure thread safety for the duration of this function
   FsFile fsFile;
   bool ok = SDCard.openFileForRead(moduleName, path, fsFile);
+  if (!ok && recoverInterruptedWrite(path)) {
+    ok = SDCard.openFileForRead(moduleName, path, fsFile);
+  }
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
   return ok;
 }

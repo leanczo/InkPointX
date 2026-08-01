@@ -49,7 +49,7 @@ void FontDecompressor::freeHotGroup() {
 void FontDecompressor::freeGlyphCache() {
   free(glyphCacheBuffer);
   glyphCacheBuffer = nullptr;
-  memset(glyphCache, 0, sizeof(glyphCache));
+  for (auto& entry : glyphCache) entry = GlyphCacheEntry{};
   glyphCacheWriteOffset = 0;
   glyphCacheClock = 0;
 }
@@ -625,7 +625,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
 void FontDecompressor::resetStats() { stats = Stats{}; }
 
 void FontDecompressor::logStats(const char* label) {
-  const uint32_t total = stats.cacheHits + stats.cacheMisses;
+  [[maybe_unused]] const uint32_t total = stats.cacheHits + stats.cacheMisses;
   LOG_DBG("FDC", "[%s] hits=%lu misses=%lu (%.1f%% hit rate)", label, stats.cacheHits, stats.cacheMisses,
           total > 0 ? 100.0f * stats.cacheHits / total : 0.0f);
   LOG_DBG("FDC", "[%s] decompress=%lums groups_accessed=%u", label, stats.decompressTimeMs, stats.uniqueGroupsAccessed);

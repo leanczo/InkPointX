@@ -441,18 +441,21 @@ _pdfioValueRead(pdfio_file_t   *pdf,	// I - PDF file
     {
       int	d;			// Data value
 
-      if (isdigit(*tokptr))
+      // Cast for the ctype calls: a byte above 0x7F in a malformed hex string
+      // reaches these as a negative char, which indexes the ctype table out
+      // of range and classifies the byte from whatever sits before it.
+      if (isdigit((unsigned char)*tokptr))
 	d = (*tokptr++ - '0') << 4;
       else
-	d = (tolower(*tokptr++) - 'a' + 10) << 4;
+	d = (tolower((unsigned char)*tokptr++) - 'a' + 10) << 4;
 
       if (*tokptr)
       {
 	// PDF allows writers to drop a trailing 0...
-	if (isdigit(*tokptr))
+	if (isdigit((unsigned char)*tokptr))
 	  d |= *tokptr++ - '0';
 	else
-	  d |= tolower(*tokptr++) - 'a' + 10;
+	  d |= tolower((unsigned char)*tokptr++) - 'a' + 10;
       }
 
       *dataptr++ = (unsigned char)d;
@@ -463,7 +466,7 @@ _pdfioValueRead(pdfio_file_t   *pdf,	// I - PDF file
   else if (strchr("0123456789-+.", token[0]) != NULL)
   {
     // Number or indirect object reference
-    if (isdigit(token[0]) && !strchr(token, '.'))
+    if (isdigit((unsigned char)token[0]) && !strchr(token, '.'))
     {
       // Integer or object ref...
       unsigned char *tempptr;		// Pointer into buffer

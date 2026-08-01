@@ -118,11 +118,11 @@ void BootDiag::begin() {
     LOG_INF("DIAG", "%s", line);
   } else if (previous.shutdown != static_cast<uint8_t>(Shutdown::Unexpected)) {
     snprintf(line, sizeof(line), "boot: reset=%s after a clean shutdown (%s) from %s at %us, battery %u%%", reset,
-             shutdownName(previous.shutdown), previous.screen, previous.uptimeSec, previous.battery);
+             shutdownName(previous.shutdown), previous.screen, (unsigned)previous.uptimeSec, previous.battery);
     LOG_INF("DIAG", "%s", line);
   } else {
     snprintf(line, sizeof(line), "boot: reset=%s AFTER AN UNEXPECTED SHUTDOWN, last seen on %s at %us, battery %u%%",
-             reset, previous.screen, previous.uptimeSec, previous.battery);
+             reset, previous.screen, (unsigned)previous.uptimeSec, previous.battery);
     LOG_ERR("DIAG", "%s", line);
   }
   appendLogLine(line);

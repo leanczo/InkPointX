@@ -1463,7 +1463,7 @@ void GfxRenderer::invertScreen() const {
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
   applyFrameOverlay();
-  auto elapsed = millis() - start_ms;
+  [[maybe_unused]] auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   // Reverted in 2.0.2 to the OEM behaviour: the analog rails come down only
   // when the user's fadingFix setting asks for it. Powering them off after

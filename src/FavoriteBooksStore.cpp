@@ -95,6 +95,10 @@ bool FavoriteBooksStore::saveToFile() const {
 bool FavoriteBooksStore::loadFromFile() {
   favoriteBooks.clear();
   favoriteBooks.reserve(16);
+  // An atomic write interrupted between its remove and its rename leaves the
+  // payload under "<path>.tmp" and no canonical file, which every exists()
+  // gate below would read as "the user has no saved data". Claim it first.
+  Storage.recoverInterruptedWrite(FAVORITES_FILE_JSON);
   if (!Storage.exists(FAVORITES_FILE_JSON)) return true;
 
   const String json = Storage.readFile(FAVORITES_FILE_JSON);

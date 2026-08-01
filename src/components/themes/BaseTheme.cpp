@@ -550,7 +550,7 @@ void BaseTheme::drawPageDots(const GfxRenderer& renderer, const int selectedPage
 
 void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex, const int itemCount) const {
   if (itemCount <= 0) return;
-  char counter[24];
+  char counter[32];
   snprintf(counter, sizeof(counter), "%d / %d", selectedIndex + 1, itemCount);
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Forced portrait, like the button hints directly below it: the counter

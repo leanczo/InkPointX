@@ -27,7 +27,6 @@ void BookInfoActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int width = renderer.getScreenWidth();
-  const int height = renderer.getScreenHeight();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, width, metrics.headerHeight}, tr(STR_BOOK_INFO));
 
   std::string format;

@@ -36,6 +36,10 @@ bool WifiCredentialStore::saveToFile() const {
 
 bool WifiCredentialStore::loadFromFile() {
   // Try JSON first
+  // An atomic write interrupted between its remove and its rename leaves the
+  // payload under "<path>.tmp" and no canonical file, which every exists()
+  // gate below would read as "the user has no saved data". Claim it first.
+  Storage.recoverInterruptedWrite(WIFI_FILE_JSON);
   if (Storage.exists(WIFI_FILE_JSON)) {
     String json = Storage.readFile(WIFI_FILE_JSON);
     if (!json.isEmpty()) {
