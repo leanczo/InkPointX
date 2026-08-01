@@ -233,8 +233,8 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       clamp(doc["sleepScreen"] | static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT),
             CrossPointSettings::SLEEP_SCREEN_MODE_COUNT,
             static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT));
-  s.sleepScreen = storedSleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK
-                      ? CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT
+  s.sleepScreen = storedSleepScreen == static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::DARK)
+                      ? static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT)
                       : storedSleepScreen;
   if (storedSleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::DARK && needsResave) {
     *needsResave = true;

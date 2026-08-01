@@ -778,7 +778,7 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
-  const unsigned long activityDuration = millis() - activityStartTime;
+  [[maybe_unused]] const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;
   if (loopDuration > maxLoopDuration) {

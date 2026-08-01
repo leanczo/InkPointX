@@ -562,6 +562,10 @@ void WifiSelectionActivity::render(RenderLock&&) {
     case WifiSelectionState::FORGET_PROMPT:
       renderForgetPrompt(&screen, &metrics);
       break;
+    case WifiSelectionState::PASSWORD_ENTRY:
+      // Unreachable: the keyboard is its own activity and render() returns
+      // above while this state is set. Listed so the switch stays exhaustive.
+      break;
   }
 
   renderer.displayBuffer();

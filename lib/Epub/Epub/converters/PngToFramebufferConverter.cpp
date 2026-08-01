@@ -392,7 +392,7 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
 
   unsigned long decodeStart = millis();
   rc = png->decode(&ctx, 0);
-  unsigned long decodeTime = millis() - decodeStart;
+  [[maybe_unused]] unsigned long decodeTime = millis() - decodeStart;
 
   free(ctx.grayLineBuffer);
   ctx.grayLineBuffer = nullptr;

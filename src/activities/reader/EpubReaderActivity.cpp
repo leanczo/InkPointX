@@ -1282,7 +1282,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // Collect footnotes from the loaded page
     currentPageFootnotes = std::move(p->footnotes);
 
-    const auto start = millis();
+    [[maybe_unused]] const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
@@ -1353,7 +1353,7 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
-  const auto t0 = millis();
+  [[maybe_unused]] const auto t0 = millis();
   const int fontId = SETTINGS.getReaderFontId();
 
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
@@ -1361,7 +1361,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   auto scope = fcm->createPrewarmScope();
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);  // scan pass
   scope.endScanAndPrewarm();
-  const auto tPrewarm = millis();
+  [[maybe_unused]] const auto tPrewarm = millis();
 
   const bool pageHasImages = page->hasImages();
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
@@ -1376,7 +1376,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
-  const auto tBwRender = millis();
+  [[maybe_unused]] const auto tBwRender = millis();
 
   if (SETTINGS.readerInvertColors) {
     // Night mode is intentionally monochrome on X4. Skipping the grayscale
@@ -1384,7 +1384,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // in sync with the inverted framebuffer used for differential refresh.
     renderer.invertScreen();
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
-    const auto tEnd = millis();
+    [[maybe_unused]] const auto tEnd = millis();
     LOG_DBG("ERS", "Page render (inverted): prewarm=%lums render=%lums display=%lums total=%lums", tPrewarm - t0,
             tBwRender - tPrewarm, tEnd - tBwRender, tEnd - t0);
     return;
@@ -1418,7 +1418,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
-  const auto tDisplay = millis();
+  [[maybe_unused]] const auto tDisplay = millis();
 
   // Tiled grayscale: render each plane band-by-band into a small scratch and
   // stream straight to the controller, leaving the BW framebuffer intact so no
@@ -1447,7 +1447,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         renderer.endStripTarget();
         renderer.writeGrayscalePlaneStrip(true, scratch.get(), y, rows);
       }
-      const auto tGrayLsb = millis();
+      [[maybe_unused]] const auto tGrayLsb = millis();
 
       // MSB plane.
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
@@ -1459,18 +1459,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         renderer.endStripTarget();
         renderer.writeGrayscalePlaneStrip(false, scratch.get(), y, rows);
       }
-      const auto tGrayMsb = millis();
+      [[maybe_unused]] const auto tGrayMsb = millis();
 
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.displayGrayBuffer();
-      const auto tGrayDisplay = millis();
+      [[maybe_unused]] const auto tGrayDisplay = millis();
 
       // BW framebuffer is intact; re-sync controller RAM for the next
       // differential page turn directly from it.
       renderer.cleanupGrayscaleWithFrameBuffer();
-      const auto tCleanup = millis();
+      [[maybe_unused]] const auto tCleanup = millis();
 
-      const auto tEnd = millis();
+      [[maybe_unused]] const auto tEnd = millis();
       LOG_DBG("ERS",
               "Page render (tiled): prewarm=%lums bw_render=%lums display=%lums gray_lsb=%lums "
               "gray_msb=%lums gray_display=%lums cleanup=%lums total=%lums",
@@ -1485,34 +1485,34 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       // after. Only needed when grayscale actually renders.
       if (!renderer.storeBwBuffer()) {
         LOG_ERR("ERS", "Failed to store BW buffer for grayscale render; skipping grayscale this page");
-        const auto tEnd = millis();
+        [[maybe_unused]] const auto tEnd = millis();
         LOG_DBG("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
                 tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
         return;
       }
-      const auto tBwStore = millis();
+      [[maybe_unused]] const auto tBwStore = millis();
 
       renderer.clearScreen(0x00);
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
       renderGrayscalePass();
       renderer.copyGrayscaleLsbBuffers();
-      const auto tGrayLsb = millis();
+      [[maybe_unused]] const auto tGrayLsb = millis();
 
       // Render and copy to MSB buffer
       renderer.clearScreen(0x00);
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
       renderGrayscalePass();
       renderer.copyGrayscaleMsbBuffers();
-      const auto tGrayMsb = millis();
+      [[maybe_unused]] const auto tGrayMsb = millis();
 
       // display grayscale part
       renderer.displayGrayBuffer();
-      const auto tGrayDisplay = millis();
+      [[maybe_unused]] const auto tGrayDisplay = millis();
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.restoreBwBuffer();
-      const auto tBwRestore = millis();
+      [[maybe_unused]] const auto tBwRestore = millis();
 
-      const auto tEnd = millis();
+      [[maybe_unused]] const auto tEnd = millis();
       LOG_DBG("ERS",
               "Page render: prewarm=%lums bw_render=%lums display=%lums bw_store=%lums "
               "gray_lsb=%lums gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
@@ -1521,7 +1521,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     } else {
       // No text AA and no images: BW frame already displayed above, no grayscale
       // to render, so no save/restore.
-      const auto tEnd = millis();
+      [[maybe_unused]] const auto tEnd = millis();
       LOG_DBG("ERS", "Page render: prewarm=%lums bw_render=%lums display=%lums total=%lums", tPrewarm - t0,
               tBwRender - tPrewarm, tDisplay - tBwRender, tEnd - t0);
     }

@@ -112,8 +112,17 @@ void BootDiag::begin() {
   previous.screen[sizeof(previous.screen) - 1] = '\0';
 
   const char* reset = resetReasonName();
+  // A USB reflash cannot leave a marker behind, so without this it reports as
+  // a crash and every development flash cries wolf in the log. The codebase
+  // already reads ESP_RST_UNKNOWN as "came back from a flash" (see
+  // HalGPIO::getWakeupReason).
+  const bool afterFlash = esp_reset_reason() == ESP_RST_UNKNOWN;
   char line[192];
-  if (!havePrevious) {
+  if (afterFlash && havePrevious) {
+    snprintf(line, sizeof(line), "boot: after a firmware flash (previous session was on %s at %us)", previous.screen,
+             (unsigned)previous.uptimeSec);
+    LOG_INF("DIAG", "%s", line);
+  } else if (!havePrevious) {
     snprintf(line, sizeof(line), "boot: reset=%s, no previous session marker", reset);
     LOG_INF("DIAG", "%s", line);
   } else if (previous.shutdown != static_cast<uint8_t>(Shutdown::Unexpected)) {
