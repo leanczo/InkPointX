@@ -53,6 +53,17 @@ const char* resetReasonName() {
       return "BROWNOUT";
     case ESP_RST_SDIO:
       return "sdio";
+    // A USB reflash on the C3 comes back as one of these, not as UNKNOWN as
+    // the first version of this assumed. Named, because "unknown" in a field
+    // report is worth nothing.
+    case ESP_RST_USB:
+      return "usb-peripheral";
+    case ESP_RST_JTAG:
+      return "jtag";
+    case ESP_RST_CPU_LOCKUP:
+      return "CPU-LOCKUP";
+    case ESP_RST_PWR_GLITCH:
+      return "POWER-GLITCH";
     default:
       return "unknown";
   }
@@ -116,7 +127,9 @@ void BootDiag::begin() {
   // a crash and every development flash cries wolf in the log. The codebase
   // already reads ESP_RST_UNKNOWN as "came back from a flash" (see
   // HalGPIO::getWakeupReason).
-  const bool afterFlash = esp_reset_reason() == ESP_RST_UNKNOWN;
+  const esp_reset_reason_t resetCode = esp_reset_reason();
+  const bool afterFlash =
+      resetCode == ESP_RST_UNKNOWN || resetCode == ESP_RST_USB || resetCode == ESP_RST_JTAG;
   char line[192];
   if (afterFlash && havePrevious) {
     snprintf(line, sizeof(line), "boot: after a firmware flash (previous session was on %s at %us)", previous.screen,
