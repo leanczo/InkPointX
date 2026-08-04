@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.1" src="https://img.shields.io/badge/version-2.2.1-000000">
+  <img alt="Version 2.2.2" src="https://img.shields.io/badge/version-2.2.2-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,9 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Live OTA progress in 2.2.2.** The updater now releases the activity render lock while downloading, validating,
+  and flashing, so the progress bar, percentage, phase, and byte counters update on screen instead of remaining at
+  zero. Progress values are synchronized safely between the installer and e-ink render tasks.
 - **Safer, cleaner web pairing in 2.2.1.** Long pairing URLs no longer run outside the X3/X4 display: the full
   credential stays in the QR payload while the address and bounded pairing code use separate lines. Web-interface
   authorization now has an enabled-by-default switch under **Settings → Network & Sync** and consistently controls
