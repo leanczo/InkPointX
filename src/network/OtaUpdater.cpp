@@ -275,10 +275,10 @@ void OtaUpdater::resetProgress() {
 }
 
 void OtaUpdater::setProgress(const size_t processed, const size_t total, const ProgressCallback onProgress, void* ctx) {
-  processedSize = processed;
   if (total > 0) {
-    totalSize = total;
+    totalSize.store(total, std::memory_order_release);
   }
+  processedSize.store(processed, std::memory_order_release);
 
   if (total == 0) {
     if (!onProgress) {

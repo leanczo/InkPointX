@@ -116,27 +116,32 @@ void OtaUpdateActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
-  renderer.clearScreen();
-
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_UPDATE));
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - height) / 2;
 
   float updaterProgress = 0;
+  size_t updateProcessed = 0;
+  size_t updateTotal = 0;
+  OtaUpdater::Phase updatePhase = OtaUpdater::Phase::IDLE;
   if (state == UPDATE_IN_PROGRESS) {
-    LOG_DBG("OTA", "Update progress: %d / %d", updater.getProcessedSize(), updater.getTotalSize());
-    const size_t totalSize = updater.getTotalSize();
-    if (totalSize > 0) {
-      updaterProgress = static_cast<float>(updater.getProcessedSize()) / static_cast<float>(totalSize);
+    updateProcessed = updater.getProcessedSize();
+    updateTotal = updater.getTotalSize();
+    updatePhase = updater.getPhase();
+    LOG_DBG("OTA", "Update progress: %u / %u", static_cast<unsigned>(updateProcessed),
+            static_cast<unsigned>(updateTotal));
+    if (updateTotal > 0) {
+      updaterProgress = static_cast<float>(updateProcessed) / static_cast<float>(updateTotal);
     }
     const int updatePercent = static_cast<int>(updaterProgress * 100);
-    const OtaUpdater::Phase updatePhase = updater.getPhase();
     if (updatePercent == lastUpdaterPercentage && updatePhase == lastUpdaterPhase) {
       return;
     }
     lastUpdaterPercentage = updatePercent;
     lastUpdaterPhase = updatePhase;
   }
+
+  renderer.clearScreen();
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_UPDATE));
 
   if (state == CHECKING_FOR_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
@@ -151,9 +156,9 @@ void OtaUpdateActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == UPDATE_IN_PROGRESS) {
     const char* phaseText = tr(STR_UPDATING);
-    if (updater.getPhase() == OtaUpdater::Phase::DOWNLOADING) {
+    if (updatePhase == OtaUpdater::Phase::DOWNLOADING) {
       phaseText = tr(STR_DOWNLOADING);
-    } else if (updater.getPhase() == OtaUpdater::Phase::VERIFYING) {
+    } else if (updatePhase == OtaUpdater::Phase::VERIFYING) {
       phaseText = tr(STR_VALIDATING_FIRMWARE);
     }
     renderer.drawCenteredText(UI_10_FONT_ID, top, phaseText);
@@ -168,9 +173,8 @@ void OtaUpdateActivity::render(RenderLock&&) {
     // Percent label is drawn by BaseTheme::drawProgressBar; this slot is left intentionally empty
     // so the bytes line below stays at the same Y it was at when the activity drew its own percent.
     y += height + metrics.verticalSpacing;
-    renderer.drawCenteredText(
-        UI_10_FONT_ID, y,
-        (std::to_string(updater.getProcessedSize()) + " / " + std::to_string(updater.getTotalSize())).c_str());
+    renderer.drawCenteredText(UI_10_FONT_ID, y,
+                              (std::to_string(updateProcessed) + " / " + std::to_string(updateTotal)).c_str());
     // Same warning the SD flasher shows: an interrupted OTA is a brick risk.
     y += height + metrics.verticalSpacing;
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF), true, EpdFontFamily::BOLD);
@@ -213,14 +217,23 @@ void OtaUpdateActivity::loop() {
         RenderLock lock(*this);
         if (auto* cache = renderer.getFontCacheManager()) cache->clearCache();
       }
-      const auto res = updater.installUpdate(
-          [](void* ctx) {
-            // immediate=true notifies the render task directly. The default deferred path only
-            // sets a flag consumed at the end of ActivityManager::loop(), which never runs while
-            // installUpdate() blocks this task.
-            static_cast<OtaUpdateActivity*>(ctx)->requestUpdate(true);
-          },
-          this);
+      OtaUpdater::OtaUpdaterError res;
+      {
+        // ActivityManager::loop() normally holds the render mutex while an
+        // activity's loop() runs. OTA is synchronous, so keeping that mutex
+        // here would block every queued progress frame until installation had
+        // already finished. Release exactly the loop-owned recursive level and
+        // restore it before changing activity state below.
+        ScopedRenderUnlock allowProgressFrames;
+        res = updater.installUpdate(
+            [](void* ctx) {
+              // immediate=true notifies the render task directly. The default deferred path only
+              // sets a flag consumed at the end of ActivityManager::loop(), which never runs while
+              // installUpdate() blocks this task.
+              static_cast<OtaUpdateActivity*>(ctx)->requestUpdate(true);
+            },
+            this);
+      }
 
       if (res != OtaUpdater::OK) {
         LOG_DBG("OTA", "Update failed: %d", res);

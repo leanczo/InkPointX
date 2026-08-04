@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -33,11 +34,11 @@ class OtaUpdater {
 
   size_t getOtaSize() const { return otaSize; }
 
-  size_t getProcessedSize() const { return processedSize; }
+  size_t getProcessedSize() const { return processedSize.load(std::memory_order_acquire); }
 
-  size_t getTotalSize() const { return totalSize; }
+  size_t getTotalSize() const { return totalSize.load(std::memory_order_acquire); }
 
-  Phase getPhase() const { return phase; }
+  Phase getPhase() const { return phase.load(std::memory_order_acquire); }
 
  private:
   bool updateAvailable = false;
@@ -45,9 +46,9 @@ class OtaUpdater {
   std::string otaUrl;
   std::string otaDigest;
   size_t otaSize = 0;
-  size_t processedSize = 0;
-  size_t totalSize = 0;
+  std::atomic<size_t> processedSize{0};
+  std::atomic<size_t> totalSize{0};
   int lastProgressPercent = -1;
   size_t lastProgressBytes = 0;
-  Phase phase = Phase::IDLE;
+  std::atomic<Phase> phase{Phase::IDLE};
 };

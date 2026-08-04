@@ -534,3 +534,16 @@ void RenderLock::unlock() {
  *
  */
 bool RenderLock::peek() { return xSemaphoreGetMutexHolder(activityManager.renderingMutex) != nullptr; };
+
+ScopedRenderUnlock::ScopedRenderUnlock() {
+  const TaskHandle_t currentTask = xTaskGetCurrentTaskHandle();
+  if (xSemaphoreGetMutexHolder(activityManager.renderingMutex) == currentTask) {
+    wasLocked = xSemaphoreGiveRecursive(activityManager.renderingMutex) == pdTRUE;
+  }
+}
+
+ScopedRenderUnlock::~ScopedRenderUnlock() {
+  if (wasLocked) {
+    xSemaphoreTakeRecursive(activityManager.renderingMutex, portMAX_DELAY);
+  }
+}
