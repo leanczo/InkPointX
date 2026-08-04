@@ -158,64 +158,59 @@ bool RecentBooksStore::loadFromBinaryFile() {
     return false;
   }
 
-  uint8_t version;
-  serialization::readPod(inputFile, version);
-  if (version == 1 || version == 2) {
-    // Old version, just read paths
-    uint8_t count;
-    serialization::readPod(inputFile, count);
-    recentBooks.clear();
-    recentBooks.reserve(count);
-    for (uint8_t i = 0; i < count; i++) {
-      std::string path;
-      serialization::readString(inputFile, path);
-
-      // load book to get missing data
-      RecentBook book = getDataFromBook(path);
-      if (book.title.empty() && book.author.empty() && version == 2) {
-        // Fall back to loading what we can from the store
-        std::string title, author;
-        serialization::readString(inputFile, title);
-        serialization::readString(inputFile, author);
-        recentBooks.push_back({path, title, author, ""});
-      } else {
-        recentBooks.push_back(book);
-      }
-    }
-  } else if (version == 3) {
-    uint8_t count;
-    serialization::readPod(inputFile, count);
-
-    recentBooks.clear();
-    recentBooks.reserve(count);
-    uint8_t omitted = 0;
-
-    for (uint8_t i = 0; i < count; i++) {
-      std::string path, title, author, coverBmpPath;
-      serialization::readString(inputFile, path);
-      serialization::readString(inputFile, title);
-      serialization::readString(inputFile, author);
-      serialization::readString(inputFile, coverBmpPath);
-
-      // Omit books with missing title (e.g. saved before metadata was available)
-      if (title.empty()) {
-        omitted++;
-        continue;
-      }
-
-      recentBooks.push_back({path, title, author, coverBmpPath});
-    }
-
-    if (omitted > 0) {
-      // Explicitly close() file before saveToFile() rewrites the same file
-      inputFile.close();
-      saveToFile();
-      LOG_DBG("RBS", "Omitted %u recent book(s) with missing title", omitted);
-      return true;
-    }
-  } else {
+  uint8_t version = 0;
+  uint8_t count = 0;
+  if (!serialization::readPod(inputFile, version) || !serialization::readPod(inputFile, count) ||
+      count > MAX_RECENT_BOOKS) {
+    LOG_ERR("RBS", "Invalid/truncated recent-books header");
+    return false;
+  }
+  if (version < 1 || version > RECENT_BOOKS_FILE_VERSION) {
     LOG_ERR("RBS", "Deserialization failed: Unknown version %u", version);
     return false;
+  }
+
+  std::vector<RecentBook> staged;
+  staged.reserve(count);
+  uint8_t omitted = 0;
+  for (uint8_t i = 0; i < count; ++i) {
+    std::string path;
+    if (!serialization::readString(inputFile, path) || path.empty()) return false;
+
+    if (version == 1 || version == 2) {
+      std::string storedTitle;
+      std::string storedAuthor;
+      // Version 2 serialized these fields for every record. They must be read
+      // even when live metadata succeeds, otherwise the next path is parsed
+      // from the previous title's length prefix.
+      if (version == 2 &&
+          (!serialization::readString(inputFile, storedTitle) || !serialization::readString(inputFile, storedAuthor)))
+        return false;
+      RecentBook book = getDataFromBook(path);
+      if (book.title.empty() && book.author.empty() && version == 2) {
+        book.title = std::move(storedTitle);
+        book.author = std::move(storedAuthor);
+      }
+      staged.push_back(std::move(book));
+      continue;
+    }
+
+    std::string title;
+    std::string author;
+    std::string coverBmpPath;
+    if (!serialization::readString(inputFile, title) || !serialization::readString(inputFile, author) ||
+        !serialization::readString(inputFile, coverBmpPath))
+      return false;
+    if (title.empty()) {
+      ++omitted;
+      continue;
+    }
+    staged.push_back({std::move(path), std::move(title), std::move(author), std::move(coverBmpPath)});
+  }
+
+  recentBooks = std::move(staged);
+  if (omitted > 0) {
+    LOG_DBG("RBS", "Omitted %u recent book(s) with missing title", omitted);
   }
 
   LOG_DBG("RBS", "Recent books loaded from binary file (%d entries)", static_cast<int>(recentBooks.size()));

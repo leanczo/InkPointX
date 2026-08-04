@@ -9,25 +9,23 @@
 
 #include "pdfio-private.h"
 
-
 //
 // Local functions...
 //
 
-static bool	fill_buffer(pdfio_file_t *pdf);
-static ssize_t	read_buffer(pdfio_file_t *pdf, char *buffer, size_t bytes);
-static bool	write_buffer(pdfio_file_t *pdf, const void *buffer, size_t bytes);
-
+static bool fill_buffer(pdfio_file_t* pdf);
+static ssize_t read_buffer(pdfio_file_t* pdf, char* buffer, size_t bytes);
+static bool write_buffer(pdfio_file_t* pdf, const void* buffer, size_t bytes);
 
 //
 // '_pdfioFileConsume()' - Consume bytes from the file.
 //
 
-bool					// O - `true` on sucess, `false` on EOF
-_pdfioFileConsume(pdfio_file_t *pdf,	// I - PDF file
-                  size_t       bytes)	// I - Bytes to consume
+bool                                  // O - `true` on sucess, `false` on EOF
+_pdfioFileConsume(pdfio_file_t* pdf,  // I - PDF file
+                  size_t bytes)       // I - Bytes to consume
 {
-  PDFIO_DEBUG("_pdfioFileConsume(pdf=%p, bytes=%u)\n", (void *)pdf, (unsigned)bytes);
+  PDFIO_DEBUG("_pdfioFileConsume(pdf=%p, bytes=%u)\n", (void*)pdf, (unsigned)bytes);
 
   if ((size_t)(pdf->bufend - pdf->bufptr) > bytes)
     pdf->bufptr += bytes;
@@ -39,7 +37,6 @@ _pdfioFileConsume(pdfio_file_t *pdf,	// I - PDF file
   return (true);
 }
 
-
 //
 // '_pdfioFileDefaultError()' - Default error callback.
 //
@@ -47,11 +44,10 @@ _pdfioFileConsume(pdfio_file_t *pdf,	// I - PDF file
 // `false` to halt.
 //
 
-bool					// O - `false` to stop, `true` to continue
-_pdfioFileDefaultError(
-    pdfio_file_t *pdf,			// I - PDF file
-    const char   *message,		// I - Error message
-    void         *data)			// I - Callback data (unused)
+bool                                         // O - `false` to stop, `true` to continue
+_pdfioFileDefaultError(pdfio_file_t* pdf,    // I - PDF file
+                       const char* message,  // I - Error message
+                       void* data)           // I - Callback data (unused)
 {
   (void)data;
 
@@ -60,19 +56,17 @@ _pdfioFileDefaultError(
   return (!strncmp(message, "WARNING:", 8));
 }
 
-
 //
 // '_pdfioFileError()' - Display an error message.
 //
 
-bool					// O - `true` to continue, `false` to stop
-_pdfioFileError(pdfio_file_t *pdf,	// I - PDF file
-                const char   *format,	// I - `printf`-style format string
-                ...)			// I - Additional arguments as needed
+bool                                 // O - `true` to continue, `false` to stop
+_pdfioFileError(pdfio_file_t* pdf,   // I - PDF file
+                const char* format,  // I - `printf`-style format string
+                ...)                 // I - Additional arguments as needed
 {
-  char		buffer[512];		// Message buffer
-  va_list	ap;			// Argument pointer
-
+  char buffer[512];  // Message buffer
+  va_list ap;        // Argument pointer
 
   va_start(ap, format);
   vsnprintf(buffer, sizeof(buffer), format, ap);
@@ -83,20 +77,17 @@ _pdfioFileError(pdfio_file_t *pdf,	// I - PDF file
   return ((pdf->error_cb)(pdf, buffer, pdf->error_data));
 }
 
-
 //
 // '_pdfioFileFlush()' - Flush any pending write data.
 //
 
-bool					// O - `true` on success, `false` on failure
-_pdfioFileFlush(pdfio_file_t *pdf)	// I - PDF file
+bool                                // O - `true` on success, `false` on failure
+_pdfioFileFlush(pdfio_file_t* pdf)  // I - PDF file
 {
-  PDFIO_DEBUG("_pdfioFileFlush(pdf=%p)\n", (void *)pdf);
+  PDFIO_DEBUG("_pdfioFileFlush(pdf=%p)\n", (void*)pdf);
 
-  if (pdf->bufptr > pdf->buffer)
-  {
-    if (!write_buffer(pdf, pdf->buffer, (size_t)(pdf->bufptr - pdf->buffer)))
-      return (false);
+  if (pdf->bufptr > pdf->buffer) {
+    if (!write_buffer(pdf, pdf->buffer, (size_t)(pdf->bufptr - pdf->buffer))) return (false);
 
     pdf->bufpos += (off_t)(pdf->bufptr - pdf->buffer);
   }
@@ -106,80 +97,70 @@ _pdfioFileFlush(pdfio_file_t *pdf)	// I - PDF file
   return (true);
 }
 
-
 //
 // '_pdfioFileGetChar()' - Get a character from a PDF file.
 //
 
-int					// O - Character or `-1` on EOF
-_pdfioFileGetChar(pdfio_file_t *pdf)	// I - PDF file
+int                                   // O - Character or `-1` on EOF
+_pdfioFileGetChar(pdfio_file_t* pdf)  // I - PDF file
 {
   // If there is a character ready in the buffer, return it now...
-  if (pdf->bufptr < pdf->bufend)
-    return (*(pdf->bufptr ++));
+  if (pdf->bufptr < pdf->bufend) return (*(pdf->bufptr++));
 
   // Otherwise try to fill the read buffer...
-  if (!fill_buffer(pdf))
-    return (-1);
+  if (!fill_buffer(pdf)) return (-1);
 
   // Then return the next character in the buffer...
-  return (*(pdf->bufptr ++));
+  return (*(pdf->bufptr++));
 }
-
 
 //
 // '_pdfioFileGets()' - Read a line from a PDF file.
 //
 
-bool					// O - `true` on success, `false` on error
-_pdfioFileGets(pdfio_file_t *pdf,	// I - PDF file
-               char         *buffer,	// I - Line buffer
-	       size_t       bufsize,	// I - Size of line buffer
-	       bool         discard)	// I - OK to discard excess line chars?
+bool                               // O - `true` on success, `false` on error
+_pdfioFileGets(pdfio_file_t* pdf,  // I - PDF file
+               char* buffer,       // I - Line buffer
+               size_t bufsize,     // I - Size of line buffer
+               bool discard)       // I - OK to discard excess line chars?
 {
-  bool	eol = false;			// End of line?
-  char	*bufptr = buffer,		// Pointer into buffer
-	*bufend = buffer + bufsize - 1;	// Pointer to end of buffer
+  bool eol = false;                    // End of line?
+  char *bufptr = buffer,               // Pointer into buffer
+      *bufend = buffer + bufsize - 1;  // Pointer to end of buffer
 
+  PDFIO_DEBUG(
+      "_pdfioFileGets(pdf=%p, buffer=%p, bufsize=%lu, discard=%s) bufpos=%ld, buffer=%p, bufptr=%p, bufend=%p, "
+      "offset=%lu\n",
+      (void*)pdf, (void*)buffer, (unsigned long)bufsize, discard ? "true" : "false", (long)pdf->bufpos,
+      (void*)pdf->buffer, (void*)pdf->bufptr, (void*)pdf->bufend,
+      (unsigned long)(pdf->bufpos + (pdf->bufptr - pdf->buffer)));
 
-  PDFIO_DEBUG("_pdfioFileGets(pdf=%p, buffer=%p, bufsize=%lu, discard=%s) bufpos=%ld, buffer=%p, bufptr=%p, bufend=%p, offset=%lu\n", (void *)pdf, (void *)buffer, (unsigned long)bufsize, discard ? "true" : "false", (long)pdf->bufpos, (void *)pdf->buffer, (void *)pdf->bufptr, (void *)pdf->bufend, (unsigned long)(pdf->bufpos + (pdf->bufptr - pdf->buffer)));
-
-  while (!eol)
-  {
+  while (!eol) {
     // If there are characters ready in the buffer, use them...
-    while (!eol && pdf->bufptr < pdf->bufend)
-    {
-      char ch = *(pdf->bufptr++);	// Next character in buffer
+    while (!eol && pdf->bufptr < pdf->bufend) {
+      char ch = *(pdf->bufptr++);  // Next character in buffer
 
-      if (ch == '\n' || ch == '\r')
-      {
+      if (ch == '\n' || ch == '\r') {
         // CR, LF, or CR + LF end a line...
         eol = true;
 
-        if (ch == '\r')
-        {
+        if (ch == '\r') {
           // Check for a LF after CR
-          if (pdf->bufptr >= pdf->bufend)
-          {
-            if (!fill_buffer(pdf))
-              break;
-	  }
+          if (pdf->bufptr >= pdf->bufend) {
+            if (!fill_buffer(pdf)) break;
+          }
 
-	  if (pdf->bufptr < pdf->bufend && *(pdf->bufptr) == '\n')
-	    pdf->bufptr ++;
-	}
-      }
-      else if (bufptr < bufend)
+          if (pdf->bufptr < pdf->bufend && *(pdf->bufptr) == '\n') pdf->bufptr++;
+        }
+      } else if (bufptr < bufend)
         *bufptr++ = ch;
       else if (!discard)
         break;
     }
 
     // Fill the read buffer as needed...
-    if (!eol)
-    {
-      if (!fill_buffer(pdf))
-        break;
+    if (!eol) {
+      if (!fill_buffer(pdf)) break;
     }
   }
 
@@ -190,31 +171,26 @@ _pdfioFileGets(pdfio_file_t *pdf,	// I - PDF file
   return (eol);
 }
 
-
 //
 // '_pdfioFilePeek()' - Peek at upcoming data in a PDF file.
 //
 
-ssize_t					// O - Number of bytes returned
-_pdfioFilePeek(pdfio_file_t *pdf,	// I - PDF file
-               void         *buffer,	// I - Buffer
-               size_t       bytes)	// I - Size of bufffer
+ssize_t                            // O - Number of bytes returned
+_pdfioFilePeek(pdfio_file_t* pdf,  // I - PDF file
+               void* buffer,       // I - Buffer
+               size_t bytes)       // I - Size of bufffer
 {
-  ssize_t	total;			// Total bytes available
-
+  ssize_t total;  // Total bytes available
 
   // See how much data is buffered up...
-  if (pdf->bufptr >= pdf->bufend)
-  {
+  if (pdf->bufptr >= pdf->bufend) {
     // Fill the buffer...
-    if (!fill_buffer(pdf))
-      return (-1);
+    if (!fill_buffer(pdf)) return (-1);
   }
 
-  if ((total = pdf->bufend - pdf->bufptr) < (ssize_t)bytes && total < (ssize_t)(sizeof(pdf->buffer) / 2))
-  {
+  if ((total = pdf->bufend - pdf->bufptr) < (ssize_t)bytes && total < (ssize_t)(sizeof(pdf->buffer) / 2)) {
     // Yes, try reading more...
-    ssize_t	rbytes;			// Bytes read
+    ssize_t rbytes;  // Bytes read
 
     PDFIO_DEBUG("_pdfioFilePeek: Sliding buffer, total=%ld\n", (long)total);
 
@@ -228,37 +204,32 @@ _pdfioFilePeek(pdfio_file_t *pdf,	// I - PDF file
     // precisely when a seek lands near the end of the current 1KB buffer.
     rbytes = read_buffer(pdf, pdf->bufend, sizeof(pdf->buffer) - (size_t)total);
 
-    if (rbytes > 0)
-    {
+    if (rbytes > 0) {
       // Expand the buffer...
       pdf->bufend += rbytes;
-      total       += rbytes;
+      total += rbytes;
     }
   }
 
   // Copy anything we have to the buffer...
-  if (total > (ssize_t)bytes)
-    total = (ssize_t)bytes;
+  if (total > (ssize_t)bytes) total = (ssize_t)bytes;
 
-  if (total > 0)
-    memcpy(buffer, pdf->bufptr, total);
+  if (total > 0) memcpy(buffer, pdf->bufptr, total);
 
   return (total);
 }
-
 
 //
 // '_pdfioFilePrintf()' - Write a formatted string to a PDF file.
 //
 
-bool					// O - `true` on success, `false` on failure
-_pdfioFilePrintf(pdfio_file_t *pdf,	// I - PDF file
-                 const char   *format,	// I - `printf`-style format string
-                 ...)			// I - Additional arguments as needed
+bool                                  // O - `true` on success, `false` on failure
+_pdfioFilePrintf(pdfio_file_t* pdf,   // I - PDF file
+                 const char* format,  // I - `printf`-style format string
+                 ...)                 // I - Additional arguments as needed
 {
-  char		buffer[8102];		// String buffer
-  va_list	ap;			// Argument list
-
+  char buffer[8102];  // String buffer
+  va_list ap;         // Argument list
 
   // Format the string...
   va_start(ap, format);
@@ -269,43 +240,37 @@ _pdfioFilePrintf(pdfio_file_t *pdf,	// I - PDF file
   return (_pdfioFileWrite(pdf, buffer, strlen(buffer)));
 }
 
-
 //
 // '_pdfioFilePuts()' - Write a literal string to a PDF file.
 //
 
-bool					// O - `true` on success, `false` on failure
-_pdfioFilePuts(pdfio_file_t *pdf,	// I - PDF file
-               const char   *s)		// I - Literal string
+bool                               // O - `true` on success, `false` on failure
+_pdfioFilePuts(pdfio_file_t* pdf,  // I - PDF file
+               const char* s)      // I - Literal string
 {
   // Write it...
   return (_pdfioFileWrite(pdf, s, strlen(s)));
 }
 
-
 //
 // '_pdfioFileRead()' - Read from a PDF file.
 //
 
-ssize_t					// O - Number of bytes read or `-1` on error
-_pdfioFileRead(pdfio_file_t *pdf,	// I - PDF file
-               void         *buffer,	// I - Read buffer
-               size_t       bytes)	// I - Number of bytes to read
+ssize_t                            // O - Number of bytes read or `-1` on error
+_pdfioFileRead(pdfio_file_t* pdf,  // I - PDF file
+               void* buffer,       // I - Read buffer
+               size_t bytes)       // I - Number of bytes to read
 {
-  char		*bufptr = (char *)buffer;
-					// Pointer into buffer
-  ssize_t	total,			// Total bytes read
-		rbytes;			// Bytes read this time
-
+  char* bufptr = (char*)buffer;
+  // Pointer into buffer
+  ssize_t total,  // Total bytes read
+      rbytes;     // Bytes read this time
 
   // Loop until we have read all of the requested bytes or hit an error...
-  for (total = 0; bytes > 0; total += rbytes, bytes -= (size_t)rbytes, bufptr += rbytes)
-  {
+  for (total = 0; bytes > 0; total += rbytes, bytes -= (size_t)rbytes, bufptr += rbytes) {
     // First read from the file buffer...
-    if ((rbytes = pdf->bufend - pdf->bufptr) > 0)
-    {
-      if ((size_t)rbytes > bytes)
-        rbytes = (ssize_t)bytes;
+    if ((rbytes = pdf->bufend - pdf->bufptr) > 0) {
+      if ((size_t)rbytes > bytes) rbytes = (ssize_t)bytes;
 
       memcpy(bufptr, pdf->bufptr, rbytes);
       pdf->bufptr += rbytes;
@@ -313,86 +278,70 @@ _pdfioFileRead(pdfio_file_t *pdf,	// I - PDF file
     }
 
     // Nothing buffered...
-    if (bytes > 1024)
-    {
+    if (bytes > 1024) {
       // Advance current position in file as needed...
-      if (pdf->bufend)
-      {
-	pdf->bufpos += (off_t)(pdf->bufend - pdf->buffer);
-	pdf->bufptr = pdf->bufend = NULL;
+      if (pdf->bufend) {
+        pdf->bufpos += (off_t)(pdf->bufend - pdf->buffer);
+        pdf->bufptr = pdf->bufend = NULL;
       }
 
       // Read directly from the file...
-      if ((rbytes = read_buffer(pdf, bufptr, bytes)) > 0)
-      {
-	pdf->bufpos += (off_t)rbytes;
-	continue;
-      }
-      else if (rbytes < 0 && (errno == EINTR || errno == EAGAIN))
-      {
+      if ((rbytes = read_buffer(pdf, bufptr, bytes)) > 0) {
+        pdf->bufpos += (off_t)rbytes;
+        continue;
+      } else if (rbytes < 0 && (errno == EINTR || errno == EAGAIN)) {
         rbytes = 0;
         continue;
-      }
-      else
+      } else
         break;
-    }
-    else
-    {
+    } else {
       // Fill buffer and try again...
-      if (!fill_buffer(pdf))
-	break;
+      if (!fill_buffer(pdf)) break;
     }
   }
 
   return (total);
 }
 
-
 //
 // '_pdfioFileSeek()' - Seek within a PDF file.
 //
 
-off_t					// O - New offset from beginning of file or `-1` on error
-_pdfioFileSeek(pdfio_file_t *pdf,	// I - PDF file
-               off_t        offset,	// I - Offset
-               int          whence)	// I - Offset base
+off_t                              // O - New offset from beginning of file or `-1` on error
+_pdfioFileSeek(pdfio_file_t* pdf,  // I - PDF file
+               off_t offset,       // I - Offset
+               int whence)         // I - Offset base
 {
-  PDFIO_DEBUG("_pdfioFileSeek(pdf=%p, offset=%ld, whence=%d) pdf->bufpos=%lu\n", (void *)pdf, (long)offset, whence, (unsigned long)(pdf ? pdf->bufpos : 0));
+  PDFIO_DEBUG("_pdfioFileSeek(pdf=%p, offset=%ld, whence=%d) pdf->bufpos=%lu\n", (void*)pdf, (long)offset, whence,
+              (unsigned long)(pdf ? pdf->bufpos : 0));
 
   // Adjust offset for relative seeks...
-  if (whence == SEEK_CUR)
-  {
+  if (whence == SEEK_CUR) {
     offset += pdf->bufpos + (off_t)(pdf->bufptr - pdf->buffer);
     whence = SEEK_SET;
   }
 
-  if (pdf->mode == _PDFIO_MODE_READ)
-  {
+  if (pdf->mode == _PDFIO_MODE_READ) {
     // Reading, see if we already have the data we need...
-    if (whence != SEEK_END && offset >= pdf->bufpos && pdf->bufend && offset < (off_t)(pdf->bufpos + pdf->bufend - pdf->buffer))
-    {
+    if (whence != SEEK_END && offset >= pdf->bufpos && pdf->bufend &&
+        offset < (off_t)(pdf->bufpos + pdf->bufend - pdf->buffer)) {
       // Yes, seek within existing buffer...
       pdf->bufptr = pdf->buffer + (offset - pdf->bufpos);
       PDFIO_DEBUG("_pdfioFileSeek: Seek within buffer, bufpos=%ld.\n", (long)pdf->bufpos);
-      PDFIO_DEBUG("_pdfioFileSeek: buffer=%p, bufptr=%p(<%02X%02X...>), bufend=%p\n", (void *)pdf->buffer, (void *)pdf->bufptr, pdf->bufptr[0] & 255, pdf->bufptr[1] & 255, (void *)pdf->bufend);
+      PDFIO_DEBUG("_pdfioFileSeek: buffer=%p, bufptr=%p(<%02X%02X...>), bufend=%p\n", (void*)pdf->buffer,
+                  (void*)pdf->bufptr, pdf->bufptr[0] & 255, pdf->bufptr[1] & 255, (void*)pdf->bufend);
       return (offset);
     }
 
     // No, reset the read buffer
     pdf->bufptr = pdf->bufend = NULL;
-  }
-  else if (pdf->output_cb)
-  {
+  } else if (pdf->output_cb) {
     _pdfioFileError(pdf, "Unable to seek within output stream.");
     return (-1);
-  }
-  else
-  {
+  } else {
     // Writing, make sure we write any buffered data...
-    if (pdf->bufptr > pdf->buffer)
-    {
-      if (!write_buffer(pdf, pdf->buffer, (size_t)(pdf->bufptr - pdf->buffer)))
-	return (-1);
+    if (pdf->bufptr > pdf->buffer) {
+      if (!write_buffer(pdf, pdf->buffer, (size_t)(pdf->bufptr - pdf->buffer))) return (-1);
     }
 
     pdf->bufptr = pdf->buffer;
@@ -401,33 +350,31 @@ _pdfioFileSeek(pdfio_file_t *pdf,	// I - PDF file
   // Seek within the file or callback-backed input...
   if (pdf->input_seek_cb)
     offset = (pdf->input_seek_cb)(pdf->input_ctx, offset, whence);
-  else
-  {
+  else {
     if ((offset = lseek(pdf->fd, offset, whence)) < 0 && whence == SEEK_END && errno == EINVAL)
       offset = lseek(pdf->fd, 0, SEEK_SET);
   }
 
-  if (offset < 0)
-  {
+  if (offset < 0) {
     _pdfioFileError(pdf, "Unable to seek within file - %s", strerror(errno));
     return (-1);
   }
 
   PDFIO_DEBUG("_pdfioFileSeek: Reset bufpos=%ld, offset=%lu.\n", (long)pdf->bufpos, (unsigned long)offset);
-  PDFIO_DEBUG("_pdfioFileSeek: buffer=%p, bufptr=%p, bufend=%p\n", (void *)pdf->buffer, (void *)pdf->bufptr, (void *)pdf->bufend);
+  PDFIO_DEBUG("_pdfioFileSeek: buffer=%p, bufptr=%p, bufend=%p\n", (void*)pdf->buffer, (void*)pdf->bufptr,
+              (void*)pdf->bufend);
 
   pdf->bufpos = offset;
 
   return (offset);
 }
 
-
 //
 // '_pdfioFileTell()' - Return the offset within a PDF file.
 //
 
-off_t					// O - Offset from beginning of file
-_pdfioFileTell(pdfio_file_t *pdf)	// I - PDF file
+off_t                              // O - Offset from beginning of file
+_pdfioFileTell(pdfio_file_t* pdf)  // I - PDF file
 {
   if (pdf->bufptr)
     return (pdf->bufpos + (off_t)(pdf->bufptr - pdf->buffer));
@@ -435,28 +382,23 @@ _pdfioFileTell(pdfio_file_t *pdf)	// I - PDF file
     return (pdf->bufpos);
 }
 
-
 //
 // '_pdfioFileWrite()' - Write to a PDF file.
 //
 
-bool					// O - `true` on success and `false` on error
-_pdfioFileWrite(pdfio_file_t *pdf,	// I - PDF file
-                const void   *buffer,	// I - Write buffer
-                size_t       bytes)	// I - Bytes to write
+bool                                 // O - `true` on success and `false` on error
+_pdfioFileWrite(pdfio_file_t* pdf,   // I - PDF file
+                const void* buffer,  // I - Write buffer
+                size_t bytes)        // I - Bytes to write
 {
   // See if the data will fit in the write buffer...
-  if (bytes > (size_t)(pdf->bufend - pdf->bufptr))
-  {
+  if (bytes > (size_t)(pdf->bufend - pdf->bufptr)) {
     // No room, flush any current data...
-    if (!_pdfioFileFlush(pdf))
-      return (false);
+    if (!_pdfioFileFlush(pdf)) return (false);
 
-    if (bytes >= sizeof(pdf->buffer))
-    {
+    if (bytes >= sizeof(pdf->buffer)) {
       // Write directly...
-      if (!write_buffer(pdf, buffer, bytes))
-        return (false);
+      if (!write_buffer(pdf, buffer, bytes)) return (false);
 
       pdf->bufpos += (off_t)bytes;
 
@@ -471,30 +413,24 @@ _pdfioFileWrite(pdfio_file_t *pdf,	// I - PDF file
   return (true);
 }
 
-
 //
 // 'fill_buffer()' - Fill the read buffer in a PDF file.
 //
 
-static bool				// O - `true` on success, `false` on failure
-fill_buffer(pdfio_file_t *pdf)		// I - PDF file
+static bool                     // O - `true` on success, `false` on failure
+fill_buffer(pdfio_file_t* pdf)  // I - PDF file
 {
-  ssize_t	bytes;			// Bytes read...
-
+  ssize_t bytes;  // Bytes read...
 
   // Advance current position in file as needed...
-  if (pdf->bufend)
-    pdf->bufpos += (off_t)(pdf->bufend - pdf->buffer);
+  if (pdf->bufend) pdf->bufpos += (off_t)(pdf->bufend - pdf->buffer);
 
   // Try reading from the file...
-  if ((bytes = read_buffer(pdf, pdf->buffer, sizeof(pdf->buffer))) <= 0)
-  {
+  if ((bytes = read_buffer(pdf, pdf->buffer, sizeof(pdf->buffer))) <= 0) {
     // EOF or hard error...
     pdf->bufptr = pdf->bufend = NULL;
     return (false);
-  }
-  else
-  {
+  } else {
     // Successful read...
     pdf->bufptr = pdf->buffer;
     pdf->bufend = pdf->buffer + bytes;
@@ -502,31 +438,27 @@ fill_buffer(pdfio_file_t *pdf)		// I - PDF file
   }
 }
 
-
 //
 // 'read_buffer()' - Read a buffer from a PDF file.
 //
 
-static ssize_t				// O - Number of bytes read or -1 on error
-read_buffer(pdfio_file_t *pdf,		// I - PDF file
-            char         *buffer,	// I - Buffer
-            size_t       bytes)		// I - Number of bytes to read
+static ssize_t                  // O - Number of bytes read or -1 on error
+read_buffer(pdfio_file_t* pdf,  // I - PDF file
+            char* buffer,       // I - Buffer
+            size_t bytes)       // I - Number of bytes to read
 {
-  ssize_t	rbytes;			// Bytes read...
-
+  ssize_t rbytes;  // Bytes read...
 
   // Read from the file or callback-backed input...
   if (pdf->input_read_cb)
     rbytes = (pdf->input_read_cb)(pdf->input_ctx, buffer, bytes);
-  else while ((rbytes = read(pdf->fd, buffer, bytes)) < 0)
-  {
-    // Stop if we have an error that shouldn't be retried...
-    if (errno != EINTR && errno != EAGAIN)
-      break;
-  }
+  else
+    while ((rbytes = read(pdf->fd, buffer, bytes)) < 0) {
+      // Stop if we have an error that shouldn't be retried...
+      if (errno != EINTR && errno != EAGAIN) break;
+    }
 
-  if (rbytes < 0)
-  {
+  if (rbytes < 0) {
     // Hard error...
     _pdfioFileError(pdf, "Unable to read from file - %s", strerror(errno));
   }
@@ -534,51 +466,41 @@ read_buffer(pdfio_file_t *pdf,		// I - PDF file
   return (rbytes);
 }
 
-
 //
 // 'write_buffer()' - Write a buffer to a PDF file.
 //
 
-static bool				// O - `true` on success and `false` on error
-write_buffer(pdfio_file_t *pdf,		// I - PDF file
-	     const void   *buffer,	// I - Write buffer
-	     size_t       bytes)	// I - Bytes to write
+static bool                       // O - `true` on success and `false` on error
+write_buffer(pdfio_file_t* pdf,   // I - PDF file
+             const void* buffer,  // I - Write buffer
+             size_t bytes)        // I - Bytes to write
 {
-  const char	*bufptr = (const char *)buffer;
-					// Pointer into buffer
-  ssize_t	wbytes;			// Bytes written...
+  const char* bufptr = (const char*)buffer;
+  // Pointer into buffer
+  ssize_t wbytes;  // Bytes written...
 
-
-  if (pdf->output_cb)
-  {
+  if (pdf->output_cb) {
     // Write to a stream...
-    if ((pdf->output_cb)(pdf->output_ctx, buffer, bytes) < 0)
-    {
+    if ((pdf->output_cb)(pdf->output_ctx, buffer, bytes) < 0) {
       _pdfioFileError(pdf, "Unable to write to output callback.");
       return (false);
     }
-  }
-  else
-  {
+  } else {
     // Write to the file...
-    while (bytes > 0)
-    {
-      while ((wbytes = write(pdf->fd, bufptr, bytes)) < 0)
-      {
-	// Stop if we have an error that shouldn't be retried...
-	if (errno != EINTR && errno != EAGAIN)
-	  break;
+    while (bytes > 0) {
+      while ((wbytes = write(pdf->fd, bufptr, bytes)) < 0) {
+        // Stop if we have an error that shouldn't be retried...
+        if (errno != EINTR && errno != EAGAIN) break;
       }
 
-      if (wbytes < 0)
-      {
-	// Hard error...
-	_pdfioFileError(pdf, "Unable to write to file - %s", strerror(errno));
-	return (false);
+      if (wbytes < 0) {
+        // Hard error...
+        _pdfioFileError(pdf, "Unable to write to file - %s", strerror(errno));
+        return (false);
       }
 
       bufptr += wbytes;
-      bytes  -= (size_t)wbytes;
+      bytes -= (size_t)wbytes;
     }
   }
 

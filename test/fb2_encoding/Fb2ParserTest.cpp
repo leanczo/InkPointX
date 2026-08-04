@@ -1,6 +1,5 @@
-#include <gtest/gtest.h>
-
 #include <HalStorage.h>
+#include <gtest/gtest.h>
 
 #include <chrono>
 #include <filesystem>
@@ -70,8 +69,9 @@ TEST_F(Fb2ParserTest, BuildsStructuredPackageFromMainAndNotesBodies) {
 }
 
 TEST_F(Fb2ParserTest, ConvertsWindows1251ToUtf8) {
-  std::string xml = "<?xml version=\"1.0\" encoding=\"windows-1251\"?>"
-                    "<FictionBook><description><title-info><book-title>";
+  std::string xml =
+      "<?xml version=\"1.0\" encoding=\"windows-1251\"?>"
+      "<FictionBook><description><title-info><book-title>";
   xml += std::string("\xD2\xE5\xF1\xF2", 4);  // Тест
   xml += "</book-title><author><first-name>";
   xml += std::string("\xC8\xE2\xE0\xED", 4);  // Иван
@@ -84,8 +84,7 @@ TEST_F(Fb2ParserTest, ConvertsWindows1251ToUtf8) {
   ASSERT_TRUE(book.load());
   EXPECT_EQ(book.getTitle(), "Тест");
   EXPECT_EQ(book.getAuthor(), "Иван");
-  EXPECT_NE(readLogical(book.getPackagePath() + "/OEBPS/text/chapter_0.xhtml").find("Привет"),
-            std::string::npos);
+  EXPECT_NE(readLogical(book.getPackagePath() + "/OEBPS/text/chapter_0.xhtml").find("Привет"), std::string::npos);
 }
 
 TEST_F(Fb2ParserTest, RejectsMalformedXmlWithoutPublishingCache) {
@@ -127,16 +126,16 @@ TEST_F(Fb2ParserTest, PreservesCoverImagesAndCrossChapterFootnotes) {
 
 TEST_F(Fb2ParserTest, SplitsOversizedSingleSectionAtParagraphBoundary) {
   const std::string longParagraph(50 * 1024, 'A');
-  writeBook("<?xml version=\"1.0\" encoding=\"UTF-8\"?><FictionBook><description><title-info>"
-            "<book-title>Большая секция</book-title></title-info></description><body><section><title><p>Глава</p>"
-            "</title><p>" +
-            longParagraph + "</p><p>Следующий абзац</p></section></body></FictionBook>");
+  writeBook(
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?><FictionBook><description><title-info>"
+      "<book-title>Большая секция</book-title></title-info></description><body><section><title><p>Глава</p>"
+      "</title><p>" +
+      longParagraph + "</p><p>Следующий абзац</p></section></body></FictionBook>");
 
   Fb2 book("/books/book.fb2", "/.crosspoint");
   ASSERT_TRUE(book.load());
   EXPECT_EQ(book.getChapterCount(), 2);
-  EXPECT_NE(readLogical(book.getPackagePath() + "/OEBPS/text/chapter_0.xhtml").find(longParagraph),
-            std::string::npos);
+  EXPECT_NE(readLogical(book.getPackagePath() + "/OEBPS/text/chapter_0.xhtml").find(longParagraph), std::string::npos);
   const std::string continuation = readLogical(book.getPackagePath() + "/OEBPS/text/chapter_1.xhtml");
   EXPECT_NE(continuation.find("class=\"continuation\""), std::string::npos);
   EXPECT_NE(continuation.find("Следующий абзац"), std::string::npos);

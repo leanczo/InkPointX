@@ -12,11 +12,12 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <builtinFonts/all.h>
 #include <esp_ota_ops.h>
 #include <esp_task_wdt.h>
-#include <builtinFonts/all.h>
 
 #include <algorithm>
 #include <cstring>
@@ -34,12 +35,14 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/RenderLock.h"
+#include "activities/reader/ProgressFile.h"
+#include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/OtaUpdateActivity.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
-#include "activities/reader/ProgressFile.h"
+#include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
 #include "util/BootDiag.h"
 #include "util/ButtonNavigator.h"
@@ -57,6 +60,8 @@ FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 static unsigned long allowSleepAt = 0;
+static bool bootCoreInitialized = false;
+static bool displayInitFailed = false;
 
 // Fonts
 EpdFont notoserif14RegularFont(&notoserif_14_regular);
@@ -127,7 +132,7 @@ EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
 // Handwritten accent voice (Caveat 600). The smaller cut keeps the Home author
 // subordinate to the title; both are single-face families because the script
 // itself supplies the emphasis.
-EpdFont uiScriptSmallFont(&ui_script_18);
+EpdFont uiScriptSmallFont(&ui_script_16);
 EpdFontFamily uiScriptSmallFontFamily(&uiScriptSmallFont);
 EpdFont uiScriptFont(&ui_script_20);
 EpdFontFamily uiScriptFontFamily(&uiScriptFont);
@@ -146,7 +151,6 @@ EpdFontFamily ui16FontFamily(&ui16MediumFont, &ui16SemiBoldFont);
 
 // Screen headings sit at the top of the scale.
 EpdFontFamily uiHeaderFontFamily(&ui16SemiBoldFont);
-
 
 // Definitions for SilentRestart.h. RTC_NOINIT survives ESP.restart() but not power loss.
 RTC_NOINIT_ATTR uint32_t silentRebootMagic;
@@ -172,9 +176,7 @@ enum class BootResume : uint8_t {
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
-void drawSystemFrameOverlay(const GfxRenderer& target) {
-  UITheme::getInstance().drawSystemBatteryOverlay(target);
-}
+void drawSystemFrameOverlay(const GfxRenderer& target) { UITheme::getInstance().drawSystemBatteryOverlay(target); }
 
 void applyInterfaceFont() {
   // Swapping the interface faces unregisters seven font IDs and frees the
@@ -218,7 +220,7 @@ void applyInterfaceFont() {
       {UI_14_FONT_ID, 16, 2}, {UI_16_FONT_ID, 16, 2}, {UI_18_FONT_ID, 16, 2},
   };
   static constexpr SdCardFontSystem::InterfaceSlot accentSlots[] = {
-      {SCRIPT_SMALL_FONT_ID, 18, 6},
+      {SCRIPT_SMALL_FONT_ID, 16, 6},
       {SCRIPT_FONT_ID, 20, 6},
   };
 
@@ -241,12 +243,11 @@ void applyInterfaceFont() {
   fillSlot(UI_16_FONT_ID, ui16FontFamily);
   fillSlot(UI_18_FONT_ID, ui16FontFamily);
   fillSlot(SCRIPT_SMALL_FONT_ID, uiScriptSmallFontFamily);  // quieter author line
-  fillSlot(SCRIPT_FONT_ID, uiScriptFontFamily);  // the handwritten accent
+  fillSlot(SCRIPT_FONT_ID, uiScriptFontFamily);             // the handwritten accent
   LOG_DBG("MAIN", "Interface slots: script=%d/%d sd=%d/%d | rows sd=%d asc=%d",
           renderer.getFontAscenderSize(SCRIPT_SMALL_FONT_ID), renderer.getFontAscenderSize(SCRIPT_FONT_ID),
-          (int)renderer.isSdCardFont(SCRIPT_SMALL_FONT_ID),
-          (int)renderer.isSdCardFont(SCRIPT_FONT_ID), (int)renderer.isSdCardFont(UI_12_FONT_ID),
-          renderer.getFontAscenderSize(UI_12_FONT_ID));
+          (int)renderer.isSdCardFont(SCRIPT_SMALL_FONT_ID), (int)renderer.isSdCardFont(SCRIPT_FONT_ID),
+          (int)renderer.isSdCardFont(UI_12_FONT_ID), renderer.getFontAscenderSize(UI_12_FONT_ID));
 }
 
 void silentRestart() {
@@ -277,9 +278,15 @@ void silentRestartToReader() {
 
 void waitForPowerRelease() {
   gpio.update();
-  while (gpio.isPressed(HalGPIO::BTN_POWER)) {
+  const unsigned long startedAt = millis();
+  constexpr unsigned long RELEASE_TIMEOUT_MS = 5000;
+  while (gpio.isPressed(HalGPIO::BTN_POWER) && millis() - startedAt < RELEASE_TIMEOUT_MS) {
     delay(50);
     gpio.update();
+  }
+  if (gpio.isPressed(HalGPIO::BTN_POWER)) {
+    LOG_ERR("MAIN", "Power button remained asserted after %lu ms; continuing with input quarantined",
+            RELEASE_TIMEOUT_MS);
   }
 }
 
@@ -347,8 +354,25 @@ void enterDeepSleep(bool fromTimeout = false) {
   powerManager.startDeepSleep(gpio);
 }
 
-void setupDisplayAndFonts(bool seamless = false) {
-  display.begin(seamless);
+bool setupDisplayAndFonts(bool seamless = false) {
+  bool displayReady = false;
+  for (int attempt = 1; attempt <= 3 && !displayReady; ++attempt) {
+    displayReady = display.begin(seamless);
+    if (!displayReady) {
+      LOG_ERR("MAIN", "Display initialization attempt %d/3 failed", attempt);
+      delay(50);
+    }
+  }
+  if (!displayReady || !display.isReady()) {
+    displayInitFailed = true;
+    LOG_ERR("MAIN", "Display unavailable; rendering disabled to avoid a null-framebuffer crash");
+    if (Storage.ready()) {
+      Storage.mkdir("/.crosspoint");
+      Storage.writeFile("/.crosspoint/display_init_error.txt",
+                        String("InkPointX ") + CROSSPOINT_VERSION + " failed to initialize the e-ink panel");
+    }
+    return false;
+  }
   renderer.begin();
   renderer.setFrameOverlayHook(drawSystemFrameOverlay);
   activityManager.begin();
@@ -381,6 +405,7 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 16 pt semibold
 
   LOG_DBG("MAIN", "Fonts setup");
+  return true;
 }
 
 void setup() {
@@ -416,7 +441,7 @@ void setup() {
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
     LOG_ERR("MAIN", "SD card initialization failed");
-    setupDisplayAndFonts(isSilentReboot);
+    if (!setupDisplayAndFonts(isSilentReboot)) return;
     activityManager.goToFullScreenMessage(tr(STR_SD_CARD_ERROR), EpdFontFamily::BOLD);
     return;
   }
@@ -444,8 +469,26 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   const auto wakeupReason = gpio.getWakeupReason();
+
+  // Recovery must be resolved before any automatic "USB cold boot -> sleep"
+  // routing. Otherwise the very condition in which recovery is most useful
+  // can power the device down before the application checks the buttons.
+  bool recoveryFirmwareMode = false;
+  if (wakeupReason == HalGPIO::WakeupReason::PowerButton || wakeupReason == HalGPIO::WakeupReason::AfterUSBPower) {
+    const unsigned long settleStart = millis();
+    while (millis() - settleStart < 500) {
+      gpio.update();
+      delay(10);
+    }
+    if (gpio.isPressed(HalGPIO::BTN_UP) && gpio.isPressed(HalGPIO::BTN_POWER)) {
+      recoveryFirmwareMode = true;
+      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
+    }
+  }
+
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
+      if (recoveryFirmwareMode) break;
       LOG_DBG("MAIN", "Verifying power button press duration");
       if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                         SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
@@ -453,34 +496,23 @@ void setup() {
       }
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
+      if (recoveryFirmwareMode) break;
+#ifdef ENABLE_SERIAL_LOG
+      // Diagnostic builds must remain awake after USB reset so the serial
+      // console can exercise network routes on real hardware.
+      LOG_DBG("MAIN", "Wakeup reason: After USB Power (diagnostic build stays awake)");
+      break;
+#else
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
       powerManager.startDeepSleep(gpio);
       break;
+#endif
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
     case HalGPIO::WakeupReason::Other:
     default:
       break;
-  }
-
-  // Recovery firmware mode: hold left side button (BTN_UP) together with the power button at
-  // boot to skip directly to the SD-card firmware update screen. Useful on devices where USB
-  // flashing has been locked down (e.g. recent X3 firmware).
-  bool recoveryFirmwareMode = false;
-  if (wakeupReason == HalGPIO::WakeupReason::PowerButton) {
-    // Refresh the cached button state a few times — isPressed() needs ~half a second to settle
-    // after boot per the HalGPIO contract. Use a millis-based deadline so we always wait the full
-    // settle window even if the loop body takes longer than expected on slow boots.
-    const unsigned long settleStart = millis();
-    while (millis() - settleStart < 500) {
-      gpio.update();
-      delay(10);
-    }
-    if (gpio.isPressed(HalGPIO::BTN_UP)) {
-      recoveryFirmwareMode = true;
-      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
-    }
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
@@ -494,7 +526,18 @@ void setup() {
                                                         : BootResume::Splash;
   bool allowFastInitialReaderRefresh = false;
 
-  setupDisplayAndFonts(resume != BootResume::Splash);
+  if (!setupDisplayAndFonts(resume != BootResume::Splash)) {
+    // A pending OTA must reset so the bootloader can roll back. On an ordinary
+    // image stay alive for USB diagnostics instead of entering a blind reboot
+    // loop that needlessly drains the battery.
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    esp_ota_img_states_t imageState;
+    if (esp_ota_get_state_partition(running, &imageState) == ESP_OK && imageState == ESP_OTA_IMG_PENDING_VERIFY) {
+      delay(250);
+      ESP.restart();
+    }
+    return;
+  }
 
   switch (resume) {
     case BootResume::Silent:
@@ -534,7 +577,7 @@ void setup() {
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.
     activityManager.replaceActivity(
-        std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
+        makeUniqueNoThrow<SdFirmwareUpdateActivity>(renderer, mappedInputManager, /*recoveryMode=*/true));
   } else if (HalSystem::isRebootFromPanic()) {
     // If we rebooted from a panic, go to crash report screen to show the panic info
     activityManager.goToCrashReport();
@@ -580,15 +623,13 @@ void setup() {
   // Watchdog: the config arms the TWDT but nothing ever subscribed, so the 25
   // esp_task_wdt_reset() calls scattered through the network code were no-ops
   // and an application-level hang required the user to force-power the device.
-  // The render task is deliberately not subscribed - it parks forever in
-  // xTaskNotifyWait when idle, and a wedged render task starves the main loop
-  // off the RenderLock anyway, which this watchdog then catches on the next
-  // lock acquisition. 300 s, not less: a button press during a long chapter
-  // index legitimately blocks the main loop on the RenderLock for however
-  // long the index takes, and that must not read as a hang.
+  // The render task is deliberately not subscribed - it parks forever while
+  // idle. ActivityManager never blocks loopTask behind a busy render, so a
+  // one-minute window now catches real main-loop/network/SD hangs without
+  // misclassifying a long chapter layout as a crash.
   {
     esp_task_wdt_config_t wdtConfig = {};
-    wdtConfig.timeout_ms = 300000;
+    wdtConfig.timeout_ms = 60000;
     wdtConfig.idle_core_mask = 0;
     wdtConfig.trigger_panic = true;
     esp_task_wdt_reconfigure(&wdtConfig);
@@ -597,7 +638,11 @@ void setup() {
 
   // Ensure we're not still holding the power button before leaving setup
   waitForPowerRelease();
+  // Boot/recovery probing intentionally samples held keys. None of those edges
+  // belongs to the first interactive screen.
+  gpio.clearInputEvents();
   allowSleepAt = millis() + 2000;
+  bootCoreInitialized = true;
 }
 
 // Arduino's default marks a pending OTA image valid before setup() even runs,
@@ -607,33 +652,54 @@ void setup() {
 extern "C" bool verifyRollbackLater() { return true; }
 
 namespace {
-// 10 s of uptime without a panic is the health criterion: every crash loop we
-// have seen fires well inside that. Until this runs, a reset returns the
-// device to the previous slot.
+// OTA health is a set of functional milestones, not merely elapsed uptime.
+// Until all of them pass, any reset returns the device to the previous slot.
 void markOtaValidOnceHealthy() {
   static bool done = false;
-  if (done || millis() < 10000) return;
-  done = true;
+  static uint32_t healthyLoopCount = 0;
+  if (done) return;
+  if (bootCoreInitialized && Storage.ready() && display.isReady() && activityManager.hasCompletedFrame()) {
+    ++healthyLoopCount;
+  }
+  if (millis() < 30000 || healthyLoopCount < 100) return;
   const esp_partition_t* running = esp_ota_get_running_partition();
   esp_ota_img_states_t state;
-  if (esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY) {
-    esp_ota_mark_app_valid_cancel_rollback();
-    LOG_INF("OTA", "Image marked valid after healthy boot");
+  const esp_err_t stateResult = esp_ota_get_state_partition(running, &state);
+  if (stateResult != ESP_OK) {
+    LOG_ERR("OTA", "Could not read running image state: %s", esp_err_to_name(stateResult));
+    return;
   }
+  if (state == ESP_OTA_IMG_PENDING_VERIFY) {
+    const esp_err_t markResult = esp_ota_mark_app_valid_cancel_rollback();
+    if (markResult != ESP_OK) {
+      LOG_ERR("OTA", "Could not mark healthy image valid: %s", esp_err_to_name(markResult));
+      return;
+    }
+    LOG_INF("OTA", "Image marked valid after storage, display and main-loop health milestones");
+  }
+  done = true;
 }
 }  // namespace
 
 void loop() {
+  if (displayInitFailed) {
+    delay(1000);
+    return;
+  }
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
+#ifdef ENABLE_SERIAL_LOG
   static unsigned long lastMemPrint = 0;
+#endif
 
   gpio.update();
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
+  BootDiag::tick();
   markOtaValidOnceHealthy();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
+#ifdef ENABLE_SERIAL_LOG
   if (Serial && millis() - lastMemPrint >= 10000) {
     LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
@@ -658,18 +724,33 @@ void loop() {
         logSerial.printf("SCREENSHOT_START:%u\n", (unsigned)bufferSize);
         uint8_t* buf = display.getFrameBuffer();
         uint32_t bytesSent = 0;
+        const unsigned long transferStartedAt = millis();
+        unsigned long lastProgressAt = transferStartedAt;
+        constexpr unsigned long SCREENSHOT_STALL_TIMEOUT_MS = 3000;
+        constexpr unsigned long SCREENSHOT_TOTAL_TIMEOUT_MS = 15000;
         while (bytesSent < bufferSize) {
           const size_t chunkSize = std::min<uint32_t>(64, bufferSize - bytesSent);
           const size_t written = logSerial.write(buf + bytesSent, chunkSize);
           if (written == 0) {
+            if (millis() - lastProgressAt >= SCREENSHOT_STALL_TIMEOUT_MS ||
+                millis() - transferStartedAt >= SCREENSHOT_TOTAL_TIMEOUT_MS) {
+              LOG_ERR("MAIN", "Screenshot transfer timed out after %u/%u bytes", static_cast<unsigned>(bytesSent),
+                      static_cast<unsigned>(bufferSize));
+              break;
+            }
             delay(1);
             continue;
           }
           bytesSent += written;
+          lastProgressAt = millis();
           delay(1);
         }
         logSerial.flush();
-        logSerial.printf("SCREENSHOT_END\n");
+        if (bytesSent == bufferSize) {
+          logSerial.printf("SCREENSHOT_END\n");
+        } else {
+          logSerial.printf("SCREENSHOT_ABORT:%u\n", static_cast<unsigned>(bytesSent));
+        }
         logSerial.flush();
         logSerial.setTxTimeoutMs(1);
 #if LOG_LEVEL >= 2
@@ -705,8 +786,26 @@ void loop() {
       } else if (cmd == "PROFILE_OTA") {
         // Verification route for the over-the-air update path: reaching it
         // through the UI needs several button presses this console cannot make.
-        activityManager.replaceActivity(std::make_unique<OtaUpdateActivity>(renderer, mappedInputManager));
+        activityManager.replaceActivity(makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInputManager));
         LOG_DBG("MAIN", "Profile route: OTA update");
+      } else if (cmd == "PROFILE_FONTS") {
+        activityManager.replaceActivity(makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInputManager));
+        LOG_DBG("MAIN", "Profile route: font catalog");
+      } else if (cmd == "PROFILE_FONT_FETCH") {
+        constexpr const char* testUrl =
+            "https://github.com/crosspoint-reader/crosspoint-fonts/releases/download/sd-fonts-m1-b4/"
+            "Alegreya_12.cpfont";
+        constexpr const char* testPath = "/.font_transport_test.cpfont";
+        const auto result = HttpDownloader::downloadToFile(testUrl, testPath, nullptr);
+        size_t downloadedSize = 0;
+        HalFile testFile = Storage.open(testPath);
+        if (testFile) {
+          downloadedSize = testFile.size();
+          testFile.close();
+        }
+        LOG_DBG("MAIN", "Profile font asset fetch: result=%d size=%u", static_cast<int>(result),
+                static_cast<unsigned>(downloadedSize));
+        Storage.remove(testPath);
       } else if (cmd == "PROFILE_REINDEX") {
         // Wipes the most recent book's cache and reopens it — forces the full
         // chapter re-index path, which is where the light-sleep RenderLock
@@ -738,6 +837,16 @@ void loop() {
         // activity render path without changing UI state.
         activityManager.requestUpdate();
         LOG_DBG("MAIN", "Profile redraw requested");
+      } else if (cmd.startsWith("PROFILE_NAV_DOWN")) {
+        // Inject a burst without waiting for panel BUSY so the input backlog
+        // and frame coalescing path can be verified deterministically over USB.
+        const int sep = cmd.indexOf(':');
+        const int count = std::clamp(sep < 0 ? 1 : cmd.substring(sep + 1).toInt(), 1L, 24L);
+        for (int i = 0; i < count; ++i) gpio.enqueueSyntheticClick(HalGPIO::BTN_DOWN);
+        LOG_DBG("MAIN", "Profile input: queued %d Down clicks", count);
+      } else if (cmd == "PROFILE_CONFIRM") {
+        gpio.enqueueSyntheticClick(SETTINGS.frontButtonConfirm);
+        LOG_DBG("MAIN", "Profile input: queued Confirm click");
       } else if (cmd == "PROFILE_LIBRARY") {
         activityManager.goHome(HomeMenuItem::LIBRARY);
         LOG_DBG("MAIN", "Profile route: Library");
@@ -763,6 +872,7 @@ void loop() {
       }
     }
   }
+#endif
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
@@ -847,9 +957,8 @@ void loop() {
   // latched on e-ink indefinitely. Queue one visual-only redraw after release.
   // It is deliberately deferred and coalesced with the activity's own update:
   // no extra gpio.update(), no replayed input event, and no duplicate action.
-  const bool frontButtonReleased =
-      gpio.wasReleased(HalGPIO::BTN_BACK) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
-      gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_RIGHT);
+  const bool frontButtonReleased = gpio.wasReleased(HalGPIO::BTN_BACK) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
+                                   gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_RIGHT);
   // Only when the last rendered frame actually shows a pressed pill: the
   // unconditional version queued a second full-panel refresh on every list
   // step (action paints on the press edge, this fired on the release edge),

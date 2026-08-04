@@ -4,10 +4,13 @@
 #include <ESPmDNS.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <WiFi.h>
+#include <esp_system.h>
 #include <esp_task_wdt.h>
 
 #include <cstddef>
+#include <new>
 
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
@@ -17,12 +20,10 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/QrUtils.h"
-#include <new>
 
 namespace {
 // AP Mode configuration
 constexpr const char* AP_SSID = "InkPointX";
-constexpr const char* AP_PASSWORD = nullptr;  // Open network for ease of use
 constexpr const char* AP_HOSTNAME = "inkpoint";
 constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 4;
@@ -62,6 +63,15 @@ int barsForRssi(int rssi, int currentBars) {
   while (bars > 0 && rssi < FALL_DBM[bars - 1]) bars--;
   return bars;
 }
+
+std::string makeApPassword() {
+  // Avoid ambiguous glyphs because the password is also printed beside the
+  // QR code as a fallback for phones that cannot import Wi-Fi QR records.
+  static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  std::string password(12, 'A');
+  for (char& c : password) c = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+  return password;
+}
 }  // namespace
 
 void CrossPointWebServerActivity::onEnter() {
@@ -75,6 +85,7 @@ void CrossPointWebServerActivity::onEnter() {
   isApMode = false;
   connectedIP.clear();
   connectedSSID.clear();
+  apPassword.clear();
   lastHandleClientTime = 0;
   requestUpdate();
 
@@ -88,7 +99,7 @@ void CrossPointWebServerActivity::onEnter() {
 void CrossPointWebServerActivity::showModeSelection() {
   state = WebServerActivityState::MODE_SELECTION;
   LOG_DBG("WEBACT", "Launching NetworkModeSelectionActivity...");
-  startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
+  startActivityForResult(makeUniqueNoThrow<NetworkModeSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
                            if (result.isCancelled) {
                              onGoHome();
@@ -142,10 +153,8 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);
 
   if (mode == NetworkMode::CONNECT_CALIBRE) {
-    startActivityForResult(
-        std::make_unique<CalibreConnectActivity>(renderer, mappedInput), [this](const ActivityResult&) {
-          returnToTransferMenu();
-        });
+    startActivityForResult(makeUniqueNoThrow<CalibreConnectActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { returnToTransferMenu(); });
     return;
   }
 
@@ -156,7 +165,7 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
 
     state = WebServerActivityState::WIFI_SELECTION;
     LOG_DBG("WEBACT", "Launching WifiSelectionActivity...");
-    startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+    startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
                            [this](const ActivityResult& result) {
                              if (!result.isCancelled) {
                                const auto& wifi = std::get<WifiResult>(result.data);
@@ -199,13 +208,11 @@ void CrossPointWebServerActivity::startAccessPoint() {
   WiFi.mode(WIFI_AP);
   delay(100);
 
-  // Start soft AP
-  // An empty passphrase is the core's open-network form, and AP_PASSWORD is a
-  // build-time constant: with the open default the old runtime branch compiled
-  // down to an unreachable strlen(NULL). The core rejects a passphrase shorter
-  // than WPA2's eight characters on its own, and reports it in apStarted.
-  const char* const apPassphrase = AP_PASSWORD ? AP_PASSWORD : "";
-  const bool apStarted = WiFi.softAP(AP_SSID, apPassphrase, AP_CHANNEL, false, AP_MAX_CONNECTIONS);
+  // A per-session WPA2 key keeps uploaded books and settings from travelling
+  // in clear text over an open hotspot. The Wi-Fi QR code carries it, so the
+  // normal one-scan connection flow remains unchanged.
+  apPassword = makeApPassword();
+  const bool apStarted = WiFi.softAP(AP_SSID, apPassword.c_str(), AP_CHANNEL, false, AP_MAX_CONNECTIONS);
 
   if (!apStarted) {
     LOG_ERR("WEBACT", "ERROR: Failed to start Access Point!");
@@ -254,7 +261,12 @@ void CrossPointWebServerActivity::startWebServer() {
   LOG_DBG("WEBACT", "Starting web server...");
 
   // Create the web server instance
-  webServer.reset(new CrossPointWebServer());
+  webServer = makeUniqueNoThrow<CrossPointWebServer>();
+  if (!webServer) {
+    LOG_ERR("WEBACT", "OOM creating web server");
+    onGoHome();
+    return;
+  }
   webServer->begin();
 
   if (webServer->isRunning()) {
@@ -384,7 +396,8 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
                    isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER), nullptr);
 
     if (state == WebServerActivityState::SERVER_RUNNING) {
-      GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
+      GUI.drawSubHeader(renderer,
+                        Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.subHeaderHeight},
                         connectedSSID.c_str());
       renderServerRunning();
     } else {
@@ -411,6 +424,9 @@ void CrossPointWebServerActivity::renderServerRunning() const {
 
   int startY = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 2;
   int height10 = renderer.getLineHeight(UI_10_FONT_ID);
+  const bool authenticationEnabled = webServer && webServer->isAuthenticationEnabled();
+  const std::string pairSuffix =
+      authenticationEnabled ? std::string("?pair=") + webServer->getPairingToken() : std::string();
   const int textMaxWidth = pageWidth - metrics.contentSidePadding * 2;
   // The two instruction lines are wider than the panel in most locales, so
   // they wrap; the QR captions are truncated to the lane beside the code and
@@ -431,15 +447,15 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     const int captionMaxWidth = pageWidth - captionX - metrics.contentSidePadding;
 
     // Show QR code for Wifi
-    // Include the auth type: scanners are unreliable about a bare "WIFI:S:ssid;;"
-    // and some refuse to offer joining at all without it. The hotspot is open.
-    const std::string wifiConfig = std::string("WIFI:T:nopass;S:") + connectedSSID + ";;";
+    const std::string wifiConfig = std::string("WIFI:T:WPA;S:") + connectedSSID + ";P:" + apPassword + ";;";
     const Rect qrBoundsWifi(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBoundsWifi, wifiConfig);
 
     // Show network name
     renderer.drawText(UI_10_FONT_ID, captionX, startY + 80,
                       renderer.truncatedText(UI_10_FONT_ID, connectedSSID.c_str(), captionMaxWidth).c_str());
+    renderer.drawText(SMALL_FONT_ID, captionX, startY + 80 + height10,
+                      renderer.truncatedText(SMALL_FONT_ID, apPassword.c_str(), captionMaxWidth).c_str());
 
     startY += QR_CODE_HEIGHT + 2 * metrics.verticalSpacing;
 
@@ -447,8 +463,11 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     drawWrapped(tr(STR_OPEN_URL_HINT));
     startY += metrics.verticalSpacing * 2;
 
-    std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
-    std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
+    // QR uses the numeric address so it works on phones that do not resolve
+    // mDNS (common on Android and in AP mode). The pairing query is consumed
+    // once and removed from browser history by the server.
+    std::string hostnameUrl = "http://" + connectedIP + "/" + pairSuffix;
+    std::string ipUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/" + pairSuffix;
 
     // Show QR code for URL
     const Rect qrBoundsUrl(metrics.contentSidePadding, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
@@ -470,18 +489,35 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     startY += height10 + metrics.verticalSpacing * 2;
 
     // Show QR code for URL
-    std::string webInfo = "http://" + connectedIP + "/";
+    std::string webInfo = "http://" + connectedIP + "/" + pairSuffix;
     const Rect qrBounds((pageWidth - QR_CODE_WIDTH) / 2, startY, QR_CODE_WIDTH, QR_CODE_HEIGHT);
     QrUtils::drawQrCode(renderer, qrBounds, webInfo);
     startY += QR_CODE_HEIGHT + metrics.verticalSpacing * 2;
 
-    // Show web server URL prominently
-    renderer.drawCenteredText(UI_10_FONT_ID, startY, webInfo.c_str(), true);
+    // Keep the full authenticated URL in the QR payload, but render its base
+    // address and 32-character pairing query on separate bounded lines. A
+    // single unbounded URL used to run beyond both edges of the 480 px X4.
+    const std::string ipUrl = "http://" + connectedIP + "/";
+    renderer.drawCenteredText(
+        UI_10_FONT_ID, startY,
+        renderer.truncatedText(UI_10_FONT_ID, ipUrl.c_str(), textMaxWidth, EpdFontFamily::BOLD).c_str(), true,
+        EpdFontFamily::BOLD);
     startY += height10 + 5;
 
-    // Also show hostname URL
-    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
-    renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
+    if (authenticationEnabled) {
+      renderer.drawCenteredText(
+          SMALL_FONT_ID, startY,
+          renderer.truncatedText(SMALL_FONT_ID, pairSuffix.c_str(), textMaxWidth, EpdFontFamily::REGULAR).c_str(),
+          true);
+      startY += renderer.getLineHeight(SMALL_FONT_ID) + 5;
+    }
+
+    // Also show the mDNS fallback. It uses the same pairing query printed just
+    // above, so repeating the long secret is unnecessary.
+    const std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
+    renderer.drawCenteredText(
+        SMALL_FONT_ID, startY,
+        renderer.truncatedText(SMALL_FONT_ID, hostnameUrl.c_str(), textMaxWidth, EpdFontFamily::REGULAR).c_str(), true);
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_EXIT), "", "", "");

@@ -27,7 +27,7 @@ int pageItemsFor(const GfxRenderer& renderer) {
       renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
   return std::max(1, GUI.getListPageItems(contentHeight, true));
 }  // namespace
-}
+}  // namespace
 
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();
@@ -204,9 +204,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
         [this](int index) {
           return entries[index].type == OpdsEntryType::BOOK ? entries[index].author : std::string();
         },
-        [this](int index) {
-          return entries[index].type == OpdsEntryType::BOOK ? UIIcon::Book : UIIcon::Folder;
-        },
+        [this](int index) { return entries[index].type == OpdsEntryType::BOOK ? UIIcon::Book : UIIcon::Folder; },
         nullptr, false, nullptr, [](int) { return UIAccessory::Chevron; });
   }
   renderer.displayBuffer();
@@ -343,7 +341,7 @@ void OpdsBookBrowserActivity::launchSearch() {
   state = BrowserState::SEARCH_INPUT;
   requestUpdate();
 
-  auto keyboard = std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH));
+  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH));
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     state = BrowserState::BROWSING;
     if (!result.isCancelled) {
@@ -405,7 +403,7 @@ void OpdsBookBrowserActivity::launchWifiSelection() {
   state = BrowserState::WIFI_SELECTION;
   requestUpdate();
 
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+  startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
 }
 

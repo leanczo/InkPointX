@@ -44,10 +44,10 @@ void QrDisplayActivity::render(RenderLock&&) {
   } else if (wasTruncated) {
     // Only a prefix fit into the code: warn, or a scanned page passes for the
     // whole chapter.
-    UITheme::drawCenteredText(renderer, Rect{0, 0, pageWidth, pageHeight}, SMALL_FONT_ID,
-                              pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing -
-                                  renderer.getLineHeight(SMALL_FONT_ID),
-                              tr(STR_QR_TRUNCATED), true);
+    UITheme::drawCenteredText(
+        renderer, Rect{0, 0, pageWidth, pageHeight}, SMALL_FONT_ID,
+        pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - renderer.getLineHeight(SMALL_FONT_ID),
+        tr(STR_QR_TRUNCATED), true);
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");

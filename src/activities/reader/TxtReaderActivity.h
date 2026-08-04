@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "ReadingSessionStats.h"
 #include "activities/Activity.h"
 
 class TxtReaderActivity final : public Activity {
@@ -28,6 +29,12 @@ class TxtReaderActivity final : public Activity {
   // lands here first instead of silently ejecting the user to Home.
   bool atEndOfBook = false;
   size_t currentPageEndOffset = 0;
+  bool indexDirty = false;
+  uint8_t pagesSinceIndexSave = 0;
+  unsigned long lastIndexSaveMs = 0;
+  int lastSavedProgressPage = -1;
+  unsigned long lastProgressSaveMs = 0;
+  ReadingSessionStats readingStats;
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
   int cachedFontId = 0;
@@ -44,8 +51,10 @@ class TxtReaderActivity final : public Activity {
   void initializeReader();
   bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, size_t& nextOffset);
   bool loadPageIndexCache();
-  void savePageIndexCache() const;
+  bool savePageIndexCache();
+  void maybeSavePageIndexCache(bool force = false);
   void saveProgress() const;
+  void maybeSaveProgress(bool force = false);
   void loadProgress();
 
  public:

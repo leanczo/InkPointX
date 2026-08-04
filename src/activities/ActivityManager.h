@@ -23,6 +23,7 @@ enum class HomeMenuItem {
   FILE_BROWSER,
   GALLERY,
   FAVORITES,
+  READING_STATS,
   RECENTS,
   OPDS_BROWSER,
   FILE_TRANSFER,
@@ -55,6 +56,7 @@ class ActivityManager {
  protected:
   GfxRenderer& renderer;
   MappedInputManager& mappedInput;
+  static constexpr size_t MAX_ACTIVITY_STACK = 10;
   std::vector<std::unique_ptr<Activity>> stackActivities;
   std::unique_ptr<Activity> currentActivity;
 
@@ -70,10 +72,21 @@ class ActivityManager {
   TaskHandle_t renderTaskHandle = nullptr;
   static void renderTaskTrampoline(void* param);
   [[noreturn]] virtual void renderTaskLoop();
+  void renderOnce(uint32_t generation);
+  uint32_t queueRender();
 
   // Set by requestUpdateAndWait(); read and cleared by the render task after render completes.
   // Note: only one waiting task is supported at a time
   TaskHandle_t waitingTaskHandle = nullptr;
+  uint32_t waitingRenderGeneration = 0;
+
+  // A render request is complete only when the frame carrying its generation
+  // has finished the physical display update.  A plain task notification is
+  // insufficient here: completion of an older in-flight frame must not wake a
+  // caller waiting for a newer state.
+  uint32_t requestedRenderGeneration = 0;
+  uint32_t completedRenderGeneration = 0;
+  portMUX_TYPE renderStateMux = portMUX_INITIALIZER_UNLOCKED;
 
   // Mutex to protect rendering operations from race conditions
   // Must only be used via RenderLock
@@ -85,9 +98,9 @@ class ActivityManager {
 
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateMutex()) {
+      : renderer(renderer), mappedInput(mappedInput), renderingMutex(xSemaphoreCreateRecursiveMutex()) {
     assert(renderingMutex != nullptr && "Failed to create rendering mutex");
-    stackActivities.reserve(10);
+    stackActivities.reserve(MAX_ACTIVITY_STACK);
   }
   ~ActivityManager() { assert(false); /* should never be called */ };
 
@@ -103,6 +116,7 @@ class ActivityManager {
   void goToSettings(int categoryIndex = 0);
   void goToLibrary();
   void goToFavorites();
+  void goToReadingStats();
   void goToGallery();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
@@ -125,6 +139,7 @@ class ActivityManager {
   bool isReaderActivity() const;
   bool skipLoopDelay() const;
   ScreenshotInfo getScreenshotInfo() const;
+  bool hasCompletedFrame();
 
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.

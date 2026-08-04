@@ -194,12 +194,11 @@ void BaseTheme::drawBatteryRight(const GfxRenderer& renderer, Rect rect, const b
 
   if (showPercentage) {
     const int textWidth = renderer.getTextWidth(batteryPercentFontId, percentageText.c_str());
-    renderer.drawText(batteryPercentFontId, rect.x - textWidth - batteryPercentSpacing, rect.y,
-                      percentageText.c_str());
+    renderer.drawText(batteryPercentFontId, rect.x - textWidth - batteryPercentSpacing, rect.y, percentageText.c_str());
   }
 
-  const int centerY = batteryDigitsCenterY(renderer, rect, batteryPercentFontId,
-                                           showPercentage ? percentageText.c_str() : nullptr);
+  const int centerY =
+      batteryDigitsCenterY(renderer, rect, batteryPercentFontId, showPercentage ? percentageText.c_str() : nullptr);
   const Rect body = batteryBodyRect(rect, centerY);
   drawBatteryOutline(renderer, body);
   fillBatteryIcon(renderer, body, percentage);
@@ -215,8 +214,7 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
   const int percent = static_cast<int>((static_cast<uint64_t>(current) * 100) / total);
 
   LOG_DBG("UI", "Drawing progress bar: current=%u, total=%u, percent=%d", current, total, percent);
-  const int barHeight =
-      std::min(rect.height, std::max(6, UITheme::getInstance().getMetrics().progressBarHeight));
+  const int barHeight = std::min(rect.height, std::max(6, UITheme::getInstance().getMetrics().progressBarHeight));
   const int barY = rect.y + (rect.height - barHeight) / 2;
   renderer.fillRoundedRect(rect.x, barY, rect.width, barHeight, barHeight / 2, Color::LightGray);
   const int fillWidth = rect.width * percent / 100;
@@ -286,8 +284,8 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       }
 
       if (labels[physicalButtonIndex] && labels[physicalButtonIndex][0] != '\0') {
-        const auto label = renderer.truncatedText(hintFontId, labels[physicalButtonIndex], section.width - 6,
-                                                  EpdFontFamily::REGULAR);
+        const auto label =
+            renderer.truncatedText(hintFontId, labels[physicalButtonIndex], section.width - 6, EpdFontFamily::REGULAR);
         const int textWidth = renderer.getTextWidth(hintFontId, label.c_str(), EpdFontFamily::REGULAR);
         const int textY = section.y + std::max(1, (section.height - renderer.getLineHeight(hintFontId)) / 2);
         renderer.drawText(hintFontId, section.x + (section.width - textWidth) / 2, textY, label.c_str(), true,
@@ -384,11 +382,19 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue,
                          const std::function<bool(int index)>& rowDimmed,
-                         const std::function<UIAccessory(int index)>& rowAccessory) const {
+                         const std::function<UIAccessory(int index)>& rowAccessory,
+                         const std::function<bool(int index)>& rowSection) const {
   (void)rowAccessory;
   int rowHeight =
       (rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight;
   int pageItems = rect.height / rowHeight;
+
+  int pageStartIndex = selectedIndex / pageItems * pageItems;
+  if (rowSection && selectedIndex >= 0) {
+    int sectionStart = selectedIndex;
+    while (sectionStart > 0 && !rowSection(sectionStart)) --sectionStart;
+    pageStartIndex = std::min(sectionStart, std::max(0, itemCount - pageItems));
+  }
 
   const int totalPages = (itemCount + pageItems - 1) / pageItems;
   if (totalPages > 1) {
@@ -419,14 +425,25 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   // Draw selection
   int contentWidth = rect.width - 5;
   if (selectedIndex >= 0) {
-    renderer.fillRect(rect.x, rect.y + selectedIndex % pageItems * rowHeight - 2, rect.width, rowHeight);
+    renderer.fillRect(rect.x, rect.y + (selectedIndex - pageStartIndex) * rowHeight - 2, rect.width, rowHeight);
   }
   constexpr int minValueGap = 10;
 
   // Draw all items
-  const auto pageStartIndex = selectedIndex / pageItems * pageItems;
   for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
-    const int itemY = rect.y + (i % pageItems) * rowHeight;
+    const int itemY = rect.y + (i - pageStartIndex) * rowHeight;
+
+    if (rowSection && rowSection(i)) {
+      const std::string sectionName = rowTitle(i);
+      const auto section = renderer.truncatedText(SCRIPT_FONT_ID, sectionName.c_str(),
+                                                  contentWidth - BaseMetrics::values.contentSidePadding * 2);
+      const int sectionWidth = renderer.getTextWidth(SCRIPT_FONT_ID, section.c_str());
+      const bool sectionRtl = BidiUtils::startsWithRtl(sectionName.c_str());
+      const int sectionX = sectionRtl ? rect.x + contentWidth - BaseMetrics::values.contentSidePadding - sectionWidth
+                                      : rect.x + BaseMetrics::values.contentSidePadding;
+      renderer.drawText(SCRIPT_FONT_ID, sectionX, itemY + 4, section.c_str());
+      continue;
+    }
 
     int rowTextWidth = contentWidth - BaseMetrics::values.contentSidePadding * 2;
     std::string valueText;
@@ -463,10 +480,9 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
       if (!subtitleText.empty()) {
         auto subtitle = renderer.truncatedText(SMALL_FONT_ID, subtitleText.c_str(), rowTextWidth);
         const int subtitleWidth = renderer.getTextWidth(SMALL_FONT_ID, subtitle.c_str());
-        const int subtitleX =
-            BidiUtils::startsWithRtl(subtitleText.c_str())
-                ? rect.x + contentWidth - BaseMetrics::values.contentSidePadding - subtitleWidth
-                : rect.x + BaseMetrics::values.contentSidePadding;
+        const int subtitleX = BidiUtils::startsWithRtl(subtitleText.c_str())
+                                  ? rect.x + contentWidth - BaseMetrics::values.contentSidePadding - subtitleWidth
+                                  : rect.x + BaseMetrics::values.contentSidePadding;
         renderer.drawText(SMALL_FONT_ID, subtitleX, itemY + 22, subtitle.c_str(), i != selectedIndex);
       }
     }
@@ -486,14 +502,12 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 
 void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
   const bool primaryHeader = rect.y <= BaseMetrics::values.topPadding;
-  const int batteryGroupWidth =
-      primaryHeader ? UITheme::getInstance().getSystemBatteryOverlayWidth(renderer) : 0;
+  const int batteryGroupWidth = primaryHeader ? UITheme::getInstance().getSystemBatteryOverlayWidth(renderer) : 0;
 
   if (title) {
     const int padding = batteryGroupWidth + BaseMetrics::values.contentSidePadding;
     auto truncatedTitle =
-        renderer.truncatedText(HEADER_FONT_ID, title, std::max(0, rect.width - padding * 2),
-                               EpdFontFamily::REGULAR);
+        renderer.truncatedText(HEADER_FONT_ID, title, std::max(0, rect.width - padding * 2), EpdFontFamily::REGULAR);
     renderer.drawCenteredText(HEADER_FONT_ID, rect.y + 5, truncatedTitle.c_str());
   }
 
@@ -513,8 +527,7 @@ void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
   const bool rtl = label && BidiUtils::startsWithRtl(label);
   int secondarySpace = BaseMetrics::values.contentSidePadding;
   if (rightLabel) {
-    auto secondary =
-        renderer.truncatedText(SMALL_FONT_ID, rightLabel, maxListValueWidth, EpdFontFamily::REGULAR);
+    auto secondary = renderer.truncatedText(SMALL_FONT_ID, rightLabel, maxListValueWidth, EpdFontFamily::REGULAR);
     const int secondaryWidth = renderer.getTextWidth(SMALL_FONT_ID, secondary.c_str());
     const int secondaryX = rtl ? rect.x + BaseMetrics::values.contentSidePadding
                                : rect.x + rect.width - BaseMetrics::values.contentSidePadding - secondaryWidth;
@@ -522,16 +535,14 @@ void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
     secondarySpace += secondaryWidth + 10;
   }
 
-  auto heading = renderer.truncatedText(UI_12_FONT_ID, label,
-                                        rect.width - BaseMetrics::values.contentSidePadding - secondarySpace,
-                                        EpdFontFamily::REGULAR);
+  auto heading =
+      renderer.truncatedText(UI_12_FONT_ID, label, rect.width - BaseMetrics::values.contentSidePadding - secondarySpace,
+                             EpdFontFamily::REGULAR);
   const int headingWidth = renderer.getTextWidth(UI_12_FONT_ID, heading.c_str());
   const int headingX = rtl ? rect.x + rect.width - BaseMetrics::values.contentSidePadding - headingWidth
                            : rect.x + BaseMetrics::values.contentSidePadding;
   renderer.drawText(UI_12_FONT_ID, headingX, rect.y, heading.c_str(), true, EpdFontFamily::REGULAR);
 }
-
-
 
 void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
@@ -567,15 +578,13 @@ void BaseTheme::drawSelection(const GfxRenderer& renderer, const Rect rect) cons
   renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, selectionCornerRadius, true);
 }
 
-
 void BaseTheme::drawPageDots(const GfxRenderer& renderer, const int selectedPage, const int pageCount) const {
   if (pageCount <= 1) return;
   constexpr int dotSize = 9;
   constexpr int dotGap = 11;
   const int totalWidth = pageCount * dotSize + (pageCount - 1) * dotGap;
   const int startX = (renderer.getScreenWidth() - totalWidth) / 2;
-  const int y =
-      renderer.getScreenHeight() - UITheme::getInstance().getMetrics().buttonHintsHeight - 42;
+  const int y = renderer.getScreenHeight() - UITheme::getInstance().getMetrics().buttonHintsHeight - 42;
   for (int i = 0; i < pageCount; i++) {
     if (i == selectedPage) {
       renderer.fillRoundedRect(startX + i * (dotSize + dotGap), y, dotSize, dotSize, dotSize / 2, Color::Black);
@@ -586,7 +595,8 @@ void BaseTheme::drawPageDots(const GfxRenderer& renderer, const int selectedPage
   }
 }
 
-void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex, const int itemCount) const {
+void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex, const int itemCount,
+                                  const char* status) const {
   if (itemCount <= 0) return;
   char counter[32];
   snprintf(counter, sizeof(counter), "%d / %d", selectedIndex + 1, itemCount);
@@ -596,11 +606,26 @@ void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex
   const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   const int y = renderer.getScreenHeight() - metrics.buttonHintsHeight - footerCounterTopOffset;
+  const int contentLeft = metrics.contentSidePadding;
+  const int contentRight = renderer.getScreenWidth() - metrics.contentSidePadding;
+  const int counterWidth = renderer.getTextWidth(SMALL_FONT_ID, counter);
+
+  if (status && status[0] != '\0') {
+    constexpr int footerGap = 12;
+    const int statusMaxWidth = std::max(0, contentRight - contentLeft - counterWidth - footerGap);
+    const auto statusText = renderer.truncatedText(SMALL_FONT_ID, status, statusMaxWidth);
+    const int statusWidth = renderer.getTextWidth(SMALL_FONT_ID, statusText.c_str());
+    const int statusX = I18N.isRtl() ? contentRight - statusWidth : contentLeft;
+    const int counterX = I18N.isRtl() ? contentLeft : contentRight - counterWidth;
+    renderer.drawText(SMALL_FONT_ID, statusX, y, statusText.c_str());
+    renderer.drawText(SMALL_FONT_ID, counterX, y, counter);
+    renderer.setOrientation(origOrientation);
+    return;
+  }
+
   // Follows the interface language, not the counter's own digits, which are
   // direction-neutral and would always have resolved to left.
-  const int x = I18N.isRtl() ? renderer.getScreenWidth() - metrics.contentSidePadding -
-                                   renderer.getTextWidth(SMALL_FONT_ID, counter)
-                             : metrics.contentSidePadding;
+  const int x = I18N.isRtl() ? contentRight - counterWidth : contentLeft;
   renderer.drawText(SMALL_FONT_ID, x, y, counter);
   renderer.setOrientation(origOrientation);
 }
@@ -609,8 +634,8 @@ void BaseTheme::drawDivider(const GfxRenderer& renderer, const int x1, const int
   renderer.drawLine(x1, y, x2, y, 1, true);
 }
 
-void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, const char* message,
-                               const char* detail, const bool script) const {
+void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, const char* message, const char* detail,
+                               const bool script) const {
   if (!message || message[0] == '\0' || content.height <= 0) return;
   const int messageFontId = script ? SCRIPT_FONT_ID : UI_10_FONT_ID;
   const int maxWidth = std::max(0, content.width - BaseMetrics::values.contentSidePadding * 2);
@@ -650,9 +675,8 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
   auto lines = renderer.wrappedText(UI_12_FONT_ID, message, maxTextWidth, 4, popupFontFamily);
   if (lines.empty()) lines.emplace_back("");
 
-  const int textWidth =
-      std::accumulate(lines.cbegin(), lines.cend(), 0, [&renderer, popupFontFamily](const int widest,
-                                                                                  const std::string& line) {
+  const int textWidth = std::accumulate(
+      lines.cbegin(), lines.cend(), 0, [&renderer, popupFontFamily](const int widest, const std::string& line) {
         return std::max(widest, renderer.getTextWidth(UI_12_FONT_ID, line.c_str(), popupFontFamily));
       });
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);

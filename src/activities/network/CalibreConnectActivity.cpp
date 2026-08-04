@@ -33,7 +33,7 @@ void CalibreConnectActivity::onEnter() {
   exitRequested = false;
 
   if (WiFi.status() != WL_CONNECTED) {
-    startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+    startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
                            [this](const ActivityResult& result) {
                              if (!result.isCancelled) {
                                const auto& wifi = std::get<WifiResult>(result.data);
@@ -255,8 +255,8 @@ void CalibreConnectActivity::render(RenderLock&&) {
                           lastProgressReceived, lastProgressTotal);
       // drawProgressBar draws its own centred percent caption a line below
       // the bar — reserve that line, or the next status line lands on it.
-      y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight +
-           renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
+      y += height + metrics.verticalSpacing * 2 + metrics.progressBarHeight + renderer.getLineHeight(SMALL_FONT_ID) +
+           metrics.verticalSpacing;
     }
 
     if (lastCompleteAt > 0 && (millis() - lastCompleteAt) < 6000) {

@@ -3,11 +3,11 @@
 #include <Arduino.h>
 #include <Logging.h>
 #include <Utf8.h>
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <esp_heap_caps.h>
 
 FontDecompressor::~FontDecompressor() { deinit(); }
 
@@ -280,8 +280,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
   }
 
   const uint32_t alignedOff = getAlignedOffset(fontData, groupIndex, glyphIndex);
-  if (const uint8_t* cached =
-          cacheGlyph(fontData, glyphIndex, glyph, &hotGroup[alignedOff])) {
+  if (const uint8_t* cached = cacheGlyph(fontData, glyphIndex, glyph, &hotGroup[alignedOff])) {
     stats.getBitmapTimeUs += micros() - tStart;
     return cached;
   }

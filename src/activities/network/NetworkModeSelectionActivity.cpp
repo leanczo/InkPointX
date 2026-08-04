@@ -1,9 +1,9 @@
 #include "NetworkModeSelectionActivity.h"
 
 #include <GfxRenderer.h>
+#include <I18n.h>
 
 #include <algorithm>
-#include <I18n.h>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"

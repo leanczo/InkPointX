@@ -1,11 +1,10 @@
 #include "StatusBarSettingsActivity.h"
 
 #include <GfxRenderer.h>
-
-#include <algorithm>
 #include <HalClock.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 
@@ -202,10 +201,10 @@ void StatusBarSettingsActivity::handleSelection() {
       break;
     case ITEM_CLOCK_UTC_OFFSET:
       // Launch the dedicated offset picker. It saves on exit, no result handler needed.
-      startActivityForResult(std::make_unique<ClockOffsetActivity>(renderer, mappedInput), nullptr);
+      startActivityForResult(makeUniqueNoThrow<ClockOffsetActivity>(renderer, mappedInput), nullptr);
       return;
     case ITEM_CLOCK_SYNC:
-      startActivityForResult(std::make_unique<ClockSyncActivity>(renderer, mappedInput), nullptr);
+      startActivityForResult(makeUniqueNoThrow<ClockSyncActivity>(renderer, mappedInput), nullptr);
       return;
     default:
       return;
@@ -226,8 +225,8 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   // The list must stop above the live preview band at the bottom: sized to the
   // usual content bottom it ran ten rows deep and the "Preview" caption plus
   // the status-bar mock landed on top of the last row.
-  const int previewTop = pageHeight - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -
-                         verticalPreviewTextPadding;
+  const int previewTop =
+      pageHeight - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding - verticalPreviewTextPadding;
   const int contentHeight = std::max(0, previewTop - metrics.verticalSpacing - contentTop);
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, visibleItemCount, static_cast<int>(selectedIndex),
@@ -265,8 +264,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
       true, nullptr,
       // Chevrons mark the two rows that open sub-screens instead of toggling.
       [](int index) {
-        return (index == ITEM_CLOCK_UTC_OFFSET || index == ITEM_CLOCK_SYNC) ? UIAccessory::Chevron
-                                                                            : UIAccessory::None;
+        return (index == ITEM_CLOCK_UTC_OFFSET || index == ITEM_CLOCK_SYNC) ? UIAccessory::Chevron : UIAccessory::None;
       });
 
   // Two of the rows open sub-screens rather than toggling — label the button

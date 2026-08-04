@@ -21,10 +21,13 @@
 // Minimum file size (in bytes) to show indexing popup - smaller chapters don't benefit from it
 constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
 constexpr size_t PARSE_BUFFER_SIZE = 1024;
-// A progress update is a physical e-ink refresh, not a cheap LCD repaint.
-// Reporting every 1% made a large chapter spend roughly 100 seconds refreshing
-// its progress bar instead of indexing.
-constexpr int PROGRESS_STEP_PERCENT = 10;
+// A progress update is a physical e-ink refresh, not a cheap LCD repaint. The
+// popup itself is already visible before parsing begins, so report at most
+// three intermediate milestones and only when parsing has lasted long enough
+// to justify another panel update. The finished reader frame replaces the
+// popup; a separate 100% refresh would only delay that frame.
+constexpr int PROGRESS_STEP_PERCENT = 25;
+constexpr unsigned long PROGRESS_MIN_INTERVAL_MS = 3000;
 
 // Hard cap on the number of anchor IDs recorded per chapter. Legitimate navigation
 // anchors (TOC entries, footnotes, cross-references) rarely exceed a few hundred per
@@ -217,7 +220,8 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   // If the pending anchor is a TOC chapter boundary, force a page break after the previous
   // block is flushed so the chapter starts on a fresh page.
   flushPendingAnchor();
-  currentTextBlock.reset(new (std::nothrow) ParsedText(extraParagraphSpacing, hyphenationEnabled, focusReadingEnabled, blockStyle));
+  currentTextBlock.reset(new (std::nothrow)
+                             ParsedText(extraParagraphSpacing, hyphenationEnabled, focusReadingEnabled, blockStyle));
   if (!currentTextBlock) {
     LOG_ERR("EHP", "Out of memory allocating text block");
   }
@@ -1320,9 +1324,7 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   const bool reportProgress = popupFn && chapterBytes >= MIN_SIZE_FOR_POPUP;
   size_t bytesParsed = 0;
   int lastReportedPercent = 0;
-  if (reportProgress) {
-    popupFn(0);
-  }
+  unsigned long lastProgressAt = millis();
 
   XML_SetUserData(parser, this);
   XML_SetElementHandler(parser, startElement, endElement);
@@ -1352,12 +1354,15 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
     if (reportProgress) {
       bytesParsed += len;
-      // Keep progress useful without making the panel refresh the dominant
-      // indexing cost. Always report completion even if the last jump is short.
+      // Keep progress useful without making the panel waveform the dominant
+      // indexing cost. Completion is represented by the final reader frame.
       const int percent = chapterBytes > 0 ? static_cast<int>((bytesParsed * 100) / chapterBytes) : 100;
       const int clampedPercent = percent > 100 ? 100 : percent;
-      if (clampedPercent == 100 || clampedPercent - lastReportedPercent >= PROGRESS_STEP_PERCENT) {
+      const unsigned long now = millis();
+      if (clampedPercent < 100 && clampedPercent - lastReportedPercent >= PROGRESS_STEP_PERCENT &&
+          now - lastProgressAt >= PROGRESS_MIN_INTERVAL_MS) {
         lastReportedPercent = clampedPercent;
+        lastProgressAt = now;
         popupFn(clampedPercent);
       }
     }

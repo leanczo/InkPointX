@@ -1,9 +1,9 @@
 #include "OpdsServerListActivity.h"
 
 #include <GfxRenderer.h>
+#include <I18n.h>
 
 #include <algorithm>
-#include <I18n.h>
 
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -70,7 +70,7 @@ void OpdsServerListActivity::handleSelection() {
     if (selectedIndex < serverCount) {
       const auto* server = OPDS_STORE.getServer(static_cast<size_t>(selectedIndex));
       if (server) {
-        activityManager.replaceActivity(std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, *server));
+        activityManager.replaceActivity(makeUniqueNoThrow<OpdsBookBrowserActivity>(renderer, mappedInput, *server));
       }
     }
     return;
@@ -84,9 +84,10 @@ void OpdsServerListActivity::handleSelection() {
   };
 
   if (selectedIndex < serverCount) {
-    startActivityForResult(std::make_unique<OpdsSettingsActivity>(renderer, mappedInput, selectedIndex), resultHandler);
+    startActivityForResult(makeUniqueNoThrow<OpdsSettingsActivity>(renderer, mappedInput, selectedIndex),
+                           resultHandler);
   } else {
-    startActivityForResult(std::make_unique<OpdsSettingsActivity>(renderer, mappedInput, -1), resultHandler);
+    startActivityForResult(makeUniqueNoThrow<OpdsSettingsActivity>(renderer, mappedInput, -1), resultHandler);
   }
 }
 

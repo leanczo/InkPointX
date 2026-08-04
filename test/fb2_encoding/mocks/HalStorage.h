@@ -1,8 +1,9 @@
 #pragma once
 
+#include <fcntl.h>
+
 #include <cstdint>
 #include <filesystem>
-#include <fcntl.h>
 #include <fstream>
 #include <string>
 

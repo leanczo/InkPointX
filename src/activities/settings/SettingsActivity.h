@@ -30,6 +30,7 @@ enum class SettingAction {
   BrowseOPDS,
   DeviceInfo,
   ResetSettings,
+  Dictionary,
 };
 
 struct SettingInfo {

@@ -104,7 +104,7 @@ void GalleryActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !images.empty()) {
     startActivityForResult(
-        std::make_unique<BmpViewerActivity>(renderer, mappedInput, images[selectedIndex], true, false),
+        makeUniqueNoThrow<BmpViewerActivity>(renderer, mappedInput, images[selectedIndex], true, false),
         [this](const ActivityResult&) { requestUpdate(true); });
     return;
   }
@@ -121,8 +121,7 @@ void GalleryActivity::render(RenderLock&&) {
 
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_GALLERY));
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight =
-      std::max(0, UITheme::getListContentBottom(renderer, !images.empty()) - contentTop);
+  const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, !images.empty()) - contentTop);
 
   if (images.empty()) {
     GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight}, tr(STR_NO_IMAGES), nullptr,

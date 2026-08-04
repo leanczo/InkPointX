@@ -5,11 +5,11 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <esp_task_wdt.h>
 
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <esp_task_wdt.h>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -18,13 +18,13 @@
 #include "FileInfoActivity.h"
 #include "FolderPickerActivity.h"
 #include "MappedInputManager.h"
-#include "util/HoldGestures.h"
 #include "activities/util/BmpViewerActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/HoldGestures.h"
 
 namespace {
 constexpr unsigned long GO_HOME_MS = HoldGestures::LONG_MS;
@@ -445,7 +445,7 @@ void FileBrowserActivity::createFolder() {
     selectorIndex = findEntry(keyboardResult->text + "/");
     showOperationMessage(tr(STR_FOLDER_CREATED));
   };
-  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_FOLDER_NAME), "", 96),
+  startActivityForResult(makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_FOLDER_NAME), "", 96),
                          handler);
 }
 
@@ -478,7 +478,7 @@ void FileBrowserActivity::renameEntry(const std::string& fullPath) {
     selectorIndex = findEntry(keyboardResult->text + (directory ? "/" : ""));
     showOperationMessage(tr(STR_DONE));
   };
-  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_RENAME), oldName, 96),
+  startActivityForResult(makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_RENAME), oldName, 96),
                          handler);
 }
 
@@ -500,7 +500,8 @@ void FileBrowserActivity::deleteEntry(const std::string& fullPath, const std::st
     showOperationMessage(tr(STR_DONE));
   };
   startActivityForResult(
-      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE) + std::string("?"), entry), handler);
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE) + std::string("?"), entry),
+      handler);
 }
 
 void FileBrowserActivity::chooseDestination(const std::string& fullPath, const bool move) {
@@ -518,7 +519,7 @@ void FileBrowserActivity::chooseDestination(const std::string& fullPath, const b
       showOperationMessage(move ? tr(STR_MOVE_FAILED) : tr(STR_COPY_FAILED));
     }
   };
-  startActivityForResult(std::make_unique<FolderPickerActivity>(renderer, mappedInput, basepath), handler);
+  startActivityForResult(makeUniqueNoThrow<FolderPickerActivity>(renderer, mappedInput, basepath), handler);
 }
 
 void FileBrowserActivity::openEntry(const std::string& fullPath, const bool isDirectory) {
@@ -532,7 +533,7 @@ void FileBrowserActivity::openEntry(const std::string& fullPath, const bool isDi
 
   if (FsHelpers::hasBmpExtension(fullPath) || FsHelpers::hasJpgExtension(fullPath) ||
       FsHelpers::hasPngExtension(fullPath)) {
-    startActivityForResult(std::make_unique<BmpViewerActivity>(renderer, mappedInput, fullPath, true),
+    startActivityForResult(makeUniqueNoThrow<BmpViewerActivity>(renderer, mappedInput, fullPath, true),
                            [this](const ActivityResult&) { requestUpdate(true); });
     return;
   }
@@ -547,7 +548,7 @@ void FileBrowserActivity::openEntry(const std::string& fullPath, const bool isDi
   auto file = Storage.open(fullPath.c_str());
   const uint64_t size = file ? file.fileSize64() : 0;
   if (file) file.close();
-  startActivityForResult(std::make_unique<FileInfoActivity>(renderer, mappedInput, fullPath, false, size),
+  startActivityForResult(makeUniqueNoThrow<FileInfoActivity>(renderer, mappedInput, fullPath, false, size),
                          [this](const ActivityResult&) { requestUpdate(true); });
 }
 
@@ -583,13 +584,13 @@ void FileBrowserActivity::showActions(const std::string& entry) {
         auto file = Storage.open(fullPath.c_str());
         const uint64_t size = file && !isDirectory ? file.fileSize64() : 0;
         if (file) file.close();
-        startActivityForResult(std::make_unique<FileInfoActivity>(renderer, mappedInput, fullPath, isDirectory, size),
+        startActivityForResult(makeUniqueNoThrow<FileInfoActivity>(renderer, mappedInput, fullPath, isDirectory, size),
                                [this](const ActivityResult&) { requestUpdate(true); });
         break;
       }
     }
   };
-  startActivityForResult(std::make_unique<FileActionsActivity>(renderer, mappedInput, cleanEntry), handler);
+  startActivityForResult(makeUniqueNoThrow<FileActionsActivity>(renderer, mappedInput, cleanEntry), handler);
 }
 
 void FileBrowserActivity::loop() {
@@ -786,9 +787,9 @@ void FileBrowserActivity::render(RenderLock&&) {
     }
     // The path is a filesystem string with no inherent direction, so it follows the
     // interface language rather than its own first character.
-    const int pathX = I18N.isRtl() ? pageWidth - metrics.contentSidePadding -
-                                         renderer.getTextWidth(SMALL_FONT_ID, pathDisplay)
-                                   : metrics.contentSidePadding;
+    const int pathX = I18N.isRtl()
+                          ? pageWidth - metrics.contentSidePadding - renderer.getTextWidth(SMALL_FONT_ID, pathDisplay)
+                          : metrics.contentSidePadding;
     renderer.drawText(SMALL_FONT_ID, pathX, pathY, pathDisplay);
   }
 

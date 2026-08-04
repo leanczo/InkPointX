@@ -37,6 +37,10 @@ void begin();
 // the write rate is bounded by how fast a person can navigate.
 void noteScreen(const char* screen);
 
+// Flushes a pending screen breadcrumb outside the latency-sensitive activity
+// transition. Call from the main loop; writes are coalesced.
+void tick();
+
 // The power-down that follows was asked for. Call immediately before deep
 // sleep or a restart.
 void markCleanShutdown(Shutdown reason);

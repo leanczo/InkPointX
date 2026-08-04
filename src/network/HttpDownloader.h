@@ -3,6 +3,18 @@
 
 #include <functional>
 #include <string>
+#include <vector>
+
+// Shared transactional replacement used by every network writer. The payload
+// is written to a hidden sibling first; an existing destination is parked and
+// restored if the final rename fails.
+namespace NetworkFileTransaction {
+bool prepare(const String& finalPath, const char* tempSuffix, const char* logTag, String& tempPath);
+bool commit(const String& finalPath, const String& tempPath, const char* logTag);
+bool parkDestination(const String& finalPath, const char* logTag, String& backupPath, bool& existed);
+void finishParkedDestination(const String& finalPath, const String& backupPath, bool existed, bool commitSucceeded,
+                             const char* logTag);
+}  // namespace NetworkFileTransaction
 
 /**
  * HTTP client utility for fetching content and downloading files. Built on
@@ -39,9 +51,18 @@ class HttpDownloader {
                        const std::string& password = "");
 
   /**
+   * Resolve the first redirect for a batch of download URLs over one reusable
+   * connection. Intended for multi-file release downloads: it amortizes the
+   * expensive origin TLS handshake while leaving each payload transactional.
+   * Returns false without modifying outUrls when batching is unavailable.
+   */
+  static bool resolveFirstRedirects(const std::vector<std::string>& urls, std::vector<std::string>& outUrls);
+
+  /**
    * Download a file to the SD card with optional credentials.
    */
   static DownloadError downloadToFile(const std::string& url, const std::string& destPath,
                                       ProgressCallback progress = nullptr, bool* cancelFlag = nullptr,
-                                      const std::string& username = "", const std::string& password = "");
+                                      const std::string& username = "", const std::string& password = "",
+                                      uint32_t* outCrc32 = nullptr);
 };

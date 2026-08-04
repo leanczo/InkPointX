@@ -5,13 +5,13 @@
 #include <Logging.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <esp_task_wdt.h>
 #include <mbedtls/sha256.h>
 #include <spi_flash_mmap.h>
 
 #include <algorithm>
 #include <cstring>
 #include <memory>
-#include <esp_task_wdt.h>
 
 #include "OtaBootSwitch.h"
 
@@ -59,6 +59,10 @@ const char* resultName(Result r) {
       return "ERASE_FAIL";
     case Result::WRITE_FAIL:
       return "WRITE_FAIL";
+    case Result::VERIFY_READ_FAIL:
+      return "VERIFY_READ_FAIL";
+    case Result::VERIFY_MISMATCH:
+      return "VERIFY_MISMATCH";
     case Result::OTADATA_FAIL:
       return "OTADATA_FAIL";
   }
@@ -237,16 +241,15 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
     return Result::NO_PARTITION;
   }
 
-  // When the caller already ran validateImageFile() against this same partition
-  // size (e.g. SdFirmwareUpdateActivity validates before the confirmation
-  // prompt), skip the redundant integrity scan. We still keep the partition
-  // lookup so the rest of the flashing path stays unchanged.
-  if (!alreadyValidated) {
-    const Result validateRes = validateImageFile(sdPath, dest->size);
-    if (validateRes != Result::OK) {
-      LOG_ERR("FLASH", "image validation failed: %s", resultName(validateRes));
-      return validateRes;
-    }
+  // A confirmation screen may have validated the file minutes ago. Removable
+  // storage can change after that, so always perform the final structural and
+  // cryptographic pass immediately before erasing the destination.  Keep the
+  // parameter for source compatibility with older callers.
+  (void)alreadyValidated;
+  const Result validateRes = validateImageFile(sdPath, dest->size);
+  if (validateRes != Result::OK) {
+    LOG_ERR("FLASH", "image validation failed: %s", resultName(validateRes));
+    return validateRes;
   }
 
   HalFile file;
@@ -266,6 +269,15 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
     return Result::OOM;
   }
 
+  // Hash the exact source bytes used for the write.  validateImageFile()
+  // proves that the image is structurally valid, while this second digest
+  // proves that the destination contains those same bytes before otadata is
+  // changed.  It also closes the window where a removable SD file changes
+  // between validation and flashing.
+  mbedtls_sha256_context sourceSha;
+  mbedtls_sha256_init(&sourceSha);
+  mbedtls_sha256_starts(&sourceSha, /*is224=*/0);
+
   // Interleave erase + write so the progress bar advances 0→100% smoothly
   // rather than stalling for several seconds during a single up-front erase.
   size_t streamPos = 0;
@@ -280,6 +292,7 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
         LOG_ERR("FLASH", "erase @%u (len=%u) failed", static_cast<unsigned>(streamPos),
                 static_cast<unsigned>(eraseLen));
         file.close();
+        mbedtls_sha256_free(&sourceSha);
         return Result::ERASE_FAIL;
       }
       erasedUpto = streamPos + eraseLen;
@@ -290,11 +303,14 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
     if (read <= 0 || static_cast<size_t>(read) != want) {
       LOG_ERR("FLASH", "read @%u: got=%d want=%u", static_cast<unsigned>(streamPos), read, static_cast<unsigned>(want));
       file.close();
+      mbedtls_sha256_free(&sourceSha);
       return Result::READ_FAIL;
     }
+    mbedtls_sha256_update(&sourceSha, buffer.get(), want);
     if (esp_partition_write(dest, streamPos, buffer.get(), want) != ESP_OK) {
       LOG_ERR("FLASH", "write @%u failed", static_cast<unsigned>(streamPos));
       file.close();
+      mbedtls_sha256_free(&sourceSha);
       return Result::WRITE_FAIL;
     }
     streamPos += want;
@@ -302,6 +318,35 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
     delay(1);
   }
   file.close();
+
+  uint8_t expectedDigest[SHA_TRAILER];
+  mbedtls_sha256_finish(&sourceSha, expectedDigest);
+  mbedtls_sha256_free(&sourceSha);
+
+  mbedtls_sha256_context destinationSha;
+  mbedtls_sha256_init(&destinationSha);
+  mbedtls_sha256_starts(&destinationSha, /*is224=*/0);
+  size_t verifyPos = 0;
+  while (verifyPos < firmwareSize) {
+    esp_task_wdt_reset();
+    const size_t want = std::min<size_t>(CHUNK, firmwareSize - verifyPos);
+    if (esp_partition_read(dest, verifyPos, buffer.get(), want) != ESP_OK) {
+      LOG_ERR("FLASH", "read-back @%u failed", static_cast<unsigned>(verifyPos));
+      mbedtls_sha256_free(&destinationSha);
+      return Result::VERIFY_READ_FAIL;
+    }
+    mbedtls_sha256_update(&destinationSha, buffer.get(), want);
+    verifyPos += want;
+    delay(0);
+  }
+  uint8_t actualDigest[SHA_TRAILER];
+  mbedtls_sha256_finish(&destinationSha, actualDigest);
+  mbedtls_sha256_free(&destinationSha);
+  if (std::memcmp(expectedDigest, actualDigest, sizeof(expectedDigest)) != 0) {
+    LOG_ERR("FLASH", "destination SHA-256 mismatch; refusing otadata switch");
+    return Result::VERIFY_MISMATCH;
+  }
+  LOG_INF("FLASH", "destination read-back SHA-256 verified");
 
   if (!ota_boot::switchTo(dest)) {
     LOG_ERR("FLASH", "otadata switch failed");

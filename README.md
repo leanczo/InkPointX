@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-000000">
+  <img alt="Version 2.2.1" src="https://img.shields.io/badge/version-2.2.1-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -22,7 +22,8 @@
 > [!IMPORTANT]
 > The `dev` branch contains the current development firmware. For a prebuilt, user-facing binary, use the
 > [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically want to test development
-> changes. Devices already running 1.x can update over the air from **Settings → System → Check for updates**.
+> changes. Devices already running InkPoint X can update over the air from
+> **Settings → System → Check for updates**.
 
 ## Overview
 
@@ -33,6 +34,35 @@ strategy adapt at boot to the X3's 528 × 792 or X4's 480 × 800 monochrome pane
 The project is based on [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) and keeps its
 open architecture while adding an independent InkPoint X product layer, expanded document support, a redesigned
 interface, and controller-specific display tuning.
+
+## What's new in 2.2
+
+- **Safer, cleaner web pairing in 2.2.1.** Long pairing URLs no longer run outside the X3/X4 display: the full
+  credential stays in the QR payload while the address and bounded pairing code use separate lines. Web-interface
+  authorization now has an enabled-by-default switch under **Settings → Network & Sync** and consistently controls
+  HTTP, WebSocket uploads, and WebDAV.
+- **Reading statistics.** Library now includes an e-ink-native statistics hub with an overview, the last 7 days,
+  the last 8 weeks, per-book details, reading-time habits, sessions, streaks, completed books, and up to 730 days
+  of compact history. EPUB, FB2, PDF, XTC, TXT, and Markdown reading all contribute to the same totals.
+- **Clearer library and reader navigation.** Book rows keep secondary information quiet: the author uses a smaller
+  face, non-zero progress follows it after a middle dot, and an unopened book gets a compact `NEW` mark inside the
+  existing book icon. The in-reader menu is one vertical list with section dividers and an icon for every action;
+  chapter and menu position share one compact footer line.
+- **StarDict dictionaries in EPUB.** Select a word on the page and look it up without leaving the reader. Uncompressed
+  `.ifo`, `.idx`, and `.dict` sets are discovered from `/dictionaries/<name>/`, indexed with bounded RAM, and selected
+  under **Settings → Reading → Dictionary**.
+- **On-device font catalog.** Reader and interface font families can be downloaded, updated, selected, and removed
+  directly from Settings. Downloads are transactional, CRC-verified, show real e-ink-friendly progress, and reuse the
+  GitHub TLS session; a measured four-file family now installs in about 60 seconds instead of 100 on X4.
+- **Broader fixed-layout PDF support.** Large vector scores and diagram-heavy pages use bounded rasterization and
+  geometry-aware caches on both X3 and X4 instead of aborting under ESP32-C3 memory pressure.
+- **Faster interaction.** Navigation edges are queued and coalesced while the panel is busy, automatic menu CLEAN
+  flashes are removed, and the normal UI stays on the controller's fast differential path.
+- **Production hardening.** Network downloads and OTA writes are staged atomically, retries always restart from a
+  clean file, caches carry source fingerprints and integrity records, and destructive dialogs require a distinct
+  confirmation click.
+- **Lower idle and reading cost.** Indexing, metadata caching, page layout, SD access, glyph reuse, battery polling,
+  and power-state transitions were audited together so background work no longer competes with input or reading.
 
 ## What's new in 2.1
 
@@ -107,8 +137,8 @@ The full element-by-element findings and decisions are recorded in [design-qa.md
 
 The home screen is organized into three horizontal pages:
 
-1. **Now Reading** — the largest safe cover, title, author, a single progress band, and a primary continue action.
-2. **Library** — Books, Files, Gallery, Favorites, plus a dedicated Transfer subsection.
+1. **Now Reading** — the largest safe cover, title, smaller author line, and a single compact progress band.
+2. **Library** — Books, Files, Gallery, Favorites, Reading Stats, plus a dedicated Transfer subsection.
 3. **Settings** — focused submenus for interface, power, reading, controls, files, network, and system options.
 
 Selection uses a subtle rounded gray surface instead of a heavy inverted bar. Compact legends at the bottom mirror
@@ -140,9 +170,14 @@ The detailed interface specification is available in [docs/inkpoint-x-ui.md](doc
 - a Books view restricted to **EPUB**, **FB2**, and **PDF**;
 - sorting by title, author, format, and recent activity;
 - Favorites stored separately from the book files;
-- reading progress, bookmarks, table of contents, book information, and statistics;
+- compact book rows with a smaller author line, non-zero reading progress, and an in-icon `NEW` marker for unopened books;
+- reading progress, bookmarks, table of contents, book information, and per-book statistics;
+- global reading statistics with overview metrics, 7-day and 8-week charts, book breakdowns, habits, sessions,
+  streaks, completed-book counts, and a rolling 730-day history;
 - configurable font, size, line spacing, margins, alignment, hyphenation, orientation, and inversion;
 - automatic page turning, screenshots, QR display, OPDS, and KOReader Sync;
+- low-memory **StarDict** lookup for EPUB, with dictionary selection in Reading settings;
+- a vertically grouped in-reader menu with section labels, action icons, and a single compact chapter/position footer;
 - an on-device gesture reference, so the reader's hold gestures are discoverable;
 - support for **XTC**, **TXT**, and **Markdown** when opened from Files, with CP1251/KOI8-R/CP1252/ISO-8859-5/CP866
   detection for legacy single-byte text.
@@ -171,7 +206,7 @@ Files is a full on-device file manager, not a second book list:
 - receive books wirelessly from Calibre;
 - create a local access point;
 - upload, download, rename, move, and delete files through the web interface;
-- WebDAV access;
+- pairing-protected web and WebDAV access, with an enabled-by-default authorization switch under Network & Sync;
 - OPDS catalog browsing, with cancellable downloads;
 - over-the-air updates with rollback protection.
 
@@ -229,8 +264,9 @@ keeps its proportions; slots the family cannot cover stay on the built-in face. 
 12 pt, which covers everything except the smallest captions.
 
 Reader fonts are independent from the UI font. Optimized `.cpfont` families can be installed in `/.fonts/` or
-`/fonts/` on microSD or uploaded from the web font manager. The reader font pipeline includes a Noto Serif family
-for Latin/Cyrillic/Vietnamese with Noto Naskh Arabic fallback. See
+`/fonts/` on microSD, downloaded through **Settings → System → Manage Fonts**, or uploaded from the web font manager.
+The device catalog supports install, update, progress, checksum validation, and confirmed removal. The reader font
+pipeline includes a Noto Serif family for Latin/Cyrillic/Vietnamese with Noto Naskh Arabic fallback. See
 [docs/sd-card-fonts.md](docs/sd-card-fonts.md).
 
 ## E-ink behavior
@@ -387,8 +423,9 @@ partitions.csv               16 MB flash partition layout
 ```
 
 The `freeink-sdk` submodule points to
-[`Free-Ink/freeink-sdk`](https://github.com/Free-Ink/freeink-sdk), which provides the runtime X3/X4 board profiles,
-panel drivers, input, sensors, storage and power management used by this firmware.
+[`yokki-vans/community-sdk`](https://github.com/yokki-vans/community-sdk/tree/inkpointx-v2.2), the InkPoint X hardware
+branch based on FreeInk SDK. It provides the runtime X3/X4 board profiles, panel drivers, input, sensors, storage,
+TLS transport, and power management used by this firmware.
 
 ## Data and storage
 

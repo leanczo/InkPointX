@@ -2,10 +2,9 @@
 
 #include <ArduinoJson.h>
 #include <Logging.h>
+#include <WiFi.h>
 #include <esp_crt_bundle.h>
 #include <esp_http_client.h>
-
-#include <WiFi.h>
 
 #include <ctime>
 #include <string>

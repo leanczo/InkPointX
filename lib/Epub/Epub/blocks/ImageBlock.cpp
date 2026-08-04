@@ -5,6 +5,8 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <new>
+
 #include "Epub/converters/DirectPixelWriter.h"
 #include "Epub/converters/ImageDecoderFactory.h"
 
@@ -210,9 +212,9 @@ bool ImageBlock::serialize(HalFile& file) {
 
 std::unique_ptr<ImageBlock> ImageBlock::deserialize(HalFile& file) {
   std::string path;
-  serialization::readString(file, path);
-  int16_t w, h;
-  serialization::readPod(file, w);
-  serialization::readPod(file, h);
-  return std::unique_ptr<ImageBlock>(new ImageBlock(path, w, h));
+  int16_t w = 0, h = 0;
+  if (!serialization::readString(file, path) || path.empty() || !serialization::readPod(file, w) ||
+      !serialization::readPod(file, h) || w <= 0 || h <= 0 || w > 2048 || h > 2048)
+    return nullptr;
+  return std::unique_ptr<ImageBlock>(new (std::nothrow) ImageBlock(path, w, h));
 }

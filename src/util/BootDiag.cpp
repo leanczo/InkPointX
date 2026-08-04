@@ -30,6 +30,9 @@ struct Marker {
 };
 
 Marker current{MARKER_MAGIC, 0, static_cast<uint8_t>(BootDiag::Shutdown::Unexpected), 0, "boot"};
+bool markerDirty = false;
+unsigned long lastMarkerWriteAt = 0;
+constexpr unsigned long MARKER_FLUSH_INTERVAL_MS = 2000;
 
 const char* resetReasonName() {
   switch (esp_reset_reason()) {
@@ -83,12 +86,20 @@ const char* shutdownName(uint8_t reason) {
 }
 
 void writeMarker() {
+  markerDirty = true;
   if (!Storage.ready()) return;
   HalFile file;
   if (!Storage.openFileForWrite("DIAG", MARKER_PATH, file)) return;
-  file.write(&current, sizeof(current));
+  const size_t written = file.write(&current, sizeof(current));
   file.flush();
   file.close();
+  if (written != sizeof(current)) {
+    LOG_ERR("DIAG", "Short marker write: %u/%u", static_cast<unsigned>(written),
+            static_cast<unsigned>(sizeof(current)));
+    return;
+  }
+  markerDirty = false;
+  lastMarkerWriteAt = millis();
 }
 
 void appendLogLine(const char* line) {
@@ -128,8 +139,7 @@ void BootDiag::begin() {
   // already reads ESP_RST_UNKNOWN as "came back from a flash" (see
   // HalGPIO::getWakeupReason).
   const esp_reset_reason_t resetCode = esp_reset_reason();
-  const bool afterFlash =
-      resetCode == ESP_RST_UNKNOWN || resetCode == ESP_RST_USB || resetCode == ESP_RST_JTAG;
+  const bool afterFlash = resetCode == ESP_RST_UNKNOWN || resetCode == ESP_RST_USB || resetCode == ESP_RST_JTAG;
   char line[192];
   if (afterFlash && havePrevious) {
     snprintf(line, sizeof(line), "boot: after a firmware flash (previous session was on %s at %us)", previous.screen,
@@ -164,7 +174,11 @@ void BootDiag::noteScreen(const char* screen) {
   current.shutdown = static_cast<uint8_t>(Shutdown::Unexpected);
   strncpy(current.screen, screen, sizeof(current.screen) - 1);
   current.screen[sizeof(current.screen) - 1] = '\0';
-  writeMarker();
+  markerDirty = true;
+}
+
+void BootDiag::tick() {
+  if (markerDirty && millis() - lastMarkerWriteAt >= MARKER_FLUSH_INTERVAL_MS) writeMarker();
 }
 
 void BootDiag::markCleanShutdown(const Shutdown reason) {

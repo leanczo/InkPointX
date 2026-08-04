@@ -31,6 +31,7 @@ class Fb2 {
   std::string language = "und";
   std::string coverImageId;
   uint64_t sourceSize = 0;
+  uint64_t sourceFingerprint = 0;
   bool loaded = false;
 
   XML_Parser parser = nullptr;

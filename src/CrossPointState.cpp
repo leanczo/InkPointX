@@ -72,31 +72,32 @@ bool CrossPointState::loadFromBinaryFile() {
     return false;
   }
 
-  uint8_t version;
-  serialization::readPod(inputFile, version);
-  if (version > STATE_FILE_VERSION) {
+  uint8_t version = 0;
+  if (!serialization::readPod(inputFile, version) || version == 0 || version > STATE_FILE_VERSION) {
     LOG_ERR("CPS", "Deserialization failed: Unknown version %u", version);
     return false;
   }
 
-  serialization::readString(inputFile, openEpubPath);
+  std::string loadedPath;
+  if (!serialization::readString(inputFile, loadedPath)) return false;
   if (version >= 2) {
     uint8_t legacyLastSleep = UINT8_MAX;
-    serialization::readPod(inputFile, legacyLastSleep);
+    if (!serialization::readPod(inputFile, legacyLastSleep)) return false;
     if (legacyLastSleep != UINT8_MAX) {
       pushRecentSleep(static_cast<uint16_t>(legacyLastSleep));
     }
   }
 
   if (version >= 3) {
-    serialization::readPod(inputFile, readerActivityLoadCount);
+    if (!serialization::readPod(inputFile, readerActivityLoadCount)) return false;
   }
 
   if (version >= 4) {
-    serialization::readPod(inputFile, lastSleepFromReader);
+    if (!serialization::readPod(inputFile, lastSleepFromReader)) return false;
   } else {
     lastSleepFromReader = false;
   }
 
+  openEpubPath = std::move(loadedPath);
   return true;
 }

@@ -1,5 +1,6 @@
 #include "Fb2.h"
 
+#include <CacheIntegrity.h>
 #include <Logging.h>
 
 #include <algorithm>
@@ -15,7 +16,7 @@ constexpr size_t XML_CHUNK_SIZE = 4096;
 // sometimes put an entire novel in one <section>; split such content at safe
 // paragraph boundaries so opening a chapter remains fast on ESP32-C3.
 constexpr size_t MAX_CHAPTER_TEXT_BYTES = 48 * 1024;
-constexpr uint8_t PACKAGE_VERSION = 3;
+constexpr uint8_t PACKAGE_VERSION = 4;  // v4: source fingerprint detects same-size replacements
 constexpr char METADATA_FILE[] = "/fb2_metadata.txt";
 constexpr char PACKAGE_STATE_FILE[] = "/fb2_package.bin";
 constexpr char TOC_RECORDS_FILE[] = "/.fb2_toc.bin";
@@ -192,11 +193,14 @@ bool Fb2::cacheIsCurrent() {
 
   uint8_t version = 0;
   uint64_t cachedSize = 0;
+  uint64_t cachedFingerprint = 0;
   uint16_t cachedChapters = 0;
   const bool valid = state.read(&version, sizeof(version)) == sizeof(version) &&
                      state.read(&cachedSize, sizeof(cachedSize)) == sizeof(cachedSize) &&
+                     state.read(&cachedFingerprint, sizeof(cachedFingerprint)) == sizeof(cachedFingerprint) &&
                      state.read(&cachedChapters, sizeof(cachedChapters)) == sizeof(cachedChapters) &&
-                     version == PACKAGE_VERSION && cachedSize == sourceSize && cachedChapters > 0;
+                     version == PACKAGE_VERSION && cachedSize == sourceSize && cachedFingerprint == sourceFingerprint &&
+                     cachedChapters > 0;
   state.close();
   if (valid) chapterCount = cachedChapters;
   return valid;
@@ -238,6 +242,7 @@ void Fb2::saveCacheSignature() const {
   const uint16_t chapters = static_cast<uint16_t>(std::min(chapterCount, static_cast<int>(UINT16_MAX)));
   state.write(&version, sizeof(version));
   state.write(&sourceSize, sizeof(sourceSize));
+  state.write(&sourceFingerprint, sizeof(sourceFingerprint));
   state.write(&chapters, sizeof(chapters));
   state.close();
 }
@@ -249,10 +254,10 @@ bool Fb2::load() {
     return false;
   }
 
-  HalFile source;
-  if (!Storage.openFileForRead("FB2", filepath, source)) return false;
-  sourceSize = source.fileSize64();
-  source.close();
+  cache_integrity::SourceFingerprint fingerprint;
+  if (!cache_integrity::fingerprintFile(filepath, fingerprint)) return false;
+  sourceSize = fingerprint.size;
+  sourceFingerprint = fingerprint.sampleHash;
 
   if (cacheIsCurrent() && loadMetadataCache()) {
     loaded = true;
@@ -612,8 +617,7 @@ void XMLCALL Fb2::startElement(void* userData, const XML_Char* name, const XML_C
         ImageInfo image;
         image.id = idValue;
         image.mediaType = mediaType;
-        image.filename = "image_" + std::to_string(self->images.size()) +
-                         (mediaType == "image/png" ? ".png" : ".jpg");
+        image.filename = "image_" + std::to_string(self->images.size()) + (mediaType == "image/png" ? ".png" : ".jpg");
         self->images.push_back(std::move(image));
       }
       return;
@@ -643,8 +647,8 @@ void XMLCALL Fb2::startElement(void* userData, const XML_Char* name, const XML_C
       return;
     }
 
-    const bool directParagraph = strcmp(tag, "p") == 0 &&
-                                 ((self->sectionLevel == 1 && self->depth == self->bodyDepth + 2) ||
+    const bool directParagraph =
+        strcmp(tag, "p") == 0 && ((self->sectionLevel == 1 && self->depth == self->bodyDepth + 2) ||
                                   (self->sectionLevel == 0 && self->depth == self->bodyDepth + 1));
     if (directParagraph && self->currentChapter >= 0 && self->chapterTextBytes >= MAX_CHAPTER_TEXT_BYTES) {
       self->currentChapter = self->chapterCount++;
@@ -653,9 +657,8 @@ void XMLCALL Fb2::startElement(void* userData, const XML_Char* name, const XML_C
 
     const char* id = getAttribute(atts, "id");
     const bool startsContent = strcmp(tag, "title") == 0 || strcmp(tag, "p") == 0 || strcmp(tag, "subtitle") == 0 ||
-                               strcmp(tag, "poem") == 0 || strcmp(tag, "cite") == 0 ||
-                               strcmp(tag, "epigraph") == 0 || strcmp(tag, "image") == 0 ||
-                               strcmp(tag, "empty-line") == 0 || id != nullptr;
+                               strcmp(tag, "poem") == 0 || strcmp(tag, "cite") == 0 || strcmp(tag, "epigraph") == 0 ||
+                               strcmp(tag, "image") == 0 || strcmp(tag, "empty-line") == 0 || id != nullptr;
     if (startsContent) self->ensureScanChapter();
     if (id && id[0]) self->recordAnchor(id, static_cast<uint16_t>(self->ensureScanChapter()));
 
@@ -665,8 +668,8 @@ void XMLCALL Fb2::startElement(void* userData, const XML_Char* name, const XML_C
       self->tocTitle.clear();
       self->tocLevel = static_cast<uint8_t>(std::clamp(self->sectionLevel, 1, 255));
       self->tocChapter = static_cast<uint16_t>(self->ensureScanChapter());
-      self->tocAnchor = self->sectionAnchors.empty() ? automaticAnchor("title", self->titleSerial)
-                                                     : self->sectionAnchors.back();
+      self->tocAnchor =
+          self->sectionAnchors.empty() ? automaticAnchor("title", self->titleSerial) : self->sectionAnchors.back();
     }
     return;
   }
@@ -703,8 +706,8 @@ void XMLCALL Fb2::startElement(void* userData, const XML_Char* name, const XML_C
     return;
   }
 
-  const bool directParagraph = strcmp(tag, "p") == 0 &&
-                               ((self->sectionLevel == 1 && self->depth == self->bodyDepth + 2) ||
+  const bool directParagraph =
+      strcmp(tag, "p") == 0 && ((self->sectionLevel == 1 && self->depth == self->bodyDepth + 2) ||
                                 (self->sectionLevel == 0 && self->depth == self->bodyDepth + 1));
   if (directParagraph && self->chapterOpen && self->chapterTextBytes >= MAX_CHAPTER_TEXT_BYTES) {
     if (self->sectionLevel == 1) self->writeLiteral("</section>");
@@ -785,9 +788,7 @@ void XMLCALL Fb2::startElement(void* userData, const XML_Char* name, const XML_C
         uint16_t targetChapter = 0;
         const std::string anchor = anchorName(hashString(targetId));
         if (self->findAnchorChapter(targetId, targetChapter)) {
-          resolved = targetChapter == self->currentChapter
-                         ? "#" + anchor
-                         : chapterLink(targetChapter) + "#" + anchor;
+          resolved = targetChapter == self->currentChapter ? "#" + anchor : chapterLink(targetChapter) + "#" + anchor;
         } else {
           resolved = "#" + anchor;
         }
@@ -797,9 +798,8 @@ void XMLCALL Fb2::startElement(void* userData, const XML_Char* name, const XML_C
       self->writeLiteral("\"");
     }
     self->writeLiteral(">");
-  } else if (strcmp(tag, "table") == 0 || strcmp(tag, "tr") == 0 || strcmp(tag, "td") == 0 ||
-             strcmp(tag, "th") == 0 || strcmp(tag, "ol") == 0 || strcmp(tag, "ul") == 0 ||
-             strcmp(tag, "li") == 0) {
+  } else if (strcmp(tag, "table") == 0 || strcmp(tag, "tr") == 0 || strcmp(tag, "td") == 0 || strcmp(tag, "th") == 0 ||
+             strcmp(tag, "ol") == 0 || strcmp(tag, "ul") == 0 || strcmp(tag, "li") == 0) {
     self->writeString(std::string("<") + tag);
     self->writeElementId(atts);
     self->writeLiteral(">");
@@ -884,8 +884,7 @@ void XMLCALL Fb2::endElement(void* userData, const XML_Char* name) {
     } else if (strcmp(tag, "a") == 0) {
       self->writeLiteral("</a>");
     } else if (strcmp(tag, "table") == 0 || strcmp(tag, "tr") == 0 || strcmp(tag, "td") == 0 ||
-               strcmp(tag, "th") == 0 || strcmp(tag, "ol") == 0 || strcmp(tag, "ul") == 0 ||
-               strcmp(tag, "li") == 0) {
+               strcmp(tag, "th") == 0 || strcmp(tag, "ol") == 0 || strcmp(tag, "ul") == 0 || strcmp(tag, "li") == 0) {
       self->writeString(std::string("</") + tag + ">");
     } else if (strcmp(tag, "section") == 0) {
       self->writeLiteral("</section>");
@@ -987,29 +986,29 @@ bool Fb2::writeContainerFile() const {
 }
 
 bool Fb2::writeStyleFile() const {
-  return writeStaticFile(
-      packagePath + "/OEBPS/style.css",
-      "body { text-align: justify; }\n"
-      "h1, h2, h3, h4, h5, h6 { text-align: center; font-weight: bold; margin: 1em 0 0.7em 0; }\n"
-      ".subtitle { text-align: center; font-style: italic; }\n"
-      "p { margin: 0.25em 0; }\n"
-      ".epigraph, .cite { margin: 0.7em 1.5em; font-style: italic; }\n"
-      ".poem { margin: 0.7em 1em; }\n"
-      ".v { text-indent: 0; text-align: left; margin: 0; }\n"
-      ".text-author { text-align: right; font-style: italic; text-indent: 0; }\n"
-      ".empty-line { margin: 0.6em 0; text-indent: 0; }\n"
-      ".annotation { font-style: italic; }\n"
-      ".strike { text-decoration: line-through; }\n"
-      ".code { font-family: monospace; }\n"
-      "img { display: block; margin: 0.5em auto; max-width: 100%; }\n");
+  return writeStaticFile(packagePath + "/OEBPS/style.css",
+                         "body { text-align: justify; }\n"
+                         "h1, h2, h3, h4, h5, h6 { text-align: center; font-weight: bold; margin: 1em 0 0.7em 0; }\n"
+                         ".subtitle { text-align: center; font-style: italic; }\n"
+                         "p { margin: 0.25em 0; }\n"
+                         ".epigraph, .cite { margin: 0.7em 1.5em; font-style: italic; }\n"
+                         ".poem { margin: 0.7em 1em; }\n"
+                         ".v { text-indent: 0; text-align: left; margin: 0; }\n"
+                         ".text-author { text-align: right; font-style: italic; text-indent: 0; }\n"
+                         ".empty-line { margin: 0.6em 0; text-indent: 0; }\n"
+                         ".annotation { font-style: italic; }\n"
+                         ".strike { text-decoration: line-through; }\n"
+                         ".code { font-family: monospace; }\n"
+                         "img { display: block; margin: 0.5em auto; max-width: 100%; }\n");
 }
 
 bool Fb2::writeOpfFile() const {
   HalFile file;
   if (!Storage.openFileForWrite("FB2", packagePath + "/OEBPS/content.opf", file)) return false;
-  writeBytes(file, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                   "<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"2.0\" unique-identifier=\"bookid\">"
-                   "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>");
+  writeBytes(file,
+             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+             "<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"2.0\" unique-identifier=\"bookid\">"
+             "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>");
   writeXmlEscaped(file, title);
   writeBytes(file, "</dc:title><dc:creator>");
   writeXmlEscaped(file, author);
@@ -1062,9 +1061,10 @@ bool Fb2::writeNcxFile() const {
     return false;
   }
 
-  writeBytes(file, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                   "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">"
-                   "<head><meta name=\"dtb:uid\" content=\"fb2\"/></head><docTitle><text>");
+  writeBytes(file,
+             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+             "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">"
+             "<head><meta name=\"dtb:uid\" content=\"fb2\"/></head><docTitle><text>");
   writeXmlEscaped(file, title);
   writeBytes(file, "</text></docTitle><navMap>\n");
 
@@ -1076,7 +1076,8 @@ bool Fb2::writeNcxFile() const {
   int playOrder = 1;
   bool any = false;
   while (input.available() > 0) {
-    if (input.read(&level, sizeof(level)) != sizeof(level) || input.read(&chapter, sizeof(chapter)) != sizeof(chapter) ||
+    if (input.read(&level, sizeof(level)) != sizeof(level) ||
+        input.read(&chapter, sizeof(chapter)) != sizeof(chapter) ||
         input.read(&anchor, sizeof(anchor)) != sizeof(anchor) ||
         input.read(&titleLength, sizeof(titleLength)) != sizeof(titleLength) || titleLength > 4096) {
       break;
@@ -1089,8 +1090,8 @@ bool Fb2::writeNcxFile() const {
       writeBytes(file, "</navPoint>\n");
       --openDepth;
     }
-    writeBytes(file, "<navPoint id=\"nav-" + std::to_string(playOrder) + "\" playOrder=\"" +
-                         std::to_string(playOrder) + "\"><navLabel><text>");
+    writeBytes(file, "<navPoint id=\"nav-" + std::to_string(playOrder) + "\" playOrder=\"" + std::to_string(playOrder) +
+                         "\"><navLabel><text>");
     writeXmlEscaped(file, entryTitle);
     writeBytes(file, "</text></navLabel><content src=\"");
     writeBytes(file, chapterHref(chapter));

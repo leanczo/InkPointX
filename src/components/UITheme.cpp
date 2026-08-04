@@ -27,7 +27,11 @@ void UITheme::reload() {
 void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   (void)type;
   LOG_DBG("UI", "Using InkPoint X theme");
-  currentTheme = std::make_unique<LyraTheme>();
+  // The only production theme is stateless. Keep it in static storage instead
+  // of allocating it during global initialization, where -fno-exceptions would
+  // turn an unlikely OOM into an unreportable abort before setup().
+  static LyraTheme lyraTheme;
+  currentTheme = &lyraTheme;
   currentMetrics = LyraMetrics::values;
   if (!SETTINGS.showButtonHints) {
     currentMetrics.buttonHintsHeight = 0;
@@ -35,8 +39,8 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   }
 }
 
-int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasSubHeader, bool hasButtonHints,
-                                     bool hasSubtitle, int extraReservedHeight) {
+int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasSubHeader,
+                                     bool hasButtonHints, bool hasSubtitle, int extraReservedHeight) {
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   auto orientation = renderer.getOrientation();
   int reservedHeight = metrics.topPadding;
@@ -106,7 +110,7 @@ std::string UITheme::getCoverThumbPath(std::string coverBmpPath, int coverHeight
 }
 
 UIIcon UITheme::getFileIcon(const std::string& filename) {
-  if (filename.back() == '/') {
+  if (!filename.empty() && filename.back() == '/') {
     return Folder;
   }
   if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
@@ -170,9 +174,8 @@ void UITheme::drawSystemBatteryOverlay(const GfxRenderer& renderer) const {
 void UITheme::clearSystemBatteryOverlay(const GfxRenderer& renderer) const {
   const int iconX = renderer.getScreenWidth() - currentMetrics.contentSidePadding - currentMetrics.batteryWidth;
   const int textY = currentMetrics.topPadding + 14;
-  const int groupWidth =
-      currentMetrics.batteryWidth + BaseTheme::batteryPercentSpacing +
-      renderer.getTextWidth(BaseTheme::batteryPercentFontId, "100%");
+  const int groupWidth = currentMetrics.batteryWidth + BaseTheme::batteryPercentSpacing +
+                         renderer.getTextWidth(BaseTheme::batteryPercentFontId, "100%");
   const int clearLeft = iconX - (groupWidth - currentMetrics.batteryWidth) - 3;
   const int clearHeight =
       std::max(renderer.getLineHeight(BaseTheme::batteryPercentFontId), currentMetrics.batteryHeight + 6) + 6;

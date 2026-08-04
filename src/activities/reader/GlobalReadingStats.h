@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdint>
 
+#include "ReadingHistoryTimeline.h"
 #include "ReadingStatsUtils.h"
 
 // Cumulative reading statistics across all books, persisted to
@@ -16,9 +17,14 @@ struct GlobalReadingStats {
   uint32_t readingHistoryAnchorDay = 0;
   std::array<uint8_t, READING_HISTORY_BYTES> readingHistoryBits{};
   uint16_t longestReadingStreak = 0;
+  // Reading seconds for the same rolling 730-day window as
+  // readingHistoryBits. Index 0 is readingHistoryAnchorDay, index 1 is the
+  // previous day, and so on. uint16_t is sufficient for a single day (up to
+  // 18 h 12 min) and keeps the complete two-year timeline at only 1460 bytes.
+  DailyReadingTimeline dailyReadingSeconds{};
 
-  static constexpr uint8_t CURRENT_FILE_VERSION = 3;
-  static constexpr size_t CURRENT_FILE_SIZE = 159;
+  static constexpr uint8_t CURRENT_FILE_VERSION = 4;
+  static constexpr size_t CURRENT_FILE_SIZE = 159 + READING_HISTORY_DAYS * sizeof(uint16_t);
   static constexpr size_t MIN_SUPPORTED_FILE_SIZE = 13;
 
   // Loads stats from /.crosspoint/global_stats.bin. Returns default-constructed
@@ -45,6 +51,8 @@ struct GlobalReadingStats {
   static bool resetLocal();
 
   void recordReadingSpan(const ReadingStatsDateTime& localStart, uint32_t seconds);
+  uint32_t readingSecondsForDay(const ReadingStatsDate& date) const;
+  uint32_t readingSecondsForDaysEnding(const ReadingStatsDate& endDate, uint16_t dayCount) const;
   uint16_t currentReadingStreak(const ReadingStatsDate* today) const;
   uint16_t displayLongestReadingStreak() const;
 };

@@ -20,8 +20,7 @@ class EInkRefreshPolicy {
       effective = Mode::Full;
     } else if (requested == Mode::Fast &&
                (cleanRequested_ ||
-                (automaticCleanupEnabled_ &&
-                 consecutiveFastRefreshes_ >= MAX_CONSECUTIVE_FAST_REFRESHES))) {
+                (automaticCleanupEnabled_ && consecutiveFastRefreshes_ >= MAX_CONSECUTIVE_FAST_REFRESHES))) {
       effective = Mode::Clean;
     }
 

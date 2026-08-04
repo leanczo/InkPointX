@@ -39,6 +39,16 @@ ICONS = (
     ("LucideClock32", "clock", 32),
     ("LucideSend32", "send", 32),
     ("LucideSettings32", "settings", 32),
+    ("LucidePage32", "file-digit", 32),
+    ("LucideChapters32", "list-tree", 32),
+    ("LucideDictionary32", "book-a", 32),
+    ("LucideFootnotes32", "notebook-tabs", 32),
+    ("LucideStats32", "chart-no-axes-column-increasing", 32),
+    ("LucideRotate32", "rotate-cw", 32),
+    ("LucideAutoTurn32", "timer", 32),
+    ("LucideQr32", "qr-code", 32),
+    ("LucideHome32", "house", 32),
+    ("LucideTrash32", "trash-2", 32),
     ("LucideChevronLeft24", "chevron-left", 24),
     ("LucideChevronRight24", "chevron-right", 24),
     ("LucideCheck24", "check", 24),
@@ -110,8 +120,10 @@ def main() -> None:
         for name, slug, size in ICONS:
             svg = temp / f"{slug}.svg"
             png = temp / f"{slug}-{size}.png"
-            url = f"https://unpkg.com/lucide-static@{LUCIDE_VERSION}/icons/{slug}.svg"
-            urllib.request.urlretrieve(url, svg)
+            url = f"https://cdn.jsdelivr.net/npm/lucide-static@{LUCIDE_VERSION}/icons/{slug}.svg"
+            # A stalled asset host must not leave local builds hanging forever.
+            with urllib.request.urlopen(url, timeout=20) as response:
+                svg.write_bytes(response.read())
             render_svg(svg, png, size)
             with Image.open(png) as image:
                 arrays.append(format_array(name, packed_bitmap(image, size)))

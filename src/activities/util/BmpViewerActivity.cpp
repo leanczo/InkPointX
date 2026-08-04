@@ -251,8 +251,8 @@ void BmpViewerActivity::loop() {
     // rewrite the global sleep-screen setting with no undo.
     const auto slash = filePath.find_last_of('/');
     startActivityForResult(
-        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_SET_SLEEP_COVER),
-                                               slash == std::string::npos ? filePath : filePath.substr(slash + 1)),
+        makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_SET_SLEEP_COVER),
+                                                slash == std::string::npos ? filePath : filePath.substr(slash + 1)),
         [this](const ActivityResult& result) {
           if (result.isCancelled) {
             showCurrentImage();

@@ -11,6 +11,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace xtc {
@@ -149,7 +150,8 @@ XtcError XtcParser::readHeader() {
   }
 
   // Basic validation
-  if (m_header.pageCount == 0) {
+  if (m_header.pageCount == 0 || m_header.hasMetadata > 1 || m_header.hasThumbnails > 1 || m_header.hasChapters > 1 ||
+      m_header.readDirection > 2) {
     return XtcError::CORRUPTED_HEADER;
   }
 
@@ -167,7 +169,7 @@ XtcError XtcParser::readTitle() {
   }
 
   char titleBuf[128] = {0};
-  m_file.read(titleBuf, sizeof(titleBuf) - 1);
+  if (m_file.read(titleBuf, sizeof(titleBuf) - 1) != sizeof(titleBuf) - 1) return XtcError::READ_ERROR;
   m_title = titleBuf;
 
   LOG_DBG("XTC", "Title: %s", m_title.c_str());
@@ -182,7 +184,7 @@ XtcError XtcParser::readAuthor() {
   }
 
   char authorBuf[64] = {0};
-  m_file.read(authorBuf, sizeof(authorBuf) - 1);
+  if (m_file.read(authorBuf, sizeof(authorBuf) - 1) != sizeof(authorBuf) - 1) return XtcError::READ_ERROR;
   m_author = authorBuf;
 
   LOG_DBG("XTC", "Author: %s", m_author.c_str());
@@ -226,6 +228,11 @@ XtcError XtcParser::readFirstPageInfo() {
 
   m_defaultWidth = entry.width;
   m_defaultHeight = entry.height;
+  size_t firstBitmapSize = 0;
+  if (!calculateBitmapSize(m_defaultWidth, m_defaultHeight, m_bitDepth, firstBitmapSize)) {
+    LOG_DBG("XTC", "Invalid first-page geometry: %ux%u", m_defaultWidth, m_defaultHeight);
+    return XtcError::CORRUPTED_HEADER;
+  }
 
   LOG_DBG("XTC", "Page table validated: %u pages, default %dx%d", m_header.pageCount, m_defaultWidth, m_defaultHeight);
   return XtcError::OK;
@@ -252,6 +259,15 @@ bool XtcParser::readPageTableEntry(uint32_t pageIndex, PageInfo& info) {
   size_t bytesRead = m_file.read(reinterpret_cast<uint8_t*>(&entry), sizeof(PageTableEntry));
   if (bytesRead != sizeof(PageTableEntry)) {
     LOG_DBG("XTC", "Failed to read page table entry %lu", pageIndex);
+    return false;
+  }
+
+  const uint64_t fileSize = m_file.fileSize64();
+  size_t expectedBitmapSize = 0;
+  if (!calculateBitmapSize(entry.width, entry.height, m_bitDepth, expectedBitmapSize) || entry.dataOffset > fileSize ||
+      sizeof(XtgPageHeader) > fileSize - entry.dataOffset ||
+      (entry.dataSize != 0 && entry.dataSize < expectedBitmapSize)) {
+    LOG_ERR("XTC", "Invalid page table entry %lu", static_cast<unsigned long>(pageIndex));
     return false;
   }
 
@@ -282,13 +298,17 @@ XtcError XtcParser::readChapters() {
     return XtcError::OK;
   }
 
-  uint64_t chapterOffset = 0;
+  // Header field at 0x30 is uint32_t; reading eight bytes accidentally mixed
+  // the adjacent padding into the offset and rejected otherwise valid files
+  // produced by tools that use non-zero reserved bytes.
+  uint32_t chapterOffset32 = 0;
   if (!m_file.seek(0x30)) {
     return XtcError::READ_ERROR;
   }
-  if (m_file.read(reinterpret_cast<uint8_t*>(&chapterOffset), sizeof(chapterOffset)) != sizeof(chapterOffset)) {
+  if (m_file.read(reinterpret_cast<uint8_t*>(&chapterOffset32), sizeof(chapterOffset32)) != sizeof(chapterOffset32)) {
     return XtcError::READ_ERROR;
   }
+  const uint64_t chapterOffset = chapterOffset32;
 
   if (chapterOffset == 0) {
     return XtcError::OK;
@@ -312,8 +332,9 @@ XtcError XtcParser::readChapters() {
   }
 
   constexpr size_t chapterSize = 96;
+  constexpr size_t MAX_CHAPTERS = 4096;
   const uint64_t available = maxOffset - chapterOffset;
-  const size_t chapterCount = static_cast<size_t>(available / chapterSize);
+  const size_t chapterCount = std::min<size_t>(static_cast<size_t>(available / chapterSize), MAX_CHAPTERS);
   if (chapterCount == 0) {
     return XtcError::OK;
   }
@@ -325,8 +346,7 @@ XtcError XtcParser::readChapters() {
   // chapterCount is derived from header fields, so a bogus dataOffset in a large
   // file can imply hundreds of thousands of chapters. Reserve conservatively and
   // let the vector grow; under -fno-exceptions a failed reserve aborts.
-  constexpr size_t MAX_RESERVED_CHAPTERS = 4096;
-  m_chapters.reserve(std::min<size_t>(chapterCount, MAX_RESERVED_CHAPTERS));
+  m_chapters.reserve(chapterCount);
   std::vector<uint8_t> chapterBuf(chapterSize);
   for (size_t i = 0; i < chapterCount; i++) {
     if (m_file.read(chapterBuf.data(), chapterSize) != chapterSize) {
@@ -441,15 +461,15 @@ size_t XtcParser::loadPage(uint32_t pageIndex, uint8_t* buffer, size_t bufferSiz
     return 0;
   }
 
-  // Calculate bitmap size based on bit depth
-  // XTG (1-bit): Row-major, ((width+7)/8) * height bytes
-  // XTH (2-bit): Two bit planes, column-major, ((width * height + 7) / 8) * 2 bytes
-  size_t bitmapSize;
-  if (m_bitDepth == 2) {
-    // XTH: two bit planes, each containing (width * height) bits rounded up to bytes
-    bitmapSize = ((static_cast<size_t>(pageHeader.width) * pageHeader.height + 7) / 8) * 2;
-  } else {
-    bitmapSize = ((pageHeader.width + 7) / 8) * pageHeader.height;
+  size_t bitmapSize = 0;
+  const uint64_t sourceSize = m_file.fileSize64();
+  if (pageHeader.width != page.width || pageHeader.height != page.height || pageHeader.compression != 0 ||
+      !calculateBitmapSize(pageHeader.width, pageHeader.height, m_bitDepth, bitmapSize) ||
+      (pageHeader.dataSize != 0 && pageHeader.dataSize != bitmapSize) || page.offset > sourceSize ||
+      sizeof(XtgPageHeader) + bitmapSize > sourceSize - page.offset) {
+    LOG_ERR("XTC", "Corrupt page geometry/size for page %u", pageIndex);
+    m_lastError = XtcError::CORRUPTED_HEADER;
+    return 0;
   }
 
   // Check buffer size
@@ -504,15 +524,13 @@ XtcError XtcParser::loadPageStreaming(uint32_t pageIndex,
     return XtcError::READ_ERROR;
   }
 
-  // Calculate bitmap size based on bit depth
-  // XTG (1-bit): Row-major, ((width+7)/8) * height bytes
-  // XTH (2-bit): Two bit planes, ((width * height + 7) / 8) * 2 bytes
-  size_t bitmapSize;
-  if (m_bitDepth == 2) {
-    bitmapSize = ((static_cast<size_t>(pageHeader.width) * pageHeader.height + 7) / 8) * 2;
-  } else {
-    bitmapSize = ((pageHeader.width + 7) / 8) * pageHeader.height;
-  }
+  size_t bitmapSize = 0;
+  const uint64_t sourceSize = m_file.fileSize64();
+  if (pageHeader.width != page.width || pageHeader.height != page.height || pageHeader.compression != 0 ||
+      !calculateBitmapSize(pageHeader.width, pageHeader.height, m_bitDepth, bitmapSize) ||
+      (pageHeader.dataSize != 0 && pageHeader.dataSize != bitmapSize) || page.offset > sourceSize ||
+      sizeof(XtgPageHeader) + bitmapSize > sourceSize - page.offset)
+    return XtcError::CORRUPTED_HEADER;
 
   // Read in chunks
   std::vector<uint8_t> chunk(chunkSize);

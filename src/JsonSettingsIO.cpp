@@ -164,6 +164,9 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   if (s.scriptSdFontFamilyName[0] != '\0') {
     doc["scriptSdFontFamilyName"] = s.scriptSdFontFamilyName;
   }
+  if (s.dictionaryFolder[0] != '\0') {
+    doc["dictionaryFolder"] = s.dictionaryFolder;
+  }
 
   // Language -- managed by LanguageSelectActivity, not in SettingsList.
   // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
@@ -238,10 +241,9 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
 
   // Dynamic sleep-screen mapping is persisted manually. Migrate the removed
   // iPhone-style DARK clock mode to the clean light brand screen.
-  const uint8_t storedSleepScreen =
-      clamp(doc["sleepScreen"] | static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT),
-            CrossPointSettings::SLEEP_SCREEN_MODE_COUNT,
-            static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT));
+  const uint8_t storedSleepScreen = clamp(
+      doc["sleepScreen"] | static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT),
+      CrossPointSettings::SLEEP_SCREEN_MODE_COUNT, static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT));
   s.sleepScreen = storedSleepScreen == static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::DARK)
                       ? static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT)
                       : storedSleepScreen;
@@ -287,6 +289,9 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   const char* scriptSfn = doc["scriptSdFontFamilyName"] | "";
   strncpy(s.scriptSdFontFamilyName, scriptSfn, sizeof(s.scriptSdFontFamilyName) - 1);
   s.scriptSdFontFamilyName[sizeof(s.scriptSdFontFamilyName) - 1] = '\0';
+  const char* dictionaryFolder = doc["dictionaryFolder"] | "";
+  strncpy(s.dictionaryFolder, dictionaryFolder, sizeof(s.dictionaryFolder) - 1);
+  s.dictionaryFolder[sizeof(s.dictionaryFolder) - 1] = '\0';
   if (storedFontFamily == CrossPointSettings::LEGACY_OPENDYSLEXIC && s.sdFontFamilyName[0] == '\0') {
     s.fontFamily = CrossPointSettings::NOTOSERIF;
     strncpy(s.sdFontFamilyName, "OpenDyslexic", sizeof(s.sdFontFamilyName) - 1);

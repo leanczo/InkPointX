@@ -2,6 +2,7 @@
 
 #include <FS.h>  // need to be included before SdFat.h for compatibility with FS.h's File class
 #include <Logging.h>
+#include <Memory.h>
 #include <SDCardManager.h>
 
 #include <algorithm>
@@ -94,6 +95,7 @@ bool HalStorage::writeFile(const char* path, const String& content) {
   // or (in the tiny remove-to-rename window) the payload intact in the .tmp.
   StorageLock lock;
   const String tmpPath = String(path) + ".tmp";
+  const String backupPath = String(path) + ".swap.bak";
   {
     HalFile f;
     if (!openFileForWrite("SD", tmpPath, f)) {
@@ -111,12 +113,24 @@ bool HalStorage::writeFile(const char* path, const String& content) {
     f.flush();
     // HalFile closes at scope exit; SdFat must not rename a path with an open handle.
   }
-  // SdFat rename does not overwrite, so drop the old file first.
-  SDCard.remove(path);
-  if (!SDCard.rename(tmpPath.c_str(), path)) {
-    LOG_ERR("SD", "Atomic write: rename %s -> %s failed", tmpPath.c_str(), path);
+  // SdFat rename does not overwrite. Move the old payload aside rather than
+  // deleting it, so a failed second rename can be rolled back and a power loss
+  // always leaves at least one complete generation on the card.
+  if (SDCard.exists(backupPath.c_str())) SDCard.remove(backupPath.c_str());
+  const bool hadOriginal = SDCard.exists(path);
+  if (hadOriginal && !SDCard.rename(path, backupPath.c_str())) {
+    LOG_ERR("SD", "Atomic write: cannot preserve old %s", path);
+    SDCard.remove(tmpPath.c_str());
     return false;
   }
+  if (!SDCard.rename(tmpPath.c_str(), path)) {
+    LOG_ERR("SD", "Atomic write: rename %s -> %s failed", tmpPath.c_str(), path);
+    if (hadOriginal && !SDCard.rename(backupPath.c_str(), path)) {
+      LOG_ERR("SD", "Atomic write: rollback %s -> %s failed", backupPath.c_str(), path);
+    }
+    return false;
+  }
+  if (hadOriginal) SDCard.remove(backupPath.c_str());
   return true;
 }
 
@@ -146,7 +160,11 @@ HalFile& HalFile::operator=(HalFile&&) = default;
 
 HalFile HalStorage::open(const char* path, const oflag_t oflag) {
   StorageLock lock;  // ensure thread safety for the duration of this function
-  return HalFile(std::make_unique<HalFile::Impl>(SDCard.open(path, oflag)));
+  auto impl = makeUniqueNoThrow<HalFile::Impl>(SDCard.open(path, oflag));
+  if (!impl) {
+    LOG_ERR("SD", "OOM opening %s", path);
+  }
+  return HalFile(std::move(impl));
 }
 
 bool HalStorage::mkdir(const char* path, const bool pFlag) { HAL_STORAGE_WRAPPED_CALL(mkdir, path, pFlag); }
@@ -156,6 +174,34 @@ bool HalStorage::exists(const char* path) { HAL_STORAGE_WRAPPED_CALL(exists, pat
 bool HalStorage::remove(const char* path) { HAL_STORAGE_WRAPPED_CALL(remove, path); }
 bool HalStorage::rename(const char* oldPath, const char* newPath) {
   HAL_STORAGE_WRAPPED_CALL(rename, oldPath, newPath);
+}
+
+bool HalStorage::replaceFileFromTemp(const char* path, const char* tempPath) {
+  StorageLock lock;
+  if (!path || !tempPath || !SDCard.exists(tempPath)) return false;
+
+  const String backupPath = String(path) + ".swap.bak";
+  if (SDCard.exists(backupPath.c_str()) && !SDCard.remove(backupPath.c_str())) {
+    LOG_ERR("SD", "Cannot clear stale replacement backup %s", backupPath.c_str());
+    return false;
+  }
+
+  const bool hadOriginal = SDCard.exists(path);
+  if (hadOriginal && !SDCard.rename(path, backupPath.c_str())) {
+    LOG_ERR("SD", "Cannot preserve existing file %s", path);
+    return false;
+  }
+  if (!SDCard.rename(tempPath, path)) {
+    LOG_ERR("SD", "Cannot install staged file %s as %s", tempPath, path);
+    if (hadOriginal && !SDCard.rename(backupPath.c_str(), path)) {
+      LOG_ERR("SD", "CRITICAL: rollback failed for %s; backup remains at %s", path, backupPath.c_str());
+    }
+    return false;
+  }
+  if (hadOriginal && !SDCard.remove(backupPath.c_str())) {
+    LOG_ERR("SD", "Replacement committed but stale backup remains: %s", backupPath.c_str());
+  }
+  return true;
 }
 
 bool HalStorage::rmdir(const char* path) { HAL_STORAGE_WRAPPED_CALL(rmdir, path); }
@@ -170,15 +216,28 @@ bool HalStorage::recoverInterruptedWrite(const char* path) {
   // the first read that misses. Called only from a failed open, so the extra
   // directory lookup is not on any hot path.
   StorageLock lock;
-  if (SDCard.exists(path)) return false;
-  const String tmpPath = String(path) + ".tmp";
-  if (!SDCard.exists(tmpPath.c_str())) return false;
-  if (!SDCard.rename(tmpPath.c_str(), path)) {
-    LOG_ERR("SD", "Found %s but could not rename it into place", tmpPath.c_str());
+  const String backupPath = String(path) + ".swap.bak";
+  if (SDCard.exists(path)) {
+    // A reset after committing the new generation but before cleanup can
+    // leave the old backup behind.
+    if (SDCard.exists(backupPath.c_str())) SDCard.remove(backupPath.c_str());
     return false;
   }
-  LOG_INF("SD", "Recovered an interrupted write: %s", path);
-  return true;
+  const String tmpPath = String(path) + ".tmp";
+  if (SDCard.exists(tmpPath.c_str())) {
+    if (!SDCard.rename(tmpPath.c_str(), path)) {
+      LOG_ERR("SD", "Found %s but could not rename it into place", tmpPath.c_str());
+      return false;
+    }
+    if (SDCard.exists(backupPath.c_str())) SDCard.remove(backupPath.c_str());
+    LOG_INF("SD", "Recovered an interrupted write: %s", path);
+    return true;
+  }
+  if (SDCard.exists(backupPath.c_str()) && SDCard.rename(backupPath.c_str(), path)) {
+    LOG_INF("SD", "Restored previous generation after interrupted write: %s", path);
+    return true;
+  }
+  return false;
 }
 
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
@@ -188,7 +247,12 @@ bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFi
   if (!ok && recoverInterruptedWrite(path)) {
     ok = SDCard.openFileForRead(moduleName, path, fsFile);
   }
-  file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
+  auto impl = makeUniqueNoThrow<HalFile::Impl>(std::move(fsFile));
+  if (!impl) {
+    LOG_ERR(moduleName, "OOM opening %s", path);
+    return false;
+  }
+  file = HalFile(std::move(impl));
   return ok;
 }
 
@@ -204,7 +268,12 @@ bool HalStorage::openFileForWrite(const char* moduleName, const char* path, HalF
   StorageLock lock;  // ensure thread safety for the duration of this function
   FsFile fsFile;
   bool ok = SDCard.openFileForWrite(moduleName, path, fsFile);
-  file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
+  auto impl = makeUniqueNoThrow<HalFile::Impl>(std::move(fsFile));
+  if (!impl) {
+    LOG_ERR(moduleName, "OOM opening %s", path);
+    return false;
+  }
+  file = HalFile(std::move(impl));
   return ok;
 }
 
@@ -249,11 +318,27 @@ size_t HalFile::write(uint8_t b) { HAL_FILE_WRAPPED_CALL(write, b); }
 bool HalFile::rename(const char* newPath) { HAL_FILE_WRAPPED_CALL(rename, newPath); }
 bool HalFile::isDirectory() const { HAL_FILE_FORWARD_CALL(isDirectory, ); }  // already thread-safe, no need to wrap
 void HalFile::rewindDirectory() { HAL_FILE_WRAPPED_CALL(rewindDirectory, ); }
-bool HalFile::close() { HAL_FILE_WRAPPED_CALL(close, ); }
+bool HalFile::close() {
+  // Match the usual file-handle contract: closing an empty or already-closed
+  // handle is a successful no-op.  A number of owners deliberately call
+  // close() from both an activity's onExit() and its destructor so scarce SD
+  // descriptors are released early.  Asserting here turned that harmless
+  // lifecycle pattern into a device reboot (notably when StarDict had only
+  // one of its two files open after a failed open attempt).
+  if (!impl) return true;
+  HalStorage::StorageLock lock;
+  const bool closed = impl->file.close();
+  impl.reset();
+  return closed;
+}
 HalFile HalFile::openNextFile() {
   HalStorage::StorageLock lock;
   assert(impl != nullptr);
-  return HalFile(std::make_unique<Impl>(impl->file.openNextFile()));
+  auto next = makeUniqueNoThrow<Impl>(impl->file.openNextFile());
+  if (!next) {
+    LOG_ERR("SD", "OOM opening next directory entry");
+  }
+  return HalFile(std::move(next));
 }
 bool HalFile::isOpen() const { return impl != nullptr && impl->file.isOpen(); }  // already thread-safe, no need to wrap
 HalFile::operator bool() const { return isOpen(); }

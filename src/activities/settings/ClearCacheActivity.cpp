@@ -2,9 +2,9 @@
 
 #include <GfxRenderer.h>
 #include <HalStorage.h>
-#include <esp_task_wdt.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <esp_task_wdt.h>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"

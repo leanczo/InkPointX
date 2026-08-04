@@ -24,6 +24,7 @@ class Xtc {
   std::string filepath;
   std::string cachePath;
   std::unique_ptr<xtc::XtcParser> parser;
+  uint64_t sourceFingerprint = 0;
   bool loaded;
 
  public:
@@ -73,6 +74,8 @@ class Xtc {
   uint16_t getPageWidth() const;
   uint16_t getPageHeight() const;
   uint8_t getBitDepth() const;  // 1 = XTC (1-bit), 2 = XTCH (2-bit)
+  bool getPageInfo(uint32_t pageIndex, xtc::PageInfo& info) const;
+  uint64_t getSourceFingerprint() const { return sourceFingerprint; }
 
   /**
    * Load page bitmap data

@@ -94,7 +94,8 @@ void LanguageSelectActivity::render(RenderLock&&) {
   GUI.drawList(
       renderer, Rect{0, contentTop, pageWidth, contentHeight}, totalItems, selectedIndex,
       [this](int index) { return I18N.getLanguageName(static_cast<Language>(SORTED_LANGUAGE_INDICES[index])); },
-      nullptr, nullptr, nullptr, false, nullptr, [this, currentLang](int index) {
+      nullptr, nullptr, nullptr, false, nullptr,
+      [this, currentLang](int index) {
         return SORTED_LANGUAGE_INDICES[index] == currentLang ? UIAccessory::Check : UIAccessory::None;
       });
 

@@ -182,12 +182,9 @@ bool HalClock::writeDateTimeToRTC(const struct tm& value) {
   assert(value.tm_hour >= 0 && value.tm_hour < 24);
   assert(value.tm_min >= 0 && value.tm_min < 60);
   assert(value.tm_sec >= 0 && value.tm_sec < 60);
-  const Rtc::DateTime rtcTime{static_cast<uint16_t>(value.tm_year + 1900),
-                              static_cast<uint8_t>(value.tm_mon + 1),
-                              static_cast<uint8_t>(value.tm_mday),
-                              static_cast<uint8_t>(value.tm_hour),
-                              static_cast<uint8_t>(value.tm_min),
-                              static_cast<uint8_t>(value.tm_sec),
+  const Rtc::DateTime rtcTime{static_cast<uint16_t>(value.tm_year + 1900), static_cast<uint8_t>(value.tm_mon + 1),
+                              static_cast<uint8_t>(value.tm_mday),         static_cast<uint8_t>(value.tm_hour),
+                              static_cast<uint8_t>(value.tm_min),          static_cast<uint8_t>(value.tm_sec),
                               static_cast<uint8_t>(value.tm_wday)};
   if (!_sdkRtc.set(rtcTime)) {
     LOG_ERR("CLK", "Failed to write date/time to hardware RTC");

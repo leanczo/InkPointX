@@ -29,6 +29,8 @@ enum class Result {
   READ_FAIL,
   ERASE_FAIL,
   WRITE_FAIL,
+  VERIFY_READ_FAIL,
+  VERIFY_MISMATCH,
   OTADATA_FAIL,
 };
 
@@ -40,11 +42,9 @@ using ProgressCb = void (*)(size_t written, size_t total, void* ctx);
 // success switches otadata via ota_boot::switchTo. Caller is responsible for
 // ESP.restart() afterwards.
 //
-// `alreadyValidated` lets callers that have just run `validateImageFile()`
-// themselves (e.g. SdFirmwareUpdateActivity, which validates before showing
-// the user the confirmation prompt) skip the redundant second pass. Defaults
-// to false so callers without prior validation (any future entry point) keep
-// the defense-in-depth check.
+// `alreadyValidated` is retained for source compatibility. The implementation
+// deliberately validates again immediately before erase: an SD card or file
+// can change while a confirmation screen is visible.
 Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, bool alreadyValidated = false);
 
 // Full-image integrity check that mirrors the bootloader's verification:

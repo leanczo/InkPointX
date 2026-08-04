@@ -57,7 +57,6 @@ class OpdsBookBrowserActivity final : public Activity {
     // Only while a transfer is actually in flight. Unconditional, this pinned
     // the CPU at 160 MHz with the radio up for as long as the browser sat
     // open — a battery-to-zero screen.
-    return state == BrowserState::LOADING || state == BrowserState::DOWNLOADING ||
-           state == BrowserState::CHECK_WIFI;
+    return state == BrowserState::LOADING || state == BrowserState::DOWNLOADING || state == BrowserState::CHECK_WIFI;
   }
 };

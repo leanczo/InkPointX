@@ -15,6 +15,10 @@ ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputMan
 void ConfirmationActivity::onEnter() {
   Activity::onEnter();
 
+  inputArmed = false;
+  confirmPressSeen = false;
+  cancelPressSeen = false;
+
   headingLineHeight = renderer.getLineHeight(headingFontId);
   bodyLineHeight = renderer.getLineHeight(bodyFontId);
   const int maxCardWidth = renderer.getScreenWidth() - (margin * 2);
@@ -33,10 +37,10 @@ void ConfirmationActivity::onEnter() {
       safeHeadingLines.cbegin(), safeHeadingLines.cend(), 0, [this](const int widest, const std::string& line) {
         return std::max(widest, renderer.getTextWidth(headingFontId, line.c_str(), EpdFontFamily::BOLD));
       });
-  widestText = std::accumulate(
-      safeBodyLines.cbegin(), safeBodyLines.cend(), widestText, [this](const int widest, const std::string& line) {
-        return std::max(widest, renderer.getTextWidth(bodyFontId, line.c_str()));
-      });
+  widestText = std::accumulate(safeBodyLines.cbegin(), safeBodyLines.cend(), widestText,
+                               [this](const int widest, const std::string& line) {
+                                 return std::max(widest, renderer.getTextWidth(bodyFontId, line.c_str()));
+                               });
   cardWidth = std::min(maxCardWidth, std::max(300, widestText + margin * 2));
   cardHeight = margin * 2;
   cardHeight += static_cast<int>(safeHeadingLines.size()) * headingLineHeight;
@@ -82,10 +86,36 @@ void ConfirmationActivity::render(RenderLock&& lock) {
 }
 
 void ConfirmationActivity::loop() {
+  const bool confirmPressed = mappedInput.wasPressed(MappedInputManager::Button::Right) ||
+                              mappedInput.wasPressed(MappedInputManager::Button::Confirm);
+  const bool cancelPressed = mappedInput.wasPressed(MappedInputManager::Button::Left) ||
+                             mappedInput.wasPressed(MappedInputManager::Button::Back);
+
+  if (!inputArmed) {
+    // A new press edge after the modal was installed is intentional, even if
+    // HAL already folded its release into the same queued event. With no new
+    // press, wait for the button that launched us to return to neutral and
+    // discard that release-only event.
+    if (confirmPressed || cancelPressed) {
+      inputArmed = true;
+    } else {
+      const bool launchButtonStillHeld = mappedInput.isPressed(MappedInputManager::Button::Right) ||
+                                         mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
+                                         mappedInput.isPressed(MappedInputManager::Button::Left) ||
+                                         mappedInput.isPressed(MappedInputManager::Button::Back);
+      if (!launchButtonStillHeld) inputArmed = true;
+      return;
+    }
+  }
+
+  if (confirmPressed) confirmPressSeen = true;
+  if (cancelPressed) cancelPressSeen = true;
+
   // Commit on release, like every other screen: acting on the press edge leaks
-  // the release into whatever activity is shown next.
-  if (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  // the release into whatever activity is shown next. Requiring a press seen
+  // by this modal also rejects the release that opened it.
+  if (confirmPressSeen && (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
+                           mappedInput.wasReleased(MappedInputManager::Button::Confirm))) {
     ActivityResult res;
     res.isCancelled = false;
     setResult(std::move(res));
@@ -95,8 +125,8 @@ void ConfirmationActivity::loop() {
 
   // Back is the universal cancel in this firmware; without it the only way out
   // of a destructive-action modal was discovering that Left means cancel.
-  if (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
-      mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  if (cancelPressSeen && (mappedInput.wasReleased(MappedInputManager::Button::Left) ||
+                          mappedInput.wasReleased(MappedInputManager::Button::Back))) {
     ActivityResult res;
     res.isCancelled = true;
     setResult(std::move(res));

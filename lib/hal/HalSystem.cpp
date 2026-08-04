@@ -6,6 +6,7 @@
 #include "HalStorage.h"
 #include "Logging.h"
 #include "esp_debug_helpers.h"
+#include "esp_memory_utils.h"
 #include "esp_private/esp_cpu_internal.h"
 #include "esp_private/esp_system_attr.h"
 #include "esp_private/panic_internal.h"
@@ -44,13 +45,25 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
 
   // Copied from components/esp_system/port/arch/riscv/panic_arch.c
   uint32_t sp = (uint32_t)((RvExcFrame*)frame)->sp;
+  // Exception frames are not trustworthy by definition. Reading a fixed 1 KiB
+  // from a corrupt SP can fault again inside the panic handler and lose the
+  // original crash report. The IDF helper validates alignment and that the
+  // pointer belongs to internal stack-capable RAM; each row is checked again so
+  // the capture also stops cleanly at the end of the DRAM region.
+  if (!esp_stack_ptr_is_sane(sp)) {
+    __real_panic_print_backtrace(frame, core);
+    return;
+  }
   const int per_line = 8;
   int depth = 0;
   for (int x = 0; x < 1024; x += per_line * sizeof(uint32_t)) {
-    uint32_t* spp = (uint32_t*)(sp + x);
+    const uint32_t rowAddress = sp + static_cast<uint32_t>(x);
+    if (rowAddress < sp) break;  // integer overflow guard
+    uint32_t* spp = reinterpret_cast<uint32_t*>(rowAddress);
+    if (!esp_ptr_in_dram(spp) || !esp_ptr_in_dram(spp + per_line - 1)) break;
     // panic_print_hex(sp + x);
     // panic_print_str(": ");
-    panicStack[depth].sp = sp + x;
+    panicStack[depth].sp = rowAddress;
     for (int y = 0; y < per_line; y++) {
       // panic_print_str("0x");
       // panic_print_hex(spp[y]);

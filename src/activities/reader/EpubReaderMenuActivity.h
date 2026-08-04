@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderMenuActivity final : public Activity {
@@ -30,7 +31,8 @@ class EpubReaderMenuActivity final : public Activity {
     BOOK_INFO,
     OPEN_FROM_FILE,
     TOGGLE_FAVORITE,
-    GESTURES
+    GESTURES,
+    DICTIONARY
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
@@ -44,15 +46,28 @@ class EpubReaderMenuActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+  enum class MenuGroup : uint8_t { Navigation, Book, Reading, More };
+
   struct MenuItem {
     MenuAction action;
     StrId labelId;
+    MenuGroup group;
+    UIIcon icon;
+  };
+
+  struct MenuRow {
+    bool isSection;
+    MenuGroup group;
+    int itemIndex;
   };
 
   static std::vector<MenuItem> buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool isFavorite);
+  static std::vector<MenuRow> buildMenuRows(const std::vector<MenuItem>& items);
+  static StrId groupLabelId(MenuGroup group);
 
   // Fixed menu layout
   const std::vector<MenuItem> menuItems;
+  const std::vector<MenuRow> menuRows;
 
   int selectedIndex = 0;
 
@@ -65,8 +80,7 @@ class EpubReaderMenuActivity final : public Activity {
   // The unit lives in the value ("3/min"), not the row title: the old
   // "(Pages Per Minute)" parenthetical pushed the title past the value lane
   // and it ellipsized in most locales.
-  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1/min", "3/min", "6/min",
-                                                   "12/min"};
+  const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1/min", "3/min", "6/min", "12/min"};
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;

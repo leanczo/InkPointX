@@ -75,6 +75,7 @@ class Page {
   // the list of block index and line numbers on this page
   std::vector<std::shared_ptr<PageElement>> elements;
   std::vector<FootnoteEntry> footnotes;
+  static constexpr uint16_t MAX_ELEMENTS_PER_PAGE = 1024;
   static constexpr uint16_t MAX_FOOTNOTES_PER_PAGE = 16;
 
   void addFootnote(const char* number, const char* href) {

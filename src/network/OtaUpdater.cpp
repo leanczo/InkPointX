@@ -12,7 +12,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <limits>
 #include <string>
+#include <string_view>
 
 #include "FirmwareFlasher.h"
 #include "HttpDownloader.h"
@@ -31,7 +33,9 @@ class WifiPowerSaveGuard {
  public:
   WifiPowerSaveGuard() {
     restore_ = esp_wifi_set_ps(WIFI_PS_NONE) == ESP_OK;
-    if (!restore_) LOG_ERR("OTA", "Failed to disable Wi-Fi power save");
+    if (!restore_) {
+      LOG_ERR("OTA", "Failed to disable Wi-Fi power save");
+    }
   }
   WifiPowerSaveGuard(const WifiPowerSaveGuard&) = delete;
   WifiPowerSaveGuard& operator=(const WifiPowerSaveGuard&) = delete;
@@ -101,6 +105,8 @@ OtaUpdater::OtaUpdaterError mapFlashResult(const firmware_flash::Result result) 
     case firmware_flash::Result::NO_PARTITION:
     case firmware_flash::Result::ERASE_FAIL:
     case firmware_flash::Result::WRITE_FAIL:
+    case firmware_flash::Result::VERIFY_READ_FAIL:
+    case firmware_flash::Result::VERIFY_MISMATCH:
     case firmware_flash::Result::OTADATA_FAIL:
       return OtaUpdater::FLASH_ERROR;
   }
@@ -159,47 +165,106 @@ void onFlashProgress(size_t processed, size_t total, void* context) {
   flashContext->updater->setProgress(processed, total, flashContext->onProgress, flashContext->callbackContext);
 }
 
-bool parseVersion(const char* version, int& major, int& minor, int& patch) {
-  major = 0;
-  minor = 0;
-  patch = 0;
+struct SemanticVersion {
+  uint32_t major = 0;
+  uint32_t minor = 0;
+  uint32_t patch = 0;
+  std::string_view prerelease;
+};
 
-  if (!version) {
-    return false;
-  }
-
-  while (*version && !std::isdigit(static_cast<unsigned char>(*version))) {
-    ++version;
-  }
-
-  auto readNumber = [](const char*& p, int& value) {
-    if (!p || !std::isdigit(static_cast<unsigned char>(*p))) {
-      return false;
-    }
-    value = 0;
-    while (*p && std::isdigit(static_cast<unsigned char>(*p))) {
-      value = value * 10 + (*p - '0');
-      ++p;
-    }
-    return true;
-  };
-
-  const char* p = version;
-  if (!readNumber(p, major)) {
-    return false;
-  }
-
-  if (*p == '.') {
+bool parseVersionNumber(const char*& p, uint32_t& value) {
+  if (!std::isdigit(static_cast<unsigned char>(*p))) return false;
+  const char* start = p;
+  uint64_t parsed = 0;
+  while (std::isdigit(static_cast<unsigned char>(*p))) {
+    parsed = parsed * 10 + static_cast<unsigned>(*p - '0');
+    if (parsed > std::numeric_limits<uint32_t>::max()) return false;
     ++p;
-    readNumber(p, minor);
   }
-
-  if (*p == '.') {
-    ++p;
-    readNumber(p, patch);
-  }
-
+  if (p - start > 1 && *start == '0') return false;
+  value = static_cast<uint32_t>(parsed);
   return true;
+}
+
+bool validIdentifiers(const std::string_view value, const bool prerelease) {
+  if (value.empty()) return false;
+  size_t start = 0;
+  while (start < value.size()) {
+    const size_t end = value.find('.', start);
+    const size_t stop = end == std::string_view::npos ? value.size() : end;
+    if (stop == start) return false;
+    bool numeric = true;
+    for (size_t i = start; i < stop; ++i) {
+      const unsigned char c = static_cast<unsigned char>(value[i]);
+      if (!(std::isalnum(c) || c == '-')) return false;
+      if (!std::isdigit(c)) numeric = false;
+    }
+    if (prerelease && numeric && stop - start > 1 && value[start] == '0') return false;
+    if (end == std::string_view::npos) break;
+    start = end + 1;
+  }
+  return true;
+}
+
+bool parseVersion(const char* text, SemanticVersion& out) {
+  if (!text || !*text) return false;
+  const char* p = text;
+  if (*p == 'v' || *p == 'V') ++p;
+  if (!parseVersionNumber(p, out.major) || *p++ != '.' || !parseVersionNumber(p, out.minor) || *p++ != '.' ||
+      !parseVersionNumber(p, out.patch)) {
+    return false;
+  }
+
+  if (*p == '-') {
+    const char* start = ++p;
+    while (*p && *p != '+') ++p;
+    out.prerelease = std::string_view(start, static_cast<size_t>(p - start));
+    if (!validIdentifiers(out.prerelease, true)) return false;
+  }
+  if (*p == '+') {
+    const char* start = ++p;
+    while (*p) ++p;
+    if (!validIdentifiers(std::string_view(start, static_cast<size_t>(p - start)), false)) return false;
+  }
+  return *p == '\0';
+}
+
+int comparePrerelease(const std::string_view lhs, const std::string_view rhs) {
+  if (lhs.empty() || rhs.empty()) {
+    if (lhs.empty() == rhs.empty()) return 0;
+    return lhs.empty() ? 1 : -1;  // A stable version outranks a prerelease.
+  }
+
+  size_t leftPos = 0;
+  size_t rightPos = 0;
+  while (leftPos < lhs.size() || rightPos < rhs.size()) {
+    if (leftPos >= lhs.size()) return -1;
+    if (rightPos >= rhs.size()) return 1;
+    const size_t leftEnd = lhs.find('.', leftPos);
+    const size_t rightEnd = rhs.find('.', rightPos);
+    const auto left = lhs.substr(leftPos, (leftEnd == std::string_view::npos ? lhs.size() : leftEnd) - leftPos);
+    const auto right = rhs.substr(rightPos, (rightEnd == std::string_view::npos ? rhs.size() : rightEnd) - rightPos);
+    const bool leftNumeric =
+        std::all_of(left.begin(), left.end(), [](const char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+    const bool rightNumeric = std::all_of(right.begin(), right.end(),
+                                          [](const char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+    if (leftNumeric != rightNumeric) return leftNumeric ? -1 : 1;
+    if (leftNumeric) {
+      if (left.size() != right.size()) return left.size() < right.size() ? -1 : 1;
+    }
+    const int idComparison = left.compare(right);
+    if (idComparison != 0) return idComparison < 0 ? -1 : 1;
+    leftPos = leftEnd == std::string_view::npos ? lhs.size() : leftEnd + 1;
+    rightPos = rightEnd == std::string_view::npos ? rhs.size() : rightEnd + 1;
+  }
+  return 0;
+}
+
+int compareVersions(const SemanticVersion& lhs, const SemanticVersion& rhs) {
+  if (lhs.major != rhs.major) return lhs.major < rhs.major ? -1 : 1;
+  if (lhs.minor != rhs.minor) return lhs.minor < rhs.minor ? -1 : 1;
+  if (lhs.patch != rhs.patch) return lhs.patch < rhs.patch ? -1 : 1;
+  return comparePrerelease(lhs.prerelease, rhs.prerelease);
 }
 
 }  // namespace
@@ -326,45 +391,16 @@ bool OtaUpdater::isUpdateNewer() const {
     return false;
   }
 
-  int currentMajor, currentMinor, currentPatch;
-  int latestMajor, latestMinor, latestPatch;
-
-  const auto currentVersion = CROSSPOINT_VERSION;
-
-  // semantic version check (only match on 3 segments)
-  if (!parseVersion(currentVersion, currentMajor, currentMinor, currentPatch) ||
-      !parseVersion(latestVersion.c_str(), latestMajor, latestMinor, latestPatch)) {
-    // If version strings are not in expected semver format, fall back to strict string comparison.
-    return latestVersion > currentVersion;
+  SemanticVersion current;
+  SemanticVersion latest;
+  if (!parseVersion(CROSSPOINT_VERSION, current) || !parseVersion(latestVersion.c_str(), latest)) {
+    // Never install an ambiguously ordered tag. A malformed GitHub release is
+    // a publication error, not a reason to replace working firmware.
+    LOG_ERR("OTA", "Refusing malformed version comparison: current=%s latest=%s", CROSSPOINT_VERSION,
+            latestVersion.c_str());
+    return false;
   }
-
-  /*
-   * Compare major versions.
-   * If they differ, return true if latest major version greater than current major version
-   * otherwise return false.
-   */
-  if (latestMajor != currentMajor) return latestMajor > currentMajor;
-
-  /*
-   * Compare minor versions.
-   * If they differ, return true if latest minor version greater than current minor version
-   * otherwise return false.
-   */
-  if (latestMinor != currentMinor) return latestMinor > currentMinor;
-
-  /*
-   * Check patch versions.
-   */
-  if (latestPatch != currentPatch) return latestPatch > currentPatch;
-
-  // If we reach here, it means all segments are equal.
-  // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if
-  // the segments are equal, since RC builds are pre-release versions.
-  if (strstr(currentVersion, "-rc") != nullptr) {
-    return true;
-  }
-
-  return false;
+  return compareVersions(latest, current) > 0;
 }
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }

@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=8.0)
     parser.add_argument(
         "--command",
+        action="append",
         help="Optional firmware command to run before capture, without the CMD: prefix",
     )
     parser.add_argument(
@@ -40,7 +41,7 @@ def read_framebuffer(
     port: str,
     baud: int,
     timeout: float,
-    command: str | None = None,
+    commands: list[str] | None = None,
     settle: float = 0.0,
     prewait: float = 0.0,
 ) -> bytes:
@@ -54,7 +55,7 @@ def read_framebuffer(
     try:
         time.sleep(max(0.0, prewait))
         connection.reset_input_buffer()
-        if command:
+        for command in commands or []:
             connection.write(f"CMD:{command}\n".encode("ascii"))
             connection.flush()
             time.sleep(max(0.0, settle))
@@ -91,7 +92,7 @@ def main() -> None:
         args.port,
         args.baud,
         args.timeout,
-        command=args.command,
+        commands=args.command,
         settle=args.settle,
         prewait=args.prewait,
     )

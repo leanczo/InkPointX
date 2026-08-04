@@ -1,0 +1,4 @@
+add_executable(reading_stats_summary_tests ReadingStatsSummaryTest.cpp)
+target_link_libraries(reading_stats_summary_tests PRIVATE GTest::gtest_main crosspoint_test_common)
+target_include_directories(reading_stats_summary_tests PRIVATE ${REPO_ROOT}/src/activities/reader)
+gtest_discover_tests(reading_stats_summary_tests)

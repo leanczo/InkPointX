@@ -12,6 +12,7 @@
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
 #include "DeviceInfoActivity.h"
+#include "DictionaryPickerActivity.h"
 #include "FontDownloadActivity.h"
 #include "FontSelectionActivity.h"
 #include "InterfaceFont.h"
@@ -19,8 +20,8 @@
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
-#include "OpdsServerStore.h"
 #include "OpdsServerListActivity.h"
+#include "OpdsServerStore.h"
 #include "OtaUpdateActivity.h"
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
@@ -36,7 +37,7 @@
 #include "util/SleepImageInstaller.h"
 
 const StrId SettingsActivity::categoryNames[CATEGORY_COUNT] = {
-    StrId::STR_SETTINGS_INTERFACE, StrId::STR_SETTINGS_POWER,  StrId::STR_SETTINGS_READING,
+    StrId::STR_SETTINGS_INTERFACE, StrId::STR_SETTINGS_POWER,   StrId::STR_SETTINGS_READING,
     StrId::STR_SETTINGS_CONTROLS,  StrId::STR_SETTINGS_LIBRARY, StrId::STR_SETTINGS_NETWORK,
     StrId::STR_SETTINGS_SYSTEM,
 };
@@ -80,6 +81,8 @@ void SettingsActivity::rebuildSettingsLists() {
         librarySettings.push_back(setting);
       }
       // Interface font uses its dedicated preview selector below.
+    } else if (setting.category == StrId::STR_SETTINGS_NETWORK) {
+      networkSettings.push_back(setting);
     }
   }
 
@@ -93,17 +96,18 @@ void SettingsActivity::rebuildSettingsLists() {
                            SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
 
   // Screen and power
-  const auto sleepScreen =
-      std::find_if(powerSettings.begin(), powerSettings.end(),
-                   [](const SettingInfo& setting) { return setting.nameId == StrId::STR_SLEEP_SCREEN; });
+  const auto sleepScreen = std::find_if(powerSettings.begin(), powerSettings.end(), [](const SettingInfo& setting) {
+    return setting.nameId == StrId::STR_SLEEP_SCREEN;
+  });
   powerSettings.insert(sleepScreen == powerSettings.end() ? powerSettings.begin() : sleepScreen + 1,
                        SettingInfo::Action(StrId::STR_LOCK_SCREEN_IMAGE, SettingAction::SelectSleepImage));
 
   // Reading
   readingSettings.insert(readingSettings.begin() + std::min<size_t>(1, readingSettings.size()),
                          SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts));
-  readingSettings.push_back(
-      SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+  readingSettings.insert(readingSettings.begin(),
+                         SettingInfo::Action(StrId::STR_CHOOSE_DICTIONARY, SettingAction::Dictionary));
+  readingSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
 
   // Controls
   controlsSettings.insert(controlsSettings.begin(),
@@ -150,9 +154,7 @@ void SettingsActivity::onExit() {
   UITheme::getInstance().reload();  // Re-apply theme in case it was changed
 }
 
-void SettingsActivity::loop() {
-  loopSubmenu();
-}
+void SettingsActivity::loop() { loopSubmenu(); }
 
 void SettingsActivity::loopSubmenu() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
@@ -218,7 +220,7 @@ void SettingsActivity::toggleCurrentSetting() {
   // through to the cycle-in-place branch below — while render() still drew a
   // chevron and labelled Confirm "Select", promising a submenu that never opened.
   if (setting.nameId == StrId::STR_FONT_FAMILY) {
-    startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+    startActivityForResult(makeUniqueNoThrow<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
                            [this](const ActivityResult&) {
                              SETTINGS.saveToFile();
                              rebuildSettingsLists();
@@ -252,45 +254,45 @@ void SettingsActivity::toggleCurrentSetting() {
 
     switch (setting.action) {
       case SettingAction::RemapFrontButtons:
-        startActivityForResult(std::make_unique<ButtonRemapActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<ButtonRemapActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::CustomiseStatusBar:
-        startActivityForResult(std::make_unique<StatusBarSettingsActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<StatusBarSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::KOReaderSync:
-        startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::OPDSBrowser:
-        startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput),
+        startActivityForResult(makeUniqueNoThrow<OpdsServerListActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) {
                                  OPDS_STORE.loadFromFile();
                                  rebuildSettingsLists();
                                });
         break;
       case SettingAction::Network:
-        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, false), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput, false), resultHandler);
         break;
       case SettingAction::ClearCache:
-        startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<ClearCacheActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::CheckForUpdates:
-        startActivityForResult(std::make_unique<OtaUpdateActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::SdFirmwareUpdate:
-        startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::DownloadFonts:
-        startActivityForResult(std::make_unique<FontDownloadActivity>(renderer, mappedInput),
+        startActivityForResult(makeUniqueNoThrow<FontDownloadActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) {
                                  SETTINGS.saveToFile();
                                  rebuildSettingsLists();
                                });
         break;
       case SettingAction::Language:
-        startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::InterfaceFont:
-        startActivityForResult(std::make_unique<InterfaceFontSelectActivity>(
+        startActivityForResult(makeUniqueNoThrow<InterfaceFontSelectActivity>(
                                    renderer, mappedInput, InterfaceFontSelectActivity::Target::Interface),
                                [this](const ActivityResult&) {
                                  SETTINGS.saveToFile();
@@ -298,7 +300,7 @@ void SettingsActivity::toggleCurrentSetting() {
                                });
         break;
       case SettingAction::AccentFont:
-        startActivityForResult(std::make_unique<InterfaceFontSelectActivity>(
+        startActivityForResult(makeUniqueNoThrow<InterfaceFontSelectActivity>(
                                    renderer, mappedInput, InterfaceFontSelectActivity::Target::Accent),
                                [this](const ActivityResult&) {
                                  SETTINGS.saveToFile();
@@ -306,8 +308,8 @@ void SettingsActivity::toggleCurrentSetting() {
                                });
         break;
       case SettingAction::SelectSleepImage:
-        startActivityForResult(std::make_unique<FileBrowserActivity>(renderer, mappedInput, "/",
-                                                                     FileBrowserActivity::Mode::PickSleepImage),
+        startActivityForResult(makeUniqueNoThrow<FileBrowserActivity>(renderer, mappedInput, "/",
+                                                                      FileBrowserActivity::Mode::PickSleepImage),
                                [this](const ActivityResult& result) {
                                  if (result.isCancelled || !std::holds_alternative<FilePathResult>(result.data)) return;
 
@@ -334,15 +336,18 @@ void SettingsActivity::toggleCurrentSetting() {
         activityManager.goToBrowser();
         break;
       case SettingAction::DeviceInfo:
-        startActivityForResult(std::make_unique<DeviceInfoActivity>(renderer, mappedInput), resultHandler);
+        startActivityForResult(makeUniqueNoThrow<DeviceInfoActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::ResetSettings:
-        startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_SETTINGS),
-                                                                      tr(STR_RESET_SETTINGS_WARNING)),
+        startActivityForResult(makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_SETTINGS),
+                                                                       tr(STR_RESET_SETTINGS_WARNING)),
                                [](const ActivityResult& result) {
                                  if (result.isCancelled) return;
                                  resetFirmwareConfiguration();
                                });
+        break;
+      case SettingAction::Dictionary:
+        startActivityForResult(makeUniqueNoThrow<DictionaryPickerActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing
@@ -390,7 +395,7 @@ void SettingsActivity::syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChan
 
 void SettingsActivity::openSleepTimeoutPicker() {
   startActivityForResult(
-      std::make_unique<IntervalSelectionActivity>(
+      makeUniqueNoThrow<IntervalSelectionActivity>(
           renderer, mappedInput, "SleepTimeoutInterval", StrId::STR_TIME_TO_SLEEP, StrId::STR_SLEEP_TIMER_STEP_HINT,
           SETTINGS.sleepTimeoutMinutes, CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES,
           CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1, 5, StrId::STR_SLEEP_TIMER_VALUE_FORMAT, false, true,
@@ -417,8 +422,7 @@ void SettingsActivity::render(RenderLock&&) {
   const auto& settings = *currentSettings;
   const int listTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   GUI.drawList(
-      renderer,
-      Rect{0, listTop, pageWidth, std::max(0, UITheme::getListContentBottom(renderer, true) - listTop)},
+      renderer, Rect{0, listTop, pageWidth, std::max(0, UITheme::getListContentBottom(renderer, true) - listTop)},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {
@@ -453,14 +457,14 @@ void SettingsActivity::render(RenderLock&&) {
         }
         return valueText;
       },
-      true, nullptr, [&settings](int index) {
+      true, nullptr,
+      [&settings](int index) {
         const auto& setting = settings[index];
         if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
           return SETTINGS.*(setting.valuePtr) ? UIAccessory::ToggleOn : UIAccessory::ToggleOff;
         }
         const bool opensSubmenu = setting.nameId == StrId::STR_TIME_TO_SLEEP ||
-                                  setting.nameId == StrId::STR_FONT_FAMILY ||
-                                  setting.type == SettingType::ACTION;
+                                  setting.nameId == StrId::STR_FONT_FAMILY || setting.type == SettingType::ACTION;
         return opensSubmenu ? UIAccessory::Chevron : UIAccessory::None;
       });
 
@@ -473,8 +477,7 @@ void SettingsActivity::render(RenderLock&&) {
   if (selectedRow >= 0 && selectedRow < static_cast<int>(currentSettings->size())) {
     const auto& selectedSetting = (*currentSettings)[selectedRow];
     opensSubmenu = selectedSetting.nameId == StrId::STR_TIME_TO_SLEEP ||
-                   selectedSetting.nameId == StrId::STR_FONT_FAMILY ||
-                   selectedSetting.type == SettingType::ACTION;
+                   selectedSetting.nameId == StrId::STR_FONT_FAMILY || selectedSetting.type == SettingType::ACTION;
   }
   const auto confirmLabel = opensSubmenu ? tr(STR_SELECT) : tr(STR_TOGGLE);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));

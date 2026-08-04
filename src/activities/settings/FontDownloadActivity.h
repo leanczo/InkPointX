@@ -64,8 +64,11 @@ class FontDownloadActivity : public Activity {
   struct ManifestFamily {
     std::string name;
     std::string description;
-    std::vector<std::string> styles;
+    // The catalog keeps only display/status metadata. File names and CRCs are
+    // loaded for one family at a time from the manifest cached on SD, so TLS
+    // never has to compete with all 84 file records on the C3 heap.
     std::vector<ManifestFile> files;
+    size_t fileCount = 0;
     size_t totalSize = 0;
     bool installed = false;
     bool hasUpdate = false;
@@ -86,7 +89,9 @@ class FontDownloadActivity : public Activity {
   size_t fileProgress_ = 0;
   size_t fileTotal_ = 0;
   int lastNotifiedPercent_ = -1;
+  unsigned long lastProgressRenderMs_ = 0;
   int downloadingFamilyIndex_ = -1;
+  std::string downloadingFamilyName_;
   // What the ERROR screen's Retry should re-run.
   enum class FailedOp { None, Manifest, Download, Delete };
   FailedOp lastFailedOp_ = FailedOp::None;
@@ -95,10 +100,10 @@ class FontDownloadActivity : public Activity {
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();
-  void downloadFamily(ManifestFamily& family, bool finalize = true);
+  bool loadFamilyFiles(int familyIndex, ManifestFamily& outFamily);
+  void downloadFamily(int familyIndex, bool finalize = true);
   void downloadAll();
   void updateAll();
-  static bool computeFileCrc32(const char* path, uint32_t& outCrc);
   bool showDownloadAllRow() const;
   bool showUpdateAllRow() const;
   int specialRowCount() const;

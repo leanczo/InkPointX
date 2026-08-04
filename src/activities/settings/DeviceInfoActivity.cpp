@@ -1,12 +1,11 @@
 #include "DeviceInfoActivity.h"
 
 #include <GfxRenderer.h>
-
-#include <algorithm>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <string>
@@ -43,9 +42,8 @@ void DeviceInfoActivity::render(RenderLock&&) {
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   GUI.drawList(
       renderer, Rect{0, top, width, std::max(0, UITheme::getListContentBottom(renderer, false) - top)},
-      static_cast<int>(labels.size()), -1,
-      [&labels](const int index) { return std::string(labels[index]); }, nullptr, nullptr,
-      [&values](const int index) { return values[index]; }, false);
+      static_cast<int>(labels.size()), -1, [&labels](const int index) { return std::string(labels[index]); }, nullptr,
+      nullptr, [&values](const int index) { return values[index]; }, false);
 
   // Nothing here is selectable — "Select" promised a detail view that does
   // not exist. Confirm stays a hidden alias of Back.

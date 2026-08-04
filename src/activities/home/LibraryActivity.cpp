@@ -1,11 +1,14 @@
 #include "LibraryActivity.h"
 
+#include <Arduino.h>
+#include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <esp_task_wdt.h>
 
 #include <algorithm>
 #include <cctype>
@@ -14,8 +17,10 @@
 #include "CrossPointSettings.h"
 #include "FavoriteBooksStore.h"
 #include "RecentBooksStore.h"
+#include "activities/reader/ProgressFile.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/BookCacheUtils.h"
 
 namespace {
 bool isSupportedBook(const std::string_view filename) {
@@ -49,6 +54,63 @@ const RecentBook* findMetadata(const std::vector<RecentBook>& books, const std::
   }
   return nullptr;
 }
+
+struct LibraryProgress {
+  bool opened = false;
+  uint8_t percent = 0;
+};
+
+uint16_t readLe16(const uint8_t* data) {
+  return static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
+}
+
+LibraryProgress loadLibraryProgress(const std::string& path, const bool listedInRecents) {
+  LibraryProgress result{listedInRecents, 0};
+  const std::string cachePath = getBookCachePath(path);
+  if (cachePath.empty()) return result;
+
+  const std::string progressPath = cachePath + "/progress.bin";
+  if (!Storage.exists(progressPath.c_str())) return result;
+  HalFile progressFile;
+  if (!Storage.openFileForRead("LIB", progressPath, progressFile)) return result;
+
+  result.opened = true;
+  uint8_t data[7]{};
+  const int bytesRead = progressFile.read(data, sizeof(data));
+  progressFile.close();
+  if (bytesRead == 7 && data[6] <= 100) {
+    result.percent = data[6];
+    return result;
+  }
+  if (bytesRead != 4 && bytesRead != 6) return result;
+
+  // One-time migration for progress written by older firmware. Loading an
+  // existing book.bin is cheap and never starts indexing (buildIfMissing=false).
+  // Once calculated, the seventh byte makes every later library visit O(1).
+  Epub epub(path, "/.crosspoint");
+  if (!epub.load(false, true)) return result;
+
+  const uint16_t spineIndex = readLe16(data);
+  if (spineIndex >= epub.getSpineItemsCount()) return result;
+  uint16_t pageNumber = readLe16(data + 2);
+  if (pageNumber == UINT16_MAX) pageNumber = 0;
+  const uint16_t pageCount = bytesRead == 6 ? readLe16(data + 4) : 0;
+  const float chapterProgress = pageCount > 0 ? std::min(1.0f, static_cast<float>(pageNumber) / pageCount) : 0.0f;
+  const float bookProgress = std::clamp(epub.calculateProgress(spineIndex, chapterProgress), 0.0f, 1.0f);
+  result.percent = static_cast<uint8_t>(bookProgress * 100.0f + 0.5f);
+
+  data[6] = result.percent;
+  if (!ProgressFile::writeAtomic(cachePath, data, sizeof(data))) {
+    LOG_ERR("LIB", "Could not upgrade progress summary for %s", path.c_str());
+  }
+  return result;
+}
+
+std::string makeBookSubtitle(const std::string& author, const uint8_t percent) {
+  if (percent == 0) return author;
+  if (author.empty()) return std::to_string(percent) + "%";
+  return author + " · " + std::to_string(percent) + "%";
+}
 }  // namespace
 
 void LibraryActivity::onEnter() {
@@ -59,8 +121,11 @@ void LibraryActivity::onEnter() {
     requestUpdate();
     return;
   }
+  loading = true;
+  requestUpdateAndWait();
   FAVORITE_BOOKS.pruneMissing();
   loadBooks();
+  loading = false;
   selectedIndex = 0;
   requestUpdate();
 }
@@ -87,9 +152,11 @@ void LibraryActivity::loadFavorites() {
   const auto& recents = RECENT_BOOKS.getBooks();
   for (const RecentBook& favorite : favorites) {
     int recentRank = 1000;
-    findMetadata(recents, favorite.path, &recentRank);
+    const bool isRecent = findMetadata(recents, favorite.path, &recentRank) != nullptr;
+    const LibraryProgress progress = loadLibraryProgress(favorite.path, isRecent);
     books.push_back({favorite.path, favorite.title.empty() ? displayTitleFromPath(favorite.path) : favorite.title,
-                     favorite.author, displayFormatFromPath(favorite.path), recentRank, true});
+                     favorite.author, makeBookSubtitle(favorite.author, progress.percent),
+                     displayFormatFromPath(favorite.path), recentRank, true, !progress.opened});
   }
 }
 
@@ -97,21 +164,34 @@ void LibraryActivity::scanAllBooks() {
   if (!fileNameBuffer) return;
 
   std::vector<std::string> directories;
-  directories.reserve(16);
+  directories.reserve(64);
   directories.emplace_back("/");
+  constexpr size_t MAX_SCANNED_DIRECTORIES = 128;
+  constexpr size_t MAX_SCANNED_ENTRIES = 4096;
+  size_t scannedDirectories = 0;
+  size_t scannedEntries = 0;
 
   const auto& recents = RECENT_BOOKS.getBooks();
   const auto& favorites = FAVORITE_BOOKS.getBooks();
 
-  while (!directories.empty() && books.size() < MAX_LIBRARY_BOOKS) {
+  while (!directories.empty() && books.size() < MAX_LIBRARY_BOOKS && scannedDirectories < MAX_SCANNED_DIRECTORIES &&
+         scannedEntries < MAX_SCANNED_ENTRIES) {
     std::string directory = std::move(directories.back());
     directories.pop_back();
+    ++scannedDirectories;
 
     auto root = Storage.open(directory.c_str());
     if (!root || !root.isDirectory()) continue;
     root.rewindDirectory();
 
     for (auto entry = root.openNextFile(); entry && books.size() < MAX_LIBRARY_BOOKS; entry = root.openNextFile()) {
+      if (++scannedEntries > MAX_SCANNED_ENTRIES) break;
+      if ((scannedEntries & 0x0F) == 0) {
+        // Slow or fragmented SD cards can make a bounded 4096-entry scan take
+        // longer than the main-loop watchdog window.
+        esp_task_wdt_reset();
+        yield();
+      }
       entry.getName(fileNameBuffer.get(), NAME_BUFFER_SIZE);
       const char* name = fileNameBuffer.get();
       if (name[0] == '\0' || strcmp(name, "System Volume Information") == 0) continue;
@@ -122,7 +202,7 @@ void LibraryActivity::scanAllBooks() {
       fullPath += name;
 
       if (entry.isDirectory()) {
-        directories.push_back(std::move(fullPath));
+        if (directories.size() < MAX_SCANNED_DIRECTORIES) directories.push_back(std::move(fullPath));
         continue;
       }
       if (!isSupportedBook(name)) continue;
@@ -136,8 +216,10 @@ void LibraryActivity::scanAllBooks() {
       const char* author = recent && !recent->author.empty()       ? recent->author.c_str()
                            : favorite && !favorite->author.empty() ? favorite->author.c_str()
                                                                    : "";
+      const LibraryProgress progress = loadLibraryProgress(fullPath, recent != nullptr);
       books.push_back({fullPath, title ? std::string(title) : displayTitleFromPath(fullPath), author,
-                       displayFormatFromPath(fullPath), recentRank, favorite != nullptr});
+                       makeBookSubtitle(author, progress.percent), displayFormatFromPath(fullPath), recentRank,
+                       favorite != nullptr, !progress.opened});
     }
   }
 }
@@ -262,15 +344,16 @@ void LibraryActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, !books.empty()) - contentTop);
   if (books.empty()) {
-    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight},
-                       mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND), nullptr,
-                       /*script=*/true);
+    GUI.drawEmptyState(
+        renderer, Rect{0, contentTop, pageWidth, contentHeight},
+        loading ? tr(STR_SCANNING) : (mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND)), nullptr,
+        /*script=*/true);
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(books.size()),
         static_cast<int>(selectedIndex), [this](int index) { return books[index].title; },
-        [this](int index) { return books[index].author; },
-        [this](int index) { return UITheme::getFileIcon(books[index].path); },
+        [this](int index) { return books[index].subtitle; },
+        [this](int index) { return books[index].isNew ? UIIcon::BookNew : UITheme::getFileIcon(books[index].path); },
         // No format column. It cost roughly 70 px of every row to repeat what the
         // leading icon already says -- this is a book -- while the title, which is
         // how anyone actually picks what to read, was truncated to make room. The
@@ -285,9 +368,8 @@ void LibraryActivity::render(RenderLock&&) {
     GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), static_cast<int>(books.size()));
   }
 
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_HOME), books.empty() ? "" : tr(STR_OPEN),
-                            mode == Mode::AllBooks ? "<" : "", mode == Mode::AllBooks ? ">" : "");
+  const auto labels = mappedInput.mapLabels(tr(STR_HOME), books.empty() ? "" : tr(STR_OPEN),
+                                            mode == Mode::AllBooks ? "<" : "", mode == Mode::AllBooks ? ">" : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

@@ -1,11 +1,12 @@
 #pragma once
 
 #include <cstddef>
-#include "fontIds.h"
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
+
+#include "fontIds.h"
 
 class GfxRenderer;
 struct RecentBook;
@@ -101,6 +102,7 @@ enum UIIcon {
   Text,
   Image,
   Book,
+  BookNew,
   File,
   Recent,
   Settings,
@@ -118,6 +120,16 @@ enum UIIcon {
   NetworkSync,
   System,
   Clock,
+  ReaderPage,
+  ReaderChapters,
+  ReaderDictionary,
+  ReaderFootnotes,
+  ReaderStats,
+  ReaderRotate,
+  ReaderAutoTurn,
+  ReaderQr,
+  ReaderHome,
+  ReaderTrash,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };
@@ -220,7 +232,8 @@ class BaseTheme {
                         const std::function<UIIcon(int index)>& rowIcon = nullptr,
                         const std::function<std::string(int index)>& rowValue = nullptr, bool highlightValue = false,
                         const std::function<bool(int index)>& rowDimmed = nullptr,
-                        const std::function<UIAccessory(int index)>& rowAccessory = nullptr) const;
+                        const std::function<UIAccessory(int index)>& rowAccessory = nullptr,
+                        const std::function<bool(int index)>& rowSection = nullptr) const;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                           const char* subtitle = nullptr) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
@@ -230,7 +243,8 @@ class BaseTheme {
                               const std::function<UIIcon(int index)>& rowIcon) const;
   void drawSelection(const GfxRenderer& renderer, Rect rect) const;
   virtual void drawPageDots(const GfxRenderer& renderer, int selectedPage, int pageCount) const;
-  virtual void drawFooterCounter(GfxRenderer& renderer, int selectedIndex, int itemCount) const;
+  virtual void drawFooterCounter(GfxRenderer& renderer, int selectedIndex, int itemCount,
+                                 const char* status = nullptr) const;
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
   void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,

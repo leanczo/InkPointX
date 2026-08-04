@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <InputManager.h>
 
+#include <atomic>
+
 // Display SPI pins (custom pins for XteinkX4, not hardware SPI defaults)
 #define EPD_SCLK 8   // SPI Clock
 #define EPD_MOSI 10  // SPI MOSI (Master Out Slave In)
@@ -43,14 +45,42 @@ class HalGPIO {
   InputManager inputMgr;
 #endif
 
-  bool lastUsbConnected = false;
-  bool usbStateChanged = false;
+  // Physical refreshes take roughly half a second on X3/X4. The Arduino loop
+  // keeps sampling during that time, but the active Activity is deliberately
+  // locked against the render task. InputManager edges only live for one
+  // sample, so without this queue every click made mid-refresh disappears.
+  struct InputEvent {
+    uint8_t pressed = 0;
+    uint8_t released = 0;
+  };
+  static constexpr uint8_t INPUT_EVENT_QUEUE_SIZE = 32;
+  InputEvent inputEvents[INPUT_EVENT_QUEUE_SIZE]{};
+  uint8_t inputEventHead = 0;
+  uint8_t inputEventCount = 0;
+  bool inputQueueOverflowLogged = false;
+
+  void enqueueInputEdges(uint8_t pressed, uint8_t released);
+  InputEvent* newestPendingPress(uint8_t buttonMask);
+
+  // X4 has a real USB-detect GPIO. X3 does not: its best available signal is
+  // the fuel-gauge current sign, which means "actively charging", not "VBUS is
+  // present". Keep that slow I2C-derived indication cached here so rendering a
+  // battery icon can never perform an I2C transaction and the main loop does
+  // not hammer the gauge at 20-100 Hz.
+  std::atomic<bool> lastUsbConnected{false};
+  std::atomic<bool> usbStateChanged{false};
+  bool x3PowerSampleInitialized = false;
+  bool x3PowerCandidate = false;
+  uint8_t x3PowerCandidateSamples = 0;
+  unsigned long x3PowerLastPollMs = 0;
 
  public:
   enum class DeviceType : uint8_t { X4, X3 };
 
  private:
   DeviceType _deviceType = DeviceType::X4;
+
+  void updatePowerState();
 
  public:
   HalGPIO() = default;
@@ -70,6 +100,18 @@ class HalGPIO {
   bool wasAnyPressed() const;
   bool wasReleased(uint8_t buttonIndex) const;
   bool wasAnyReleased() const;
+  // Removes the event currently exposed by wasPressed()/wasReleased(). Called
+  // only after the active Activity has actually had a chance to consume it.
+  void consumeInputEvent();
+  void clearInputEvents();
+  bool hasPendingInputEvent() const { return inputEventCount != 0; }
+  // Safe to coalesce within one UI frame: directional buttons only. Back,
+  // Confirm and Power remain one-per-main-loop because they can change screens
+  // or trigger system actions.
+  bool pendingInputIsNavigationOnly() const;
+#if LOG_LEVEL >= 2
+  void enqueueSyntheticClick(uint8_t buttonIndex);
+#endif
   unsigned long getHeldTime() const;
   unsigned long getPowerButtonHeldTime() const;
 
@@ -78,7 +120,10 @@ class HalGPIO {
   // Should only be called when wakeup reason is PowerButton.
   bool verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed);
 
-  // Check if USB is connected
+  // Check if external power is observed. On X4 this is the hardware USB-detect
+  // pin. On X3 there is no reliable VBUS signal, so this returns the cached,
+  // debounced "actively charging" indication. It must not be used to classify
+  // an X3 boot source.
   bool isUsbConnected() const;
 
   // Returns true once per edge (plug or unplug) since the last update()

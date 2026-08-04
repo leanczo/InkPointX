@@ -13,6 +13,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cstring>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -24,6 +25,39 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+namespace {
+constexpr uint32_t XTC_PROGRESS_MAGIC = 0x52505458;  // "XTPR"
+constexpr uint8_t XTC_PROGRESS_VERSION = 1;
+constexpr size_t XTC_PROGRESS_SIZE = 24;
+
+void writeLe32(uint8_t* out, const uint32_t value) {
+  out[0] = static_cast<uint8_t>(value);
+  out[1] = static_cast<uint8_t>(value >> 8);
+  out[2] = static_cast<uint8_t>(value >> 16);
+  out[3] = static_cast<uint8_t>(value >> 24);
+}
+
+uint32_t readLe32(const uint8_t* in) {
+  return static_cast<uint32_t>(in[0]) | (static_cast<uint32_t>(in[1]) << 8) | (static_cast<uint32_t>(in[2]) << 16) |
+         (static_cast<uint32_t>(in[3]) << 24);
+}
+
+void writeLe64(uint8_t* out, const uint64_t value) {
+  writeLe32(out, static_cast<uint32_t>(value));
+  writeLe32(out + 4, static_cast<uint32_t>(value >> 32));
+}
+
+uint64_t readLe64(const uint8_t* in) {
+  return static_cast<uint64_t>(readLe32(in)) | (static_cast<uint64_t>(readLe32(in + 4)) << 32);
+}
+
+uint32_t progressChecksum(const uint8_t* data, const size_t length) {
+  uint32_t hash = 2166136261u;
+  for (size_t i = 0; i < length; ++i) hash = (hash ^ data[i]) * 16777619u;
+  return hash;
+}
+}  // namespace
+
 void XtcReaderActivity::onEnter() {
   Activity::onEnter();
 
@@ -32,6 +66,7 @@ void XtcReaderActivity::onEnter() {
   }
 
   xtc->setupCacheDir();
+  readingStats.begin(xtc->getCachePath());
 
   // Load saved progress
   loadProgress();
@@ -48,6 +83,8 @@ void XtcReaderActivity::onEnter() {
 void XtcReaderActivity::onExit() {
   Activity::onExit();
 
+  if (xtc) readingStats.finish(xtc->getCachePath());
+
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   xtc.reset();
@@ -58,7 +95,7 @@ void XtcReaderActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (xtc && xtc->hasChapters() && !xtc->getChapters().empty()) {
       startActivityForResult(
-          std::make_unique<XtcReaderChapterSelectionActivity>(renderer, mappedInput, xtc, currentPage),
+          makeUniqueNoThrow<XtcReaderChapterSelectionActivity>(renderer, mappedInput, xtc, currentPage),
           [this](const ActivityResult& result) {
             if (!result.isCancelled) {
               currentPage = std::get<PageResult>(result.data).page;
@@ -84,6 +121,8 @@ void XtcReaderActivity::loop() {
   if (!prevTriggered && !nextTriggered) {
     return;
   }
+
+  readingStats.pageTurn(nextTriggered);
 
   // At end of the book, forward button goes home and back button returns to last page
   if (currentPage >= xtc->getPageCount()) {
@@ -135,6 +174,7 @@ void XtcReaderActivity::render(RenderLock&&) {
   }
 
   renderPage();
+  readingStats.pageShown();
   saveProgress();
 }
 
@@ -209,23 +249,26 @@ void XtcReaderActivity::renderStatusBarOverlay(const StatusBarOverlayPosition po
 }
 
 void XtcReaderActivity::renderPage() {
-  const uint16_t pageWidth = xtc->getPageWidth();
-  const uint16_t pageHeight = xtc->getPageHeight();
+  xtc::PageInfo pageInfo{};
+  if (!xtc->getPageInfo(currentPage, pageInfo)) {
+    renderer.clearScreen();
+    GUI.drawReaderMessage(renderer, tr(STR_PAGE_LOAD_ERROR));
+    renderer.displayBuffer();
+    return;
+  }
+  const uint16_t pageWidth = pageInfo.width;
+  const uint16_t pageHeight = pageInfo.height;
   const uint8_t bitDepth = xtc->getBitDepth();
 
   // Calculate buffer size for one page
   // XTG (1-bit): Row-major, ((width+7)/8) * height bytes
-  // XTH (2-bit): Two bit planes, column-major, ((width * height + 7) / 8) * 2 bytes
-  size_t pageBufferSize;
-  if (bitDepth == 2) {
-    // Size each plane the way getPixelValue() addresses it: column-major with
-    // whole bytes per column. Deriving it from (width*height+7)/8 instead
-    // under-allocates whenever the height is not a multiple of 8 — at 480x799
-    // by 60 bytes per plane — so the reader read past the buffer and placed
-    // plane2 inside plane1's data.
-    pageBufferSize = static_cast<size_t>(pageWidth) * ((pageHeight + 7) / 8) * 2;
-  } else {
-    pageBufferSize = ((pageWidth + 7) / 8) * pageHeight;
+  // XTH (2-bit): Two column-major planes, width * ceil(height / 8) bytes each
+  size_t pageBufferSize = 0;
+  if (!xtc::calculateBitmapSize(pageWidth, pageHeight, bitDepth, pageBufferSize)) {
+    renderer.clearScreen();
+    GUI.drawReaderMessage(renderer, tr(STR_PAGE_LOAD_ERROR));
+    renderer.displayBuffer();
+    return;
   }
 
   // Zeroed: a short read must not render uninitialised heap as pixels.
@@ -423,11 +466,12 @@ void XtcReaderActivity::renderPage() {
 }
 
 void XtcReaderActivity::saveProgress() const {
-  uint8_t data[4];
-  data[0] = currentPage & 0xFF;
-  data[1] = (currentPage >> 8) & 0xFF;
-  data[2] = (currentPage >> 16) & 0xFF;
-  data[3] = (currentPage >> 24) & 0xFF;
+  uint8_t data[XTC_PROGRESS_SIZE]{};
+  writeLe32(data, XTC_PROGRESS_MAGIC);
+  data[4] = XTC_PROGRESS_VERSION;
+  writeLe64(data + 8, xtc->getSourceFingerprint());
+  writeLe32(data + 16, currentPage);
+  writeLe32(data + 20, progressChecksum(data, 20));
   if (!ProgressFile::writeAtomic(xtc->getCachePath(), data, sizeof(data))) {
     LOG_ERR("XTR", "Failed to save progress: page %lu", currentPage);
   }
@@ -436,15 +480,29 @@ void XtcReaderActivity::saveProgress() const {
 void XtcReaderActivity::loadProgress() {
   HalFile f;
   if (Storage.openFileForRead("XTR", xtc->getCachePath() + "/progress.bin", f)) {
-    uint8_t data[4];
-    if (f.read(data, 4) == 4) {
-      currentPage = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+    uint8_t data[XTC_PROGRESS_SIZE]{};
+    const int bytesRead = f.read(data, sizeof(data));
+    bool valid = false;
+    if (bytesRead == static_cast<int>(XTC_PROGRESS_SIZE)) {
+      valid = readLe32(data) == XTC_PROGRESS_MAGIC && data[4] == XTC_PROGRESS_VERSION &&
+              readLe64(data + 8) == xtc->getSourceFingerprint() && readLe32(data + 20) == progressChecksum(data, 20);
+      if (valid) currentPage = readLe32(data + 16);
+    } else if (bytesRead == 4) {
+      // One-time compatibility with the old unversioned progress record. The
+      // next rendered page rewrites it with source identity and checksum.
+      currentPage = readLe32(data);
+      valid = true;
+    }
+    if (valid) {
       LOG_DBG("XTR", "Loaded progress: page %lu", currentPage);
 
       // Validate page number
       if (currentPage >= xtc->getPageCount()) {
         currentPage = 0;
       }
+    } else {
+      currentPage = 0;
+      LOG_ERR("XTR", "Ignoring corrupt or stale XTC progress record");
     }
     f.close();
   }

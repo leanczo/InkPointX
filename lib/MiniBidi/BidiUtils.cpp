@@ -1,4 +1,5 @@
 #include "BidiUtils.h"
+
 #include "ArabicShaper.h"
 
 extern "C" {

@@ -6,11 +6,11 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
   static const std::vector<SettingInfo> baseList = [] {
     std::vector<SettingInfo> v = {
         // --- Display ---
-        SettingInfo::DynamicEnum(
-            StrId::STR_SLEEP_SCREEN,
-            {StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
-             StrId::STR_COVER_CUSTOM, StrId::STR_QUICK_RESUME},
-            getVisibleSleepScreenMode, setVisibleSleepScreenMode, "sleepScreen", StrId::STR_CAT_DISPLAY),
+        SettingInfo::DynamicEnum(StrId::STR_SLEEP_SCREEN,
+                                 {StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
+                                  StrId::STR_COVER_CUSTOM, StrId::STR_QUICK_RESUME},
+                                 getVisibleSleepScreenMode, setVisibleSleepScreenMode, "sleepScreen",
+                                 StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
                           {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
@@ -19,8 +19,8 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
         SettingInfo::Enum(StrId::STR_QUICK_RESUME_TIMEOUT, &CrossPointSettings::quickResumeSleepScreen,
                           {StrId::STR_STATE_OFF, StrId::STR_STATE_ON}, "quickResumeSleepScreen",
                           StrId::STR_CAT_DISPLAY),
-        SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::showBatteryIndicator,
-                            "showBatteryIndicator", StrId::STR_CAT_DISPLAY),
+        SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::showBatteryIndicator, "showBatteryIndicator",
+                            StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
                           {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
                           StrId::STR_CAT_DISPLAY),
@@ -99,8 +99,12 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
                             "removeReadBooksFromRecents", StrId::STR_CAT_SYSTEM),
         SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
                             "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM),
-        SettingInfo::Enum(StrId::STR_INTERFACE_FONT, &CrossPointSettings::uiFontFamily,
-                          {StrId::STR_UI_FONT_NAME}, "uiFontFamily", StrId::STR_CAT_SYSTEM),
+        SettingInfo::Enum(StrId::STR_INTERFACE_FONT, &CrossPointSettings::uiFontFamily, {StrId::STR_UI_FONT_NAME},
+                          "uiFontFamily", StrId::STR_CAT_SYSTEM),
+
+        // --- Network ---
+        SettingInfo::Toggle(StrId::STR_WEB_INTERFACE_AUTH, &CrossPointSettings::webInterfaceAuth, "webInterfaceAuth",
+                            StrId::STR_SETTINGS_NETWORK),
 
         // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
         SettingInfo::DynamicString(

@@ -24,9 +24,11 @@ class LibraryActivity final : public Activity {
     std::string path;
     std::string title;
     std::string author;
+    std::string subtitle;
     std::string format;
     int recentRank = 1000;
     bool favorite = false;
+    bool isNew = true;
   };
 
   enum class SortMode : uint8_t { Title, Author, Format, Recent, Count };
@@ -42,6 +44,7 @@ class LibraryActivity final : public Activity {
   size_t selectedIndex = 0;
   SortMode sortMode = SortMode::Title;
   bool longPressFired = false;
+  bool loading = false;
 
   void loadBooks();
   void scanAllBooks();

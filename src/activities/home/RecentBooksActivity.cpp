@@ -8,11 +8,11 @@
 #include <memory>
 
 #include "MappedInputManager.h"
-#include "util/HoldGestures.h"
 #include "RecentBooksStore.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/HoldGestures.h"
 
 namespace {
 // Hold threshold for the long-press "remove from list" action (firmware convention).
@@ -119,7 +119,7 @@ void RecentBooksActivity::promptRemoveBook(const std::string& path, const std::s
   };
 
   startActivityForResult(
-      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title),
+      makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title),
       std::move(handler));
 }
 

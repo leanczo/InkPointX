@@ -5,9 +5,9 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 
+#include <array>
 #include <memory>
 #include <string>
-#include <vector>
 
 // Structure to hold file information
 struct FileInfo {
@@ -34,6 +34,8 @@ class CrossPointWebServer {
     HalFile file;
     String fileName;
     String path = "/";
+    String finalPath;
+    String tempPath;
     size_t size = 0;
     bool success = false;
     String error = "";
@@ -42,10 +44,8 @@ class CrossPointWebServer {
     // 4KB is a good balance: large enough to reduce syscall overhead, small enough
     // to keep individual write times short and avoid watchdog issues
     static constexpr size_t UPLOAD_BUFFER_SIZE = 4096;  // 4KB buffer
-    std::vector<uint8_t> buffer;
+    std::array<uint8_t, UPLOAD_BUFFER_SIZE> buffer{};
     size_t bufferPos = 0;
-
-    UploadState() { buffer.resize(UPLOAD_BUFFER_SIZE); }
   } upload;
 
   CrossPointWebServer();
@@ -68,15 +68,30 @@ class CrossPointWebServer {
   // Get the port number
   uint16_t getPort() const { return port; }
 
+  // Per-server-session credential. The activity should put this in the shown
+  // URL as `?pair=<token>`; the first successful request receives an HttpOnly
+  // session cookie used by the web UI and WebSocket connection.
+  const char* getPairingToken() const { return pairingToken.data(); }
+
+  // Authentication is captured when this server session is created. This
+  // keeps the QR/address shown by the activity consistent for its lifetime.
+  bool isAuthenticationEnabled() const { return authenticationEnabled; }
+
  private:
   std::unique_ptr<WebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
   bool apMode = false;  // true when running in AP mode, false for STA mode
+  bool authenticationEnabled = true;
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;
   bool udpActive = false;
+  std::array<char, 33> pairingToken{};  // 128 random bits as lowercase hex
+
+  void generatePairingToken();
+  bool isAuthorizedRequest(WebServer& request) const;
+  void rejectUnauthorized(WebServer& request) const;
 
   // WebSocket upload state
   void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length);
@@ -120,14 +135,15 @@ class CrossPointWebServer {
     HalFile file;
     std::string familyName;
     std::string filePath;
+    std::string tempPath;
     bool valid = false;
     bool magicChecked = false;
+    uint8_t magic[8] = {};
+    size_t magicSize = 0;
     size_t bytesWritten = 0;
     static constexpr size_t BUFFER_SIZE = 4096;
-    std::vector<uint8_t> buffer;
+    std::array<uint8_t, BUFFER_SIZE> buffer{};
     size_t bufferPos = 0;
-
-    FontUploadState() { buffer.resize(BUFFER_SIZE); }
   } fontUpload;
 
   // OPDS server handlers
