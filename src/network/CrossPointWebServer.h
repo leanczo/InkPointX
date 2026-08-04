@@ -73,11 +73,16 @@ class CrossPointWebServer {
   // session cookie used by the web UI and WebSocket connection.
   const char* getPairingToken() const { return pairingToken.data(); }
 
+  // Authentication is captured when this server session is created. This
+  // keeps the QR/address shown by the activity consistent for its lifetime.
+  bool isAuthenticationEnabled() const { return authenticationEnabled; }
+
  private:
   std::unique_ptr<WebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
   bool apMode = false;  // true when running in AP mode, false for STA mode
+  bool authenticationEnabled = true;
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
   NetworkUDP udp;

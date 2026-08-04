@@ -21,13 +21,15 @@ const char* FIXED_DATE = "Thu, 01 Jan 2024 00:00:00 GMT";
 
 }  // namespace
 
-WebDAVHandler::WebDAVHandler(const char* pairingToken) {
+WebDAVHandler::WebDAVHandler(const char* pairingToken, const bool authenticationEnabled)
+    : _authenticationEnabled(authenticationEnabled) {
   if (!pairingToken) return;
   strncpy(_pairingToken, pairingToken, sizeof(_pairingToken) - 1);
   _pairingToken[sizeof(_pairingToken) - 1] = '\0';
 }
 
 bool WebDAVHandler::isAuthorized(WebServer& s) const {
+  if (!_authenticationEnabled) return true;
   const auto tokenMatches = [this](const String& supplied) {
     if (supplied.length() != 32) return false;
     uint8_t difference = 0;

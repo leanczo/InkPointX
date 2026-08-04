@@ -286,6 +286,9 @@ class CrossPointSettings {
   char dictionaryFolder[DICTIONARY_FOLDER_MAX] = "";
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
+  // Require the per-session pairing credential for HTTP, WebSocket and WebDAV access.
+  // Enabled by default; disabling it makes the web interface public on the active network.
+  uint8_t webInterfaceAuth = 1;
   // Remove a book from the Recent Books list when its End-of-Book screen is reached (0 = off, 1 = on)
   uint8_t removeReadBooksFromRecents = 0;
   // Move epub to /Read/ folder on SD card when finished (0 = disabled, 1 = enabled)

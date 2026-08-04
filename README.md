@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-000000">
+  <img alt="Version 2.2.1" src="https://img.shields.io/badge/version-2.2.1-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,10 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Safer, cleaner web pairing in 2.2.1.** Long pairing URLs no longer run outside the X3/X4 display: the full
+  credential stays in the QR payload while the address and bounded pairing code use separate lines. Web-interface
+  authorization now has an enabled-by-default switch under **Settings → Network & Sync** and consistently controls
+  HTTP, WebSocket uploads, and WebDAV.
 - **Reading statistics.** Library now includes an e-ink-native statistics hub with an overview, the last 7 days,
   the last 8 weeks, per-book details, reading-time habits, sessions, streaks, completed books, and up to 730 days
   of compact history. EPUB, FB2, PDF, XTC, TXT, and Markdown reading all contribute to the same totals.
@@ -133,7 +137,7 @@ The full element-by-element findings and decisions are recorded in [design-qa.md
 
 The home screen is organized into three horizontal pages:
 
-1. **Now Reading** — the largest safe cover, title, author, a single progress band, and a primary continue action.
+1. **Now Reading** — the largest safe cover, title, smaller author line, and a single compact progress band.
 2. **Library** — Books, Files, Gallery, Favorites, Reading Stats, plus a dedicated Transfer subsection.
 3. **Settings** — focused submenus for interface, power, reading, controls, files, network, and system options.
 
@@ -202,7 +206,7 @@ Files is a full on-device file manager, not a second book list:
 - receive books wirelessly from Calibre;
 - create a local access point;
 - upload, download, rename, move, and delete files through the web interface;
-- WebDAV access;
+- pairing-protected web and WebDAV access, with an enabled-by-default authorization switch under Network & Sync;
 - OPDS catalog browsing, with cancellable downloads;
 - over-the-air updates with rollback protection.
 

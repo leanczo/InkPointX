@@ -102,6 +102,10 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
         SettingInfo::Enum(StrId::STR_INTERFACE_FONT, &CrossPointSettings::uiFontFamily, {StrId::STR_UI_FONT_NAME},
                           "uiFontFamily", StrId::STR_CAT_SYSTEM),
 
+        // --- Network ---
+        SettingInfo::Toggle(StrId::STR_WEB_INTERFACE_AUTH, &CrossPointSettings::webInterfaceAuth, "webInterfaceAuth",
+                            StrId::STR_SETTINGS_NETWORK),
+
         // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
         SettingInfo::DynamicString(
             StrId::STR_KOREADER_USERNAME, [] { return KOREADER_STORE.getUsername(); },

@@ -227,7 +227,7 @@ def select_converter_python() -> str:
 def build_signature(codepoints: set[int], font_paths: dict[str, Path]) -> str:
     digest = hashlib.sha256()
     digest.update(b"inter-ui-subsets-v2\0")
-    digest.update(b"sizes=8,10,12,14,16;script=18ltr,20full-w600;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
+    digest.update(b"sizes=8,10,12,14,16;script=16ltr,20full-w600;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
                 b"wght=500/600;opsz=size;fallback=hebrew+arabic\0")
     for codepoint in sorted(codepoints):
         digest.update(codepoint.to_bytes(4, "little"))
@@ -359,7 +359,7 @@ def main() -> None:
         for size in SIZES
         for weight in WEIGHTS
     ]
-    expected_outputs.extend(FONT_OUTPUT_DIR / f"ui_script_{size}.h" for size in (18, 20))
+    expected_outputs.extend(FONT_OUTPUT_DIR / f"ui_script_{size}.h" for size in (16, 20))
     current_stamp = STAMP_PATH.read_text(encoding="ascii").strip() if STAMP_PATH.exists() else ""
     if current_stamp != signature or not all(path.exists() for path in expected_outputs):
         python = select_converter_python()
@@ -380,16 +380,16 @@ def main() -> None:
                     generate_font(python, weight, size, stack_for(weight, size))
 
             # The normal accent voice is 20 pt and carries the full UI fallback
-            # stack. The author-only 18 pt cut keeps Caveat's Latin/Cyrillic
-            # coverage compact; Home uses the existing UI_16 face for RTL text.
-            caveat_small = temporary / "Caveat-600-18.ttf"
-            instance_inter(caveat_source, 600, 18, caveat_small)
+            # stack. The author-only 16 pt cut keeps Caveat's Latin/Cyrillic
+            # coverage compact; Home uses the existing UI_12 face for RTL text.
+            caveat_small = temporary / "Caveat-600-16.ttf"
+            instance_inter(caveat_source, 600, 16, caveat_small)
             generate_font(
                 python,
                 "script",
-                18,
+                16,
                 [caveat_small, stack_for("medium", 16)[0]],
-                font_name="ui_script_18",
+                font_name="ui_script_16",
                 codepoints_path=SCRIPT_SMALL_CODEPOINTS_PATH,
             )
 

@@ -424,7 +424,9 @@ void CrossPointWebServerActivity::renderServerRunning() const {
 
   int startY = metrics.topPadding + metrics.headerHeight + metrics.subHeaderHeight + metrics.verticalSpacing * 2;
   int height10 = renderer.getLineHeight(UI_10_FONT_ID);
-  const std::string pairSuffix = webServer ? std::string("?pair=") + webServer->getPairingToken() : std::string();
+  const bool authenticationEnabled = webServer && webServer->isAuthenticationEnabled();
+  const std::string pairSuffix =
+      authenticationEnabled ? std::string("?pair=") + webServer->getPairingToken() : std::string();
   const int textMaxWidth = pageWidth - metrics.contentSidePadding * 2;
   // The two instruction lines are wider than the panel in most locales, so
   // they wrap; the QR captions are truncated to the lane beside the code and
@@ -492,13 +494,30 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     QrUtils::drawQrCode(renderer, qrBounds, webInfo);
     startY += QR_CODE_HEIGHT + metrics.verticalSpacing * 2;
 
-    // Show web server URL prominently
-    renderer.drawCenteredText(UI_10_FONT_ID, startY, webInfo.c_str(), true);
+    // Keep the full authenticated URL in the QR payload, but render its base
+    // address and 32-character pairing query on separate bounded lines. A
+    // single unbounded URL used to run beyond both edges of the 480 px X4.
+    const std::string ipUrl = "http://" + connectedIP + "/";
+    renderer.drawCenteredText(
+        UI_10_FONT_ID, startY,
+        renderer.truncatedText(UI_10_FONT_ID, ipUrl.c_str(), textMaxWidth, EpdFontFamily::BOLD).c_str(), true,
+        EpdFontFamily::BOLD);
     startY += height10 + 5;
 
-    // Also show hostname URL
-    std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/" + pairSuffix;
-    renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
+    if (authenticationEnabled) {
+      renderer.drawCenteredText(
+          SMALL_FONT_ID, startY,
+          renderer.truncatedText(SMALL_FONT_ID, pairSuffix.c_str(), textMaxWidth, EpdFontFamily::REGULAR).c_str(),
+          true);
+      startY += renderer.getLineHeight(SMALL_FONT_ID) + 5;
+    }
+
+    // Also show the mDNS fallback. It uses the same pairing query printed just
+    // above, so repeating the long secret is unnecessary.
+    const std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
+    renderer.drawCenteredText(
+        SMALL_FONT_ID, startY,
+        renderer.truncatedText(SMALL_FONT_ID, hostnameUrl.c_str(), textMaxWidth, EpdFontFamily::REGULAR).c_str(), true);
   }
 
   const auto labels = mappedInput.mapLabels(tr(STR_EXIT), "", "", "");

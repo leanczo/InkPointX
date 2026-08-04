@@ -174,7 +174,7 @@ bool cookieHasPairingToken(const String& cookie, const char* expected) {
 // - HomePageHtml (from html/HomePage.html)
 // - FilesPageHeaderHtml (from html/FilesPageHeader.html)
 // - FilesPageFooterHtml (from html/FilesPageFooter.html)
-CrossPointWebServer::CrossPointWebServer() {}
+CrossPointWebServer::CrossPointWebServer() : authenticationEnabled(SETTINGS.webInterfaceAuth != 0) {}
 
 CrossPointWebServer::~CrossPointWebServer() { stop(); }
 
@@ -191,6 +191,7 @@ void CrossPointWebServer::generatePairingToken() {
 }
 
 bool CrossPointWebServer::isAuthorizedRequest(WebServer& request) const {
+  if (!authenticationEnabled) return true;
   if (request.hasArg(PAIRING_QUERY) && secureTokenEquals(request.arg(PAIRING_QUERY), pairingToken.data())) {
     return true;
   }
@@ -255,8 +256,8 @@ void CrossPointWebServer::begin() {
   // PUT/multipart callbacks run while the request is parsed, before middleware,
   // so those callbacks repeat the same check before opening any SD file.
   server->addMiddleware([this](WebServer& request, Middleware::Callback next) {
-    const bool pairedByQuery =
-        request.hasArg(PAIRING_QUERY) && secureTokenEquals(request.arg(PAIRING_QUERY), pairingToken.data());
+    const bool pairedByQuery = authenticationEnabled && request.hasArg(PAIRING_QUERY) &&
+                               secureTokenEquals(request.arg(PAIRING_QUERY), pairingToken.data());
     if (!isAuthorizedRequest(request)) {
       rejectUnauthorized(request);
       return false;
@@ -329,7 +330,7 @@ void CrossPointWebServer::begin() {
   const char* requestHeaders[] = {"Depth",      "Destination", "Overwrite", "If",
                                   "Lock-Token", "Timeout",     "Cookie",    PAIRING_HEADER};
   server->collectHeaders(requestHeaders, sizeof(requestHeaders) / sizeof(requestHeaders[0]));
-  auto* davHandler = new (std::nothrow) WebDAVHandler(pairingToken.data());
+  auto* davHandler = new (std::nothrow) WebDAVHandler(pairingToken.data(), authenticationEnabled);
   if (!davHandler) {
     LOG_ERR("WEB", "No heap for WebDAV handler");
     server.reset();
@@ -351,13 +352,15 @@ void CrossPointWebServer::begin() {
   }
   wsInstance = const_cast<CrossPointWebServer*>(this);
   wsServer->begin();
-  const char* mandatoryWsHeaders[] = {"Cookie"};
-  wsServer->onValidateHttpHeader(
-      [this](String name, String value) {
-        if (!name.equalsIgnoreCase("Cookie")) return true;
-        return cookieHasPairingToken(value, pairingToken.data());
-      },
-      mandatoryWsHeaders, 1);
+  if (authenticationEnabled) {
+    const char* mandatoryWsHeaders[] = {"Cookie"};
+    wsServer->onValidateHttpHeader(
+        [this](String name, String value) {
+          if (!name.equalsIgnoreCase("Cookie")) return true;
+          return cookieHasPairingToken(value, pairingToken.data());
+        },
+        mandatoryWsHeaders, 1);
+  }
   wsServer->onEvent(wsEventCallback);
   // Ping the peer so a browser that vanished without closing the socket is
   // detected and its upload slot released instead of blocking every retry.
@@ -369,7 +372,8 @@ void CrossPointWebServer::begin() {
 
   running = true;
 
-  LOG_DBG("WEB", "Web server started on port %d", port);
+  LOG_DBG("WEB", "Web server started on port %d (authentication %s)", port,
+          authenticationEnabled ? "enabled" : "disabled");
   // Show the correct IP based on network mode
   const String ipAddr = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   LOG_DBG("WEB", "Access at http://%s/", ipAddr.c_str());

@@ -186,13 +186,13 @@ def main() -> int:
         errors.append(f"Arabic shaper source missing: {args.arabic_shaper}")
     for path in font_paths:
         intervals = font_intervals(path)
-        # ui_script_18 is used only for the Home author line. Caveat has no RTL
+        # ui_script_16 is used only for the Home author line. Caveat has no RTL
         # face, so Home deliberately routes Hebrew/Arabic authors through the
-        # existing UI_16 font instead of embedding a second ~0.5 MB Noto copy.
+        # existing UI_12 font instead of embedding a second ~0.5 MB Noto copy.
         # Its remaining locale coverage must still be complete.
         font_required_codepoints = (
             {codepoint for codepoint in required_codepoints if not is_rtl_script_codepoint(codepoint)}
-            if path.name == "ui_script_18.h"
+            if path.name == "ui_script_16.h"
             else required_codepoints
         )
         missing_codepoints = {

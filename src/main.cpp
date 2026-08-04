@@ -132,7 +132,7 @@ EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
 // Handwritten accent voice (Caveat 600). The smaller cut keeps the Home author
 // subordinate to the title; both are single-face families because the script
 // itself supplies the emphasis.
-EpdFont uiScriptSmallFont(&ui_script_18);
+EpdFont uiScriptSmallFont(&ui_script_16);
 EpdFontFamily uiScriptSmallFontFamily(&uiScriptSmallFont);
 EpdFont uiScriptFont(&ui_script_20);
 EpdFontFamily uiScriptFontFamily(&uiScriptFont);
@@ -220,7 +220,7 @@ void applyInterfaceFont() {
       {UI_14_FONT_ID, 16, 2}, {UI_16_FONT_ID, 16, 2}, {UI_18_FONT_ID, 16, 2},
   };
   static constexpr SdCardFontSystem::InterfaceSlot accentSlots[] = {
-      {SCRIPT_SMALL_FONT_ID, 18, 6},
+      {SCRIPT_SMALL_FONT_ID, 16, 6},
       {SCRIPT_FONT_ID, 20, 6},
   };
 

@@ -115,7 +115,7 @@ ruby -rdigest -e 'puts ([
 echo "#define SCRIPT_SMALL_FONT_ID ($(
 ruby -rdigest -e 'puts ([
   "UI_SCRIPT_SMALL",
-  File.read("./ui_script_18.h"),
+  File.read("./ui_script_16.h"),
 ].map{|v| Digest::SHA256.hexdigest(v).to_i(16) }.sum % (2 ** 32)) - (2 ** 31)'
 ))"
 

@@ -5,7 +5,7 @@
 
 class WebDAVHandler : public RequestHandler {
  public:
-  explicit WebDAVHandler(const char* pairingToken);
+  explicit WebDAVHandler(const char* pairingToken, bool authenticationEnabled = true);
 
   // RequestHandler interface
   bool canHandle(WebServer& server, HTTPMethod method, const String& uri) override;
@@ -22,6 +22,7 @@ class WebDAVHandler : public RequestHandler {
   bool _putExisted = false;
   size_t _putBytesWritten = 0;
   char _pairingToken[33] = {};
+  bool _authenticationEnabled = true;
 
   // WebDAV method handlers
   void handleOptions(WebServer& s);

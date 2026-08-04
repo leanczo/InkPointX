@@ -81,6 +81,8 @@ void SettingsActivity::rebuildSettingsLists() {
         librarySettings.push_back(setting);
       }
       // Interface font uses its dedicated preview selector below.
+    } else if (setting.category == StrId::STR_SETTINGS_NETWORK) {
+      networkSettings.push_back(setting);
     }
   }
 
