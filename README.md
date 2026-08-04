@@ -37,6 +37,13 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Reading statistics.** Library now includes an e-ink-native statistics hub with an overview, the last 7 days,
+  the last 8 weeks, per-book details, reading-time habits, sessions, streaks, completed books, and up to 730 days
+  of compact history. EPUB, FB2, PDF, XTC, TXT, and Markdown reading all contribute to the same totals.
+- **Clearer library and reader navigation.** Book rows keep secondary information quiet: the author uses a smaller
+  face, non-zero progress follows it after a middle dot, and an unopened book gets a compact `NEW` mark inside the
+  existing book icon. The in-reader menu is one vertical list with section dividers and an icon for every action;
+  chapter and menu position share one compact footer line.
 - **StarDict dictionaries in EPUB.** Select a word on the page and look it up without leaving the reader. Uncompressed
   `.ifo`, `.idx`, and `.dict` sets are discovered from `/dictionaries/<name>/`, indexed with bounded RAM, and selected
   under **Settings → Reading → Dictionary**.
@@ -127,7 +134,7 @@ The full element-by-element findings and decisions are recorded in [design-qa.md
 The home screen is organized into three horizontal pages:
 
 1. **Now Reading** — the largest safe cover, title, author, a single progress band, and a primary continue action.
-2. **Library** — Books, Files, Gallery, Favorites, plus a dedicated Transfer subsection.
+2. **Library** — Books, Files, Gallery, Favorites, Reading Stats, plus a dedicated Transfer subsection.
 3. **Settings** — focused submenus for interface, power, reading, controls, files, network, and system options.
 
 Selection uses a subtle rounded gray surface instead of a heavy inverted bar. Compact legends at the bottom mirror
@@ -159,10 +166,14 @@ The detailed interface specification is available in [docs/inkpoint-x-ui.md](doc
 - a Books view restricted to **EPUB**, **FB2**, and **PDF**;
 - sorting by title, author, format, and recent activity;
 - Favorites stored separately from the book files;
-- reading progress, bookmarks, table of contents, book information, and statistics;
+- compact book rows with a smaller author line, non-zero reading progress, and an in-icon `NEW` marker for unopened books;
+- reading progress, bookmarks, table of contents, book information, and per-book statistics;
+- global reading statistics with overview metrics, 7-day and 8-week charts, book breakdowns, habits, sessions,
+  streaks, completed-book counts, and a rolling 730-day history;
 - configurable font, size, line spacing, margins, alignment, hyphenation, orientation, and inversion;
 - automatic page turning, screenshots, QR display, OPDS, and KOReader Sync;
 - low-memory **StarDict** lookup for EPUB, with dictionary selection in Reading settings;
+- a vertically grouped in-reader menu with section labels, action icons, and a single compact chapter/position footer;
 - an on-device gesture reference, so the reader's hold gestures are discoverable;
 - support for **XTC**, **TXT**, and **Markdown** when opened from Files, with CP1251/KOI8-R/CP1252/ISO-8859-5/CP866
   detection for legacy single-byte text.

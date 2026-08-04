@@ -13,12 +13,14 @@
 #include <utility>
 
 #include "activities/Activity.h"
+#include "ReadingSessionStats.h"
 
 class XtcReaderActivity final : public Activity {
   std::shared_ptr<Xtc> xtc;
 
   uint32_t currentPage = 0;
   int pagesUntilFullRefresh = 0;
+  ReadingSessionStats readingStats;
 
   enum class StatusBarOverlayPosition { Bottom, Top };
   struct StatusBarInfo {

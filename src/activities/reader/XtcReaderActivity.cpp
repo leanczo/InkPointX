@@ -66,6 +66,7 @@ void XtcReaderActivity::onEnter() {
   }
 
   xtc->setupCacheDir();
+  readingStats.begin(xtc->getCachePath());
 
   // Load saved progress
   loadProgress();
@@ -81,6 +82,8 @@ void XtcReaderActivity::onEnter() {
 
 void XtcReaderActivity::onExit() {
   Activity::onExit();
+
+  if (xtc) readingStats.finish(xtc->getCachePath());
 
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
@@ -118,6 +121,8 @@ void XtcReaderActivity::loop() {
   if (!prevTriggered && !nextTriggered) {
     return;
   }
+
+  readingStats.pageTurn(nextTriggered);
 
   // At end of the book, forward button goes home and back button returns to last page
   if (currentPage >= xtc->getPageCount()) {
@@ -169,6 +174,7 @@ void XtcReaderActivity::render(RenderLock&&) {
   }
 
   renderPage();
+  readingStats.pageShown();
   saveProgress();
 }
 

@@ -275,9 +275,13 @@ void HomeActivity::applyInitialSelection() {
       pageIndex = 1;
       selectedIndex = 3;
       break;
-    case HomeMenuItem::FILE_TRANSFER:
+    case HomeMenuItem::READING_STATS:
       pageIndex = 1;
       selectedIndex = 4;
+      break;
+    case HomeMenuItem::FILE_TRANSFER:
+      pageIndex = 1;
+      selectedIndex = 5;
       break;
     case HomeMenuItem::OPDS_BROWSER:
       pageIndex = 2;
@@ -319,7 +323,7 @@ void HomeActivity::applyInitialSelection() {
 
 int HomeActivity::pageItemCount() const {
   if (pageIndex == 0) return 1;
-  if (pageIndex == 1) return 7;
+  if (pageIndex == 1) return 8;
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -348,12 +352,15 @@ void HomeActivity::openSelection() {
         activityManager.goToFavorites();
         return;
       case 4:
-        activityManager.goToFileTransfer(NetworkMode::JOIN_NETWORK);
+        activityManager.goToReadingStats();
         return;
       case 5:
-        activityManager.goToFileTransfer(NetworkMode::CONNECT_CALIBRE);
+        activityManager.goToFileTransfer(NetworkMode::JOIN_NETWORK);
         return;
       case 6:
+        activityManager.goToFileTransfer(NetworkMode::CONNECT_CALIBRE);
+        return;
+      case 7:
         activityManager.goToFileTransfer(NetworkMode::CREATE_HOTSPOT);
         return;
       default:
@@ -544,8 +551,10 @@ void HomeActivity::render(RenderLock&&) {
     GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, nullptr);
     renderer.drawText(SCRIPT_FONT_ID, metrics.contentSidePadding, metrics.topPadding + 4, header);
 
-    constexpr std::array<UIIcon, 4> libraryIcons = {UIIcon::Book, UIIcon::Folder, UIIcon::Image, UIIcon::Favorite};
-    const std::array<const char*, 4> libraryLabels = {tr(STR_BOOKS), tr(STR_FILES), tr(STR_GALLERY), tr(STR_FAVORITES)};
+    constexpr std::array<UIIcon, 5> libraryIcons = {UIIcon::Book, UIIcon::Folder, UIIcon::Image, UIIcon::Favorite,
+                                                    UIIcon::ReaderStats};
+    const std::array<const char*, 5> libraryLabels = {tr(STR_BOOKS), tr(STR_FILES), tr(STR_GALLERY), tr(STR_FAVORITES),
+                                                      tr(STR_READING_STATS)};
     constexpr std::array<UIIcon, 3> transferIcons = {UIIcon::Wifi, UIIcon::Library, UIIcon::Hotspot};
     const std::array<const char*, 3> transferLabels = {tr(STR_JOIN_NETWORK), tr(STR_CALIBRE_WIRELESS),
                                                        tr(STR_CREATE_HOTSPOT)};
@@ -559,26 +568,25 @@ void HomeActivity::render(RenderLock&&) {
     };
     const int contentTop = metrics.topPadding + metrics.headerHeight + 12;
     if (pageIndex == 1) {
-      GUI.drawButtonMenu(
-          renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96}, 4,
-          selectedIndex < 4 ? selectedIndex : -1, [&](const int index) { return std::string(libraryLabels[index]); },
-          [&](const int index) { return libraryIcons[index]; });
-
-      const int transferHeaderTop = contentTop + 4 * (metrics.menuRowHeight + metrics.menuSpacing);
-      GUI.drawHeader(renderer, Rect{0, transferHeaderTop, pageWidth, metrics.headerHeight}, nullptr);
-      renderer.drawText(SCRIPT_FONT_ID, metrics.contentSidePadding, transferHeaderTop + 4, tr(STR_TRANSFER_SECTION));
-      const int transferTop = transferHeaderTop + metrics.headerHeight + metrics.verticalSpacing;
-      // Titles only. The one-line descriptions never fit a Cyrillic or other
-      // wide-script locale in the space a subtitle row leaves after the icon and
-      // the chevron -- all three were cut mid-word -- and a sentence that stops
-      // before its point informs nobody. Dropping them also gives this section the
-      // same row rhythm as the Library tiles above it, instead of 58 px menu rows
-      // followed by 76 px subtitle rows on one screen.
-      GUI.drawButtonMenu(
-          renderer, Rect{0, transferTop, pageWidth, pageHeight - transferTop - 96}, 3,
-          selectedIndex >= 4 ? selectedIndex - 4 : -1,
-          [&](const int index) { return std::string(transferLabels[index]); },
-          [&](const int index) { return transferIcons[index]; });
+      // One grouped list lets the fifth Library item fit without shrinking
+      // touch targets or pushing Transfer below the footer. Visual row 5 is a
+      // non-selectable section heading; the activity keeps eight actionable
+      // indices, so navigation never lands on it.
+      const int visualSelection = selectedIndex < 5 ? selectedIndex : selectedIndex + 1;
+      GUI.drawList(
+          renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96}, 9, visualSelection,
+          [&](const int visualIndex) {
+            if (visualIndex == 5) return std::string(tr(STR_TRANSFER_SECTION));
+            if (visualIndex < 5) return std::string(libraryLabels[visualIndex]);
+            return std::string(transferLabels[visualIndex - 6]);
+          },
+          nullptr,
+          [&](const int visualIndex) {
+            if (visualIndex == 5) return UIIcon::None;
+            if (visualIndex < 5) return libraryIcons[visualIndex];
+            return transferIcons[visualIndex - 6];
+          },
+          nullptr, false, nullptr, nullptr, [](const int visualIndex) { return visualIndex == 5; });
     } else {
       GUI.drawButtonMenu(
           renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96}, SettingsActivity::CATEGORY_COUNT,

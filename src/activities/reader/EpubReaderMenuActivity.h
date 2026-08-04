@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 class EpubReaderMenuActivity final : public Activity {
@@ -45,15 +46,28 @@ class EpubReaderMenuActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
+  enum class MenuGroup : uint8_t { Navigation, Book, Reading, More };
+
   struct MenuItem {
     MenuAction action;
     StrId labelId;
+    MenuGroup group;
+    UIIcon icon;
+  };
+
+  struct MenuRow {
+    bool isSection;
+    MenuGroup group;
+    int itemIndex;
   };
 
   static std::vector<MenuItem> buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool isFavorite);
+  static std::vector<MenuRow> buildMenuRows(const std::vector<MenuItem>& items);
+  static StrId groupLabelId(MenuGroup group);
 
   // Fixed menu layout
   const std::vector<MenuItem> menuItems;
+  const std::vector<MenuRow> menuRows;
 
   int selectedIndex = 0;
 

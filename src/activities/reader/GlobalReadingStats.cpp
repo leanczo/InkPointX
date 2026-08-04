@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <esp_mac.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -42,11 +43,18 @@ struct StatsLoadOutcome {
 //   [61-64]   readingHistoryAnchorDay   uint32_t LE
 //   [65-156]  readingHistoryBits[92]    uint8_t
 //   [157-158] longestReadingStreak      uint16_t LE
+//
+// Binary layout v4 (1619 bytes):
+//   [0-158]    all v3 fields
+//   [159-1618] dailyReadingSeconds[730] uint16_t LE each; index 0 is
+//              readingHistoryAnchorDay and older days follow it
 static constexpr uint8_t GLOBAL_STATS_VERSION = GlobalReadingStats::CURRENT_FILE_VERSION;
 static constexpr uint8_t GLOBAL_STATS_VERSION_V1 = 1;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V1 = 13;
 static constexpr uint8_t GLOBAL_STATS_VERSION_V2 = 2;
 static constexpr int GLOBAL_STATS_FILE_SIZE_V2 = 17;
+static constexpr uint8_t GLOBAL_STATS_VERSION_V3 = 3;
+static constexpr int GLOBAL_STATS_FILE_SIZE_V3 = 159;
 static constexpr int GLOBAL_STATS_FILE_SIZE = static_cast<int>(GlobalReadingStats::CURRENT_FILE_SIZE);
 static constexpr char GLOBAL_STATS_PATH[] = "/.crosspoint/global_stats.bin";
 static constexpr char GLOBAL_STATS_BAK_PATH[] = "/.crosspoint/global_stats.bin.bak";
@@ -73,6 +81,12 @@ uint32_t addSaturated(const uint32_t a, const uint32_t b) {
   return max - a < b ? max : a + b;
 }
 
+void mergeDailyHistory(GlobalReadingStats& target, const GlobalReadingStats& source) {
+  uint32_t timelineAnchor = target.readingHistoryAnchorDay;
+  mergeDailyReadingTimeline(timelineAnchor, target.dailyReadingSeconds, source.readingHistoryAnchorDay,
+                            source.dailyReadingSeconds);
+}
+
 void addStats(GlobalReadingStats& target, const GlobalReadingStats& source) {
   target.totalSessions = addSaturated(target.totalSessions, source.totalSessions);
   target.totalReadingSeconds = addSaturated(target.totalReadingSeconds, source.totalReadingSeconds);
@@ -84,6 +98,8 @@ void addStats(GlobalReadingStats& target, const GlobalReadingStats& source) {
   for (size_t i = 0; i < target.dayOfWeekSeconds.size(); ++i) {
     target.dayOfWeekSeconds[i] = addSaturated(target.dayOfWeekSeconds[i], source.dayOfWeekSeconds[i]);
   }
+  // Merge the timeline before mergeReadingHistory advances the shared anchor.
+  mergeDailyHistory(target, source);
   mergeReadingHistory(target.readingHistoryAnchorDay, target.readingHistoryBits, source.readingHistoryAnchorDay,
                       source.readingHistoryBits);
   target.longestReadingStreak = std::max(target.longestReadingStreak, source.longestReadingStreak);
@@ -130,6 +146,12 @@ void serializeStats(const GlobalReadingStats& stats, uint8_t* data) {
   memcpy(data + 65, stats.readingHistoryBits.data(), stats.readingHistoryBits.size());
   data[157] = stats.longestReadingStreak & 0xFF;
   data[158] = (stats.longestReadingStreak >> 8) & 0xFF;
+  for (size_t i = 0; i < stats.dailyReadingSeconds.size(); ++i) {
+    const uint16_t value = stats.dailyReadingSeconds[i];
+    const int offset = 159 + static_cast<int>(i) * 2;
+    data[offset] = value & 0xFF;
+    data[offset + 1] = (value >> 8) & 0xFF;
+  }
 }
 
 StatsLoadOutcome loadFromOpenFile(HalFile& f, GlobalReadingStats& out) {
@@ -161,7 +183,9 @@ StatsLoadOutcome loadFromOpenFile(HalFile& f, GlobalReadingStats& out) {
     return outcome;
   }
 
-  if (n != GLOBAL_STATS_FILE_SIZE || data[0] != GLOBAL_STATS_VERSION) return outcome;
+  const bool isV3 = n == GLOBAL_STATS_FILE_SIZE_V3 && data[0] == GLOBAL_STATS_VERSION_V3;
+  const bool isCurrent = n == GLOBAL_STATS_FILE_SIZE && data[0] == GLOBAL_STATS_VERSION;
+  if (!isV3 && !isCurrent) return outcome;
   loadCommonFields(data, out);
   out.completedBooks = readLe32(data, 13);
   for (size_t i = 0; i < out.timeOfDaySeconds.size(); ++i) {
@@ -173,6 +197,11 @@ StatsLoadOutcome loadFromOpenFile(HalFile& f, GlobalReadingStats& out) {
   out.readingHistoryAnchorDay = readLe32(data, 61);
   memcpy(out.readingHistoryBits.data(), data + 65, out.readingHistoryBits.size());
   out.longestReadingStreak = readLe16(data, 157);
+  if (isCurrent) {
+    for (size_t i = 0; i < out.dailyReadingSeconds.size(); ++i) {
+      out.dailyReadingSeconds[i] = readLe16(data, 159 + static_cast<int>(i) * 2);
+    }
+  }
   outcome.result = StatsLoadResult::Ok;
   return outcome;
 }
@@ -366,13 +395,47 @@ void GlobalReadingStats::save() const {
 bool GlobalReadingStats::resetLocal() { return saveToFile(GlobalReadingStats{}, GLOBAL_STATS_PATH, nullptr); }
 
 void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStart, const uint32_t seconds) {
+  const uint32_t previousAnchor = readingHistoryAnchorDay;
   recordReadingSpanIntoBuckets(timeOfDaySeconds, dayOfWeekSeconds, localStart, seconds);
   recordReadingSpanIntoHistory(readingHistoryAnchorDay, readingHistoryBits, localStart, seconds);
+
+  if (readingHistoryAnchorDay > previousAnchor && previousAnchor != 0) {
+    shiftDailyReadingTimeline(dailyReadingSeconds, readingHistoryAnchorDay - previousAnchor);
+  }
+  ReadingStatsDateTime cursor = localStart;
+  uint32_t remaining = seconds;
+  while (cursor.isValid() && remaining > 0) {
+    const uint32_t secondOfDay = static_cast<uint32_t>(cursor.hour) * 3600u +
+                                 static_cast<uint32_t>(cursor.minute) * 60u + cursor.second;
+    const uint32_t segment = std::min(remaining, 86400u - secondOfDay);
+    const uint32_t day = readingStatsDayIndex(cursor.date);
+    addDailyReadingSeconds(readingHistoryAnchorDay, dailyReadingSeconds, day, segment);
+    remaining -= segment;
+    addSecondsToReadingStatsDateTime(cursor, segment);
+  }
 
   const uint16_t historyLongest = computeReadingHistoryLongestStreak(readingHistoryAnchorDay, readingHistoryBits);
   if (historyLongest > longestReadingStreak) {
     longestReadingStreak = historyLongest;
   }
+}
+
+uint32_t GlobalReadingStats::readingSecondsForDay(const ReadingStatsDate& date) const {
+  if (!date.isValid()) return 0;
+  const uint32_t day = readingStatsDayIndex(date);
+  return dailyReadingSecondsForDay(readingHistoryAnchorDay, dailyReadingSeconds, day);
+}
+
+uint32_t GlobalReadingStats::readingSecondsForDaysEnding(const ReadingStatsDate& endDate,
+                                                         const uint16_t dayCount) const {
+  if (!endDate.isValid() || dayCount == 0) return 0;
+  ReadingStatsDate date = endDate;
+  uint32_t total = 0;
+  for (uint16_t i = 0; i < dayCount; ++i) {
+    total = addSaturated(total, readingSecondsForDay(date));
+    addDaysToReadingStatsDate(date, -1);
+  }
+  return total;
 }
 
 uint16_t GlobalReadingStats::currentReadingStreak(const ReadingStatsDate* today) const {

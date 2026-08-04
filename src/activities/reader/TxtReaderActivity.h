@@ -6,6 +6,7 @@
 
 #include "CrossPointSettings.h"
 #include "activities/Activity.h"
+#include "ReadingSessionStats.h"
 
 class TxtReaderActivity final : public Activity {
   std::unique_ptr<Txt> txt;
@@ -33,6 +34,7 @@ class TxtReaderActivity final : public Activity {
   unsigned long lastIndexSaveMs = 0;
   int lastSavedProgressPage = -1;
   unsigned long lastProgressSaveMs = 0;
+  ReadingSessionStats readingStats;
 
   // Cached settings for cache validation (different fonts/margins require re-indexing)
   int cachedFontId = 0;

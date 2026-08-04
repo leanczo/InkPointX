@@ -46,6 +46,7 @@ void TxtReaderActivity::onEnter() {
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   txt->setupCacheDir();
+  readingStats.begin(txt->getCachePath());
 
   // Save current txt as last opened file and add to recent books
   auto filePath = txt->getPath();
@@ -64,6 +65,7 @@ void TxtReaderActivity::onExit() {
     maybeSavePageIndexCache(true);
     maybeSaveProgress(true);
   }
+  if (txt) readingStats.finish(txt->getCachePath());
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -102,6 +104,8 @@ void TxtReaderActivity::loop() {
   if (!prevTriggered && !nextTriggered) {
     return;
   }
+
+  readingStats.pageTurn(nextTriggered);
 
   if (prevTriggered) {
     if (atEndOfBook) {
@@ -468,6 +472,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   renderPage();
+  readingStats.pageShown();
 
   // Save progress
   maybeSaveProgress();

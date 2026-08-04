@@ -23,6 +23,7 @@ enum class HomeMenuItem {
   FILE_BROWSER,
   GALLERY,
   FAVORITES,
+  READING_STATS,
   RECENTS,
   OPDS_BROWSER,
   FILE_TRANSFER,
@@ -115,6 +116,7 @@ class ActivityManager {
   void goToSettings(int categoryIndex = 0);
   void goToLibrary();
   void goToFavorites();
+  void goToReadingStats();
   void goToGallery();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();

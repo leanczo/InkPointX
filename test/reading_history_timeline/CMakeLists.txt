@@ -1,0 +1,4 @@
+add_executable(reading_history_timeline_tests ReadingHistoryTimelineTest.cpp)
+target_link_libraries(reading_history_timeline_tests PRIVATE GTest::gtest_main crosspoint_test_common)
+target_include_directories(reading_history_timeline_tests PRIVATE ${REPO_ROOT}/src/activities/reader)
+gtest_discover_tests(reading_history_timeline_tests)

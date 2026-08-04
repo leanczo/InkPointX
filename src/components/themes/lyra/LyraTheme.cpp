@@ -26,6 +26,9 @@ constexpr int topHintButtonY = 345;
 constexpr int maxListValueWidth = 200;
 constexpr int mainMenuIconSize = 32;
 constexpr int listIconSize = 32;
+constexpr int newBadgeTextPadding = 3;
+constexpr int newBadgeVerticalPadding = 1;
+constexpr char newBadgeText[] = "NEW";
 // Row accessories (chevron, check, star) scale with the type.
 constexpr int accessoryIconSize = 24;
 // Big enough to read at arm's length, and the two states differ by fill, not
@@ -52,6 +55,7 @@ const uint8_t* iconForName(UIIcon icon, int size) {
       case UIIcon::Image:
         return LucideImage32;
       case UIIcon::Book:
+      case UIIcon::BookNew:
         return LucideBookOpen32;
       case UIIcon::Recent:
       case UIIcon::Clock:
@@ -87,6 +91,26 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideNetwork32;
       case UIIcon::System:
         return LucideSystem32;
+      case UIIcon::ReaderPage:
+        return LucidePage32;
+      case UIIcon::ReaderChapters:
+        return LucideChapters32;
+      case UIIcon::ReaderDictionary:
+        return LucideDictionary32;
+      case UIIcon::ReaderFootnotes:
+        return LucideFootnotes32;
+      case UIIcon::ReaderStats:
+        return LucideStats32;
+      case UIIcon::ReaderRotate:
+        return LucideRotate32;
+      case UIIcon::ReaderAutoTurn:
+        return LucideAutoTurn32;
+      case UIIcon::ReaderQr:
+        return LucideQr32;
+      case UIIcon::ReaderHome:
+        return LucideHome32;
+      case UIIcon::ReaderTrash:
+        return LucideTrash32;
       default:
         return nullptr;
     }
@@ -96,6 +120,22 @@ const uint8_t* iconForName(UIIcon icon, int size) {
 
 void drawHairline(const GfxRenderer& renderer, int x1, int x2, int y) {
   for (int x = x1; x <= x2; x += 2) renderer.drawPixel(x, y, true);
+}
+
+bool isBookIcon(const UIIcon icon) { return icon == UIIcon::Book || icon == UIIcon::BookNew; }
+
+int newBadgeWidth(const GfxRenderer& renderer) {
+  return renderer.getTextWidth(MICRO_FONT_ID, newBadgeText) + newBadgeTextPadding * 2;
+}
+
+void drawNewBadge(const GfxRenderer& renderer, const int iconX, const int iconY, const int iconSize) {
+  const int textHeight = renderer.getLineHeight(MICRO_FONT_ID);
+  const int width = newBadgeWidth(renderer);
+  const int height = textHeight + newBadgeVerticalPadding * 2;
+  const int x = iconX + (iconSize - width) / 2;
+  const int y = iconY + iconSize - height;
+  renderer.fillRoundedRect(x, y, width, height, height / 2, Color::Black);
+  renderer.drawText(MICRO_FONT_ID, x + newBadgeTextPadding, y + newBadgeVerticalPadding, newBadgeText, false);
 }
 
 int accessoryWidth(const UIAccessory accessory) {
@@ -215,12 +255,18 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue,
                          const std::function<bool(int index)>& rowDimmed,
-                         const std::function<UIAccessory(int index)>& rowAccessory) const {
+                         const std::function<UIAccessory(int index)>& rowAccessory,
+                         const std::function<bool(int index)>& rowSection) const {
   const int rowHeight = rowSubtitle ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
   const int titleFontId = rowSubtitle ? UI_12_FONT_ID : UI_10_FONT_ID;
   const int subtitleFontId = UI_10_FONT_ID;
   const int pageItems = std::max(1, rect.height / rowHeight);
-  const int pageStartIndex = selectedIndex >= 0 ? selectedIndex / pageItems * pageItems : 0;
+  int pageStartIndex = selectedIndex >= 0 ? selectedIndex / pageItems * pageItems : 0;
+  if (rowSection && selectedIndex >= 0) {
+    int sectionStart = selectedIndex;
+    while (sectionStart > 0 && !rowSection(sectionStart)) --sectionStart;
+    pageStartIndex = std::min(sectionStart, std::max(0, itemCount - pageItems));
+  }
   const int pageEndIndex = std::min(itemCount, pageStartIndex + pageItems);
 
   // Batch the visible labels before drawing. Warm both styles for the whole
@@ -230,11 +276,23 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   std::string regularText;
   std::string boldText;
   std::string subtitleGlyphs;
+  std::string compactSubtitleGlyphs;
+  std::string sectionGlyphs;
+  bool hasNewBadge = false;
   for (int i = pageStartIndex; i < pageEndIndex; ++i) {
     const std::string title = rowTitle(i);
+    if (rowSection && rowSection(i)) {
+      sectionGlyphs.append(title).push_back('\n');
+      continue;
+    }
+    const UIIcon icon = rowIcon ? rowIcon(i) : UIIcon::None;
     regularText.append(title).push_back('\n');
     boldText.append(title).push_back('\n');
-    if (rowSubtitle) subtitleGlyphs.append(rowSubtitle(i)).push_back('\n');
+    hasNewBadge = hasNewBadge || icon == UIIcon::BookNew;
+    if (rowSubtitle) {
+      std::string& glyphs = isBookIcon(icon) ? compactSubtitleGlyphs : subtitleGlyphs;
+      glyphs.append(rowSubtitle(i)).push_back('\n');
+    }
     if (rowValue) {
       const std::string value = rowValue(i);
       regularText.append(value).push_back('\n');
@@ -245,14 +303,19 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     cache->warmGlyphCache(titleFontId, regularText.c_str(), 1U << EpdFontFamily::REGULAR);
     cache->warmGlyphCache(titleFontId, boldText.c_str(), 1U << EpdFontFamily::BOLD);
     cache->warmGlyphCache(subtitleFontId, subtitleGlyphs.c_str(), 1U << EpdFontFamily::REGULAR);
+    cache->warmGlyphCache(SMALL_FONT_ID, compactSubtitleGlyphs.c_str(), 1U << EpdFontFamily::REGULAR);
+    cache->warmGlyphCache(SCRIPT_FONT_ID, sectionGlyphs.c_str(), 1U << EpdFontFamily::REGULAR);
+    if (hasNewBadge) cache->warmGlyphCache(MICRO_FONT_ID, newBadgeText, 1U << EpdFontFamily::REGULAR);
   }
 
   const int totalPages = (itemCount + pageItems - 1) / pageItems;
   if (totalPages > 1) {
     const int scrollAreaHeight = rect.height;
     const int scrollBarHeight = std::max(28, (scrollAreaHeight * pageItems) / itemCount);
-    const int currentPage = selectedIndex / pageItems;
-    const int scrollBarY = rect.y + ((scrollAreaHeight - scrollBarHeight) * currentPage) / (totalPages - 1);
+    const int scrollBarY =
+        rowSection
+            ? rect.y + ((scrollAreaHeight - scrollBarHeight) * pageStartIndex) / std::max(1, itemCount - pageItems)
+            : rect.y + ((scrollAreaHeight - scrollBarHeight) * (selectedIndex / pageItems)) / (totalPages - 1);
     const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
     renderer.fillRoundedRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY,
                              LyraMetrics::values.scrollBarWidth, scrollBarHeight,
@@ -265,7 +328,7 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   // pixel narrower than the menu tiles they sit next to on Home.
   const int contentWidth = rect.width - scrollGutterWidth;
   if (selectedIndex >= 0) {
-    const int selectedY = rect.y + selectedIndex % pageItems * rowHeight;
+    const int selectedY = rect.y + (selectedIndex - pageStartIndex) * rowHeight;
     drawSelection(renderer, Rect{rect.x + LyraMetrics::values.contentSidePadding, selectedY + selectionVerticalInset,
                                  contentWidth - LyraMetrics::values.contentSidePadding * 2,
                                  rowHeight - selectionVerticalInset * 2});
@@ -275,12 +338,35 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   const int rowRight = rect.x + contentWidth - LyraMetrics::values.contentSidePadding - hPaddingInSelection;
   const int iconSize = rowIcon ? listIconSize : 0;
   const int titleLineHeight = renderer.getLineHeight(titleFontId);
-  const int subtitleLineHeight = renderer.getLineHeight(subtitleFontId);
 
   for (int i = pageStartIndex; i < pageEndIndex; ++i) {
-    const int itemY = rect.y + (i % pageItems) * rowHeight;
+    const int itemY = rect.y + (i - pageStartIndex) * rowHeight;
     const std::string itemName = rowTitle(i);
+
+    if (rowSection && rowSection(i)) {
+      const bool sectionRtl = BidiUtils::startsWithRtl(itemName.c_str());
+      const int maxSectionWidth = std::max(0, rowRight - rowLeft);
+      const auto section = renderer.truncatedText(SCRIPT_FONT_ID, itemName.c_str(), maxSectionWidth);
+      const int sectionWidth = renderer.getTextWidth(SCRIPT_FONT_ID, section.c_str());
+      const int sectionX = sectionRtl ? rowRight - sectionWidth : rowLeft;
+      const int sectionY = itemY + std::max(0, (rowHeight - renderer.getLineHeight(SCRIPT_FONT_ID)) / 2);
+      renderer.drawText(SCRIPT_FONT_ID, sectionX, sectionY, section.c_str());
+
+      // A short labelled rule makes the heading read as a section boundary,
+      // while keeping the list visually lighter than another selectable tile.
+      constexpr int labelRuleGap = 12;
+      const int ruleY = itemY + rowHeight / 2;
+      if (sectionRtl) {
+        drawHairline(renderer, rowLeft, sectionX - labelRuleGap, ruleY);
+      } else {
+        drawHairline(renderer, sectionX + sectionWidth + labelRuleGap, rowRight, ruleY);
+      }
+      continue;
+    }
+
     const bool rowRtl = BidiUtils::startsWithRtl(itemName.c_str());
+    const UIIcon icon = rowIcon ? rowIcon(i) : UIIcon::None;
+    const bool showNewBadge = icon == UIIcon::BookNew;
     const UIAccessory accessory = rowAccessory ? rowAccessory(i) : UIAccessory::None;
     const int accessoryW = accessory == UIAccessory::None ? 0 : accessoryWidth(accessory);
     const int accessoryH =
@@ -292,8 +378,9 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
 
     const int iconX = rowRtl ? rowRight - iconSize : rowLeft;
     const int accessoryX = rowRtl ? rowLeft : rowRight - accessoryW;
-    const int textLeft = rowLeft + (rowRtl ? accessorySpace : (iconSize > 0 ? iconSize + hPaddingInSelection : 0));
-    const int textRight = rowRight - (rowRtl ? (iconSize > 0 ? iconSize + hPaddingInSelection : 0) : accessorySpace);
+    const int leadingSpace = iconSize > 0 ? iconSize + hPaddingInSelection : 0;
+    const int textLeft = rowLeft + (rowRtl ? accessorySpace : leadingSpace);
+    const int textRight = rowRight - (rowRtl ? leadingSpace : accessorySpace);
 
     std::string valueText;
     int valueWidth = 0;
@@ -329,18 +416,24 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     }
 
     if (rowIcon) {
-      const UIIcon icon = rowIcon(i);
       const uint8_t* iconBitmap = iconForName(icon, iconSize);
-      if (iconBitmap) renderer.drawIcon(iconBitmap, iconX, itemY + (rowHeight - iconSize) / 2, iconSize, iconSize);
+      const int iconY = itemY + (rowHeight - iconSize) / 2;
+      if (iconBitmap) renderer.drawIcon(iconBitmap, iconX, iconY, iconSize, iconSize);
+      if (showNewBadge) {
+        drawNewBadge(renderer, iconX, iconY, iconSize);
+      }
     }
 
     if (rowSubtitle) {
       const std::string subtitleText = rowSubtitle(i);
-      const auto subtitle = renderer.truncatedText(subtitleFontId, subtitleText.c_str(), rowTextWidth);
-      const int subtitleWidth = renderer.getTextWidth(subtitleFontId, subtitle.c_str());
+      const int rowSubtitleFontId = isBookIcon(icon) ? SMALL_FONT_ID : subtitleFontId;
+      const int subtitleLineHeight = renderer.getLineHeight(rowSubtitleFontId);
+      const auto subtitle = renderer.truncatedText(rowSubtitleFontId, subtitleText.c_str(), rowTextWidth);
+      const int subtitleWidth = renderer.getTextWidth(rowSubtitleFontId, subtitle.c_str());
       const int subtitleX =
           BidiUtils::startsWithRtl(subtitleText.c_str()) ? textLaneRight - subtitleWidth : textLaneLeft;
-      renderer.drawText(subtitleFontId, subtitleX, itemY + rowHeight - subtitleLineHeight - 7, subtitle.c_str(), true);
+      renderer.drawText(rowSubtitleFontId, subtitleX, itemY + rowHeight - subtitleLineHeight - 7, subtitle.c_str(),
+                        true);
     }
 
     if (!valueText.empty()) {

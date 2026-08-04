@@ -382,11 +382,19 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<UIIcon(int index)>& rowIcon,
                          const std::function<std::string(int index)>& rowValue, bool highlightValue,
                          const std::function<bool(int index)>& rowDimmed,
-                         const std::function<UIAccessory(int index)>& rowAccessory) const {
+                         const std::function<UIAccessory(int index)>& rowAccessory,
+                         const std::function<bool(int index)>& rowSection) const {
   (void)rowAccessory;
   int rowHeight =
       (rowSubtitle != nullptr) ? BaseMetrics::values.listWithSubtitleRowHeight : BaseMetrics::values.listRowHeight;
   int pageItems = rect.height / rowHeight;
+
+  int pageStartIndex = selectedIndex / pageItems * pageItems;
+  if (rowSection && selectedIndex >= 0) {
+    int sectionStart = selectedIndex;
+    while (sectionStart > 0 && !rowSection(sectionStart)) --sectionStart;
+    pageStartIndex = std::min(sectionStart, std::max(0, itemCount - pageItems));
+  }
 
   const int totalPages = (itemCount + pageItems - 1) / pageItems;
   if (totalPages > 1) {
@@ -417,14 +425,25 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   // Draw selection
   int contentWidth = rect.width - 5;
   if (selectedIndex >= 0) {
-    renderer.fillRect(rect.x, rect.y + selectedIndex % pageItems * rowHeight - 2, rect.width, rowHeight);
+    renderer.fillRect(rect.x, rect.y + (selectedIndex - pageStartIndex) * rowHeight - 2, rect.width, rowHeight);
   }
   constexpr int minValueGap = 10;
 
   // Draw all items
-  const auto pageStartIndex = selectedIndex / pageItems * pageItems;
   for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + pageItems; i++) {
-    const int itemY = rect.y + (i % pageItems) * rowHeight;
+    const int itemY = rect.y + (i - pageStartIndex) * rowHeight;
+
+    if (rowSection && rowSection(i)) {
+      const std::string sectionName = rowTitle(i);
+      const auto section = renderer.truncatedText(SCRIPT_FONT_ID, sectionName.c_str(),
+                                                  contentWidth - BaseMetrics::values.contentSidePadding * 2);
+      const int sectionWidth = renderer.getTextWidth(SCRIPT_FONT_ID, section.c_str());
+      const bool sectionRtl = BidiUtils::startsWithRtl(sectionName.c_str());
+      const int sectionX = sectionRtl ? rect.x + contentWidth - BaseMetrics::values.contentSidePadding - sectionWidth
+                                      : rect.x + BaseMetrics::values.contentSidePadding;
+      renderer.drawText(SCRIPT_FONT_ID, sectionX, itemY + 4, section.c_str());
+      continue;
+    }
 
     int rowTextWidth = contentWidth - BaseMetrics::values.contentSidePadding * 2;
     std::string valueText;
@@ -576,7 +595,8 @@ void BaseTheme::drawPageDots(const GfxRenderer& renderer, const int selectedPage
   }
 }
 
-void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex, const int itemCount) const {
+void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex, const int itemCount,
+                                  const char* status) const {
   if (itemCount <= 0) return;
   char counter[32];
   snprintf(counter, sizeof(counter), "%d / %d", selectedIndex + 1, itemCount);
@@ -586,11 +606,26 @@ void BaseTheme::drawFooterCounter(GfxRenderer& renderer, const int selectedIndex
   const GfxRenderer::Orientation origOrientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   const int y = renderer.getScreenHeight() - metrics.buttonHintsHeight - footerCounterTopOffset;
+  const int contentLeft = metrics.contentSidePadding;
+  const int contentRight = renderer.getScreenWidth() - metrics.contentSidePadding;
+  const int counterWidth = renderer.getTextWidth(SMALL_FONT_ID, counter);
+
+  if (status && status[0] != '\0') {
+    constexpr int footerGap = 12;
+    const int statusMaxWidth = std::max(0, contentRight - contentLeft - counterWidth - footerGap);
+    const auto statusText = renderer.truncatedText(SMALL_FONT_ID, status, statusMaxWidth);
+    const int statusWidth = renderer.getTextWidth(SMALL_FONT_ID, statusText.c_str());
+    const int statusX = I18N.isRtl() ? contentRight - statusWidth : contentLeft;
+    const int counterX = I18N.isRtl() ? contentLeft : contentRight - counterWidth;
+    renderer.drawText(SMALL_FONT_ID, statusX, y, statusText.c_str());
+    renderer.drawText(SMALL_FONT_ID, counterX, y, counter);
+    renderer.setOrientation(origOrientation);
+    return;
+  }
+
   // Follows the interface language, not the counter's own digits, which are
   // direction-neutral and would always have resolved to left.
-  const int x = I18N.isRtl() ? renderer.getScreenWidth() - metrics.contentSidePadding -
-                                   renderer.getTextWidth(SMALL_FONT_ID, counter)
-                             : metrics.contentSidePadding;
+  const int x = I18N.isRtl() ? contentRight - counterWidth : contentLeft;
   renderer.drawText(SMALL_FONT_ID, x, y, counter);
   renderer.setOrientation(origOrientation);
 }

@@ -21,6 +21,7 @@
 #include "network/CrossPointWebServerActivity.h"
 #include "network/NetworkModeSelectionActivity.h"
 #include "reader/ReaderActivity.h"
+#include "reader/ReadingStatsActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/BootDiag.h"
@@ -316,6 +317,10 @@ void ActivityManager::goToFavorites() {
   replaceActivity(makeUniqueNoThrow<LibraryActivity>(renderer, mappedInput, LibraryActivity::Mode::Favorites));
 }
 
+void ActivityManager::goToReadingStats() {
+  replaceActivity(makeUniqueNoThrow<ReadingStatsActivity>(renderer, mappedInput));
+}
+
 void ActivityManager::goToGallery() { replaceActivity(makeUniqueNoThrow<GalleryActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
@@ -358,6 +363,8 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
       initialMenuItem = HomeMenuItem::LIBRARY;
     } else if (activityName == "Favorites") {
       initialMenuItem = HomeMenuItem::FAVORITES;
+    } else if (activityName == "ReadingStats") {
+      initialMenuItem = HomeMenuItem::READING_STATS;
     } else if (activityName == "Gallery") {
       initialMenuItem = HomeMenuItem::GALLERY;
     } else if (activityName == "FileBrowser") {
