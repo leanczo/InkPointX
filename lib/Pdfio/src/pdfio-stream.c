@@ -9,9 +9,13 @@
 
 #include "pdfio-private.h"
 #ifdef PDFIO_PNGDEC_ZLIB
-#include <inflate.h>
-#include <inftrees.h>
+// These private zlib headers are order-dependent: zutil defines the macros and
+// types consumed by inftrees and inflate. Keep clang-format from sorting them.
+// clang-format off
 #include <zutil.h>
+#include <inftrees.h>
+#include <inflate.h>
+// clang-format on
 #endif  // PDFIO_PNGDEC_ZLIB
 
 #ifdef PDFIO_PNGDEC_ZLIB
