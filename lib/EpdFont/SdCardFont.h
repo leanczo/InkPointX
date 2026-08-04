@@ -42,15 +42,13 @@ class SdCardFont {
   // Default 0x0F = all present styles.
   // When metadataOnly=true, only glyph metrics are loaded (no bitmap data).
   // Returns number of glyphs that couldn't be loaded (0 on full success).
-  int prewarm(const char* utf8Text, uint8_t styleMask = 0x0F, bool metadataOnly = false,
-              bool preserveExisting = false);
+  int prewarm(const char* utf8Text, uint8_t styleMask = 0x0F, bool metadataOnly = false, bool preserveExisting = false);
 
   // True when the current mini cache already covers every glyph needed by
   // `utf8Text` for the requested styles. UI renderers batch all visible labels
   // before painting; this lets the later per-string draw calls reuse that
   // batch instead of rebuilding it for every row.
-  bool hasPrewarmedGlyphs(const char* utf8Text, uint8_t styleMask = 0x0F,
-                          bool metadataOnly = false) const;
+  bool hasPrewarmedGlyphs(const char* utf8Text, uint8_t styleMask = 0x0F, bool metadataOnly = false) const;
 
   // Build a compact advance-only table for layout measurement.
   // Extracts ALL unique codepoints from words (no MAX_PAGE_GLYPHS cap),

@@ -109,7 +109,9 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   GUI.drawList(
       renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, static_cast<int>(chapters.size()),
       selectorIndex,
-      [&chapters](int index) { return chapters[index].name.empty() ? std::string(tr(STR_UNNAMED)) : chapters[index].name; },
+      [&chapters](int index) {
+        return chapters[index].name.empty() ? std::string(tr(STR_UNNAMED)) : chapters[index].name;
+      },
       nullptr, nullptr, nullptr, false, nullptr, [](int) { return UIAccessory::Chevron; });
 
   GUI.drawFooterCounter(renderer, selectorIndex, static_cast<int>(chapters.size()));

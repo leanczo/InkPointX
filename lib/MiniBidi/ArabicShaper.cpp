@@ -18,17 +18,24 @@ struct ShapeEntry {
 // Naskh expose isolated outlines there, while their cmap only exposes joined
 // presentation forms for most letters.
 constexpr ShapeEntry SHAPES[] = {
-    {0x0621, 0, 0, 0, false, false},       {0x0622, 0xFE82, 0, 0, true, false},
-    {0x0623, 0xFE84, 0, 0, true, false},   {0x0624, 0xFE86, 0, 0, true, false},
-    {0x0625, 0xFE88, 0, 0, true, false},   {0x0626, 0xFE8A, 0xFE8B, 0xFE8C, true, true},
-    {0x0627, 0xFE8E, 0, 0, true, false},   {0x0628, 0xFE90, 0xFE91, 0xFE92, true, true},
-    {0x0629, 0xFE94, 0, 0, true, false},   {0x062A, 0xFE96, 0xFE97, 0xFE98, true, true},
+    {0x0621, 0, 0, 0, false, false},
+    {0x0622, 0xFE82, 0, 0, true, false},
+    {0x0623, 0xFE84, 0, 0, true, false},
+    {0x0624, 0xFE86, 0, 0, true, false},
+    {0x0625, 0xFE88, 0, 0, true, false},
+    {0x0626, 0xFE8A, 0xFE8B, 0xFE8C, true, true},
+    {0x0627, 0xFE8E, 0, 0, true, false},
+    {0x0628, 0xFE90, 0xFE91, 0xFE92, true, true},
+    {0x0629, 0xFE94, 0, 0, true, false},
+    {0x062A, 0xFE96, 0xFE97, 0xFE98, true, true},
     {0x062B, 0xFE9A, 0xFE9B, 0xFE9C, true, true},
     {0x062C, 0xFE9E, 0xFE9F, 0xFEA0, true, true},
     {0x062D, 0xFEA2, 0xFEA3, 0xFEA4, true, true},
     {0x062E, 0xFEA6, 0xFEA7, 0xFEA8, true, true},
-    {0x062F, 0xFEAA, 0, 0, true, false},   {0x0630, 0xFEAC, 0, 0, true, false},
-    {0x0631, 0xFEAE, 0, 0, true, false},   {0x0632, 0xFEB0, 0, 0, true, false},
+    {0x062F, 0xFEAA, 0, 0, true, false},
+    {0x0630, 0xFEAC, 0, 0, true, false},
+    {0x0631, 0xFEAE, 0, 0, true, false},
+    {0x0632, 0xFEB0, 0, 0, true, false},
     {0x0633, 0xFEB2, 0xFEB3, 0xFEB4, true, true},
     {0x0634, 0xFEB6, 0xFEB7, 0xFEB8, true, true},
     {0x0635, 0xFEBA, 0xFEBB, 0xFEBC, true, true},
@@ -44,13 +51,16 @@ constexpr ShapeEntry SHAPES[] = {
     {0x0645, 0xFEE2, 0xFEE3, 0xFEE4, true, true},
     {0x0646, 0xFEE6, 0xFEE7, 0xFEE8, true, true},
     {0x0647, 0xFEEA, 0xFEEB, 0xFEEC, true, true},
-    {0x0648, 0xFEEE, 0, 0, true, false},   {0x0649, 0xFEF0, 0, 0, true, false},
+    {0x0648, 0xFEEE, 0, 0, true, false},
+    {0x0649, 0xFEF0, 0, 0, true, false},
     {0x064A, 0xFEF2, 0xFEF3, 0xFEF4, true, true},
 
     // Common Persian/Urdu letters used in dynamic author/title metadata.
-    {0x0671, 0xFB51, 0, 0, true, false},   {0x067E, 0xFB57, 0xFB58, 0xFB59, true, true},
+    {0x0671, 0xFB51, 0, 0, true, false},
+    {0x067E, 0xFB57, 0xFB58, 0xFB59, true, true},
     {0x0686, 0xFB7B, 0xFB7C, 0xFB7D, true, true},
-    {0x0698, 0xFB8B, 0, 0, true, false},   {0x06A9, 0xFB8F, 0xFB90, 0xFB91, true, true},
+    {0x0698, 0xFB8B, 0, 0, true, false},
+    {0x06A9, 0xFB8F, 0xFB90, 0xFB91, true, true},
     {0x06AF, 0xFB93, 0xFB94, 0xFB95, true, true},
     {0x06CC, 0xFBFD, 0xFBFE, 0xFBFF, true, true},
 };
@@ -66,9 +76,8 @@ const ShapeEntry* findShape(const uint32_t codepoint) {
 }
 
 bool isTransparent(const uint32_t codepoint) {
-  return (codepoint >= 0x0610 && codepoint <= 0x061A) ||
-         (codepoint >= 0x064B && codepoint <= 0x065F) || codepoint == 0x0670 ||
-         (codepoint >= 0x06D6 && codepoint <= 0x06ED) || codepoint == 0x200D;
+  return (codepoint >= 0x0610 && codepoint <= 0x061A) || (codepoint >= 0x064B && codepoint <= 0x065F) ||
+         codepoint == 0x0670 || (codepoint >= 0x06D6 && codepoint <= 0x06ED) || codepoint == 0x200D;
 }
 
 int previousJoinCandidate(const uint32_t* input, int index) {
@@ -129,8 +138,7 @@ namespace ArabicShaper {
 bool containsArabic(const uint32_t* input, const size_t length) {
   for (size_t i = 0; i < length; ++i) {
     const uint32_t cp = input[i];
-    if ((cp >= 0x0600 && cp <= 0x06FF) || (cp >= 0x0750 && cp <= 0x077F) ||
-        (cp >= 0x0870 && cp <= 0x08FF)) {
+    if ((cp >= 0x0600 && cp <= 0x06FF) || (cp >= 0x0750 && cp <= 0x077F) || (cp >= 0x0870 && cp <= 0x08FF)) {
       return true;
     }
   }

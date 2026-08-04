@@ -21,8 +21,8 @@ bool validateBmp(const char* path) {
   {
     Bitmap bitmap(file, true);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      const uint64_t requiredSize = static_cast<uint64_t>(file.position()) +
-                                    static_cast<uint64_t>(bitmap.getRowBytes()) * bitmap.getHeight();
+      const uint64_t requiredSize =
+          static_cast<uint64_t>(file.position()) + static_cast<uint64_t>(bitmap.getRowBytes()) * bitmap.getHeight();
       valid = file.fileSize64() >= requiredSize;
     }
   }

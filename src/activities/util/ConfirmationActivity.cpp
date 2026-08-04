@@ -37,10 +37,10 @@ void ConfirmationActivity::onEnter() {
       safeHeadingLines.cbegin(), safeHeadingLines.cend(), 0, [this](const int widest, const std::string& line) {
         return std::max(widest, renderer.getTextWidth(headingFontId, line.c_str(), EpdFontFamily::BOLD));
       });
-  widestText = std::accumulate(
-      safeBodyLines.cbegin(), safeBodyLines.cend(), widestText, [this](const int widest, const std::string& line) {
-        return std::max(widest, renderer.getTextWidth(bodyFontId, line.c_str()));
-      });
+  widestText = std::accumulate(safeBodyLines.cbegin(), safeBodyLines.cend(), widestText,
+                               [this](const int widest, const std::string& line) {
+                                 return std::max(widest, renderer.getTextWidth(bodyFontId, line.c_str()));
+                               });
   cardWidth = std::min(maxCardWidth, std::max(300, widestText + margin * 2));
   cardHeight = margin * 2;
   cardHeight += static_cast<int>(safeHeadingLines.size()) * headingLineHeight;

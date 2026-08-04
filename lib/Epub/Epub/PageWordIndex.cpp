@@ -16,21 +16,20 @@ void buildPageWordIndex(const Page& page, const GfxRenderer& renderer, const int
     if (lineStartsOut) lineStartsOut->push_back(out.size());
     const int baseX = line->xPos + marginLeft;
     const int baseY = line->yPos + marginTop;
-    line->getBlock()->forEachWord(
-        [&](const size_t wordIndex, const std::string& text, const int16_t relativeX,
-            const EpdFontFamily::Style style) {
-          PageWordHit hit;
-          hit.elementIndex = elementIndex;
-          hit.wordIndexInElement = wordIndex;
-          hit.screenX = baseX + relativeX;
-          hit.screenY = baseY;
-          hit.screenW = std::max(1, renderer.getTextWidth(bodyFontId, text.c_str(), style));
-          hit.screenH = renderer.getLineHeight(bodyFontId);
-          hit.fontId = bodyFontId;
-          hit.style = style;
-          hit.text = text;
-          out.push_back(std::move(hit));
-        });
+    line->getBlock()->forEachWord([&](const size_t wordIndex, const std::string& text, const int16_t relativeX,
+                                      const EpdFontFamily::Style style) {
+      PageWordHit hit;
+      hit.elementIndex = elementIndex;
+      hit.wordIndexInElement = wordIndex;
+      hit.screenX = baseX + relativeX;
+      hit.screenY = baseY;
+      hit.screenW = std::max(1, renderer.getTextWidth(bodyFontId, text.c_str(), style));
+      hit.screenH = renderer.getLineHeight(bodyFontId);
+      hit.fontId = bodyFontId;
+      hit.style = style;
+      hit.text = text;
+      out.push_back(std::move(hit));
+    });
   }
   if (lineStartsOut) {
     lineStartsOut->erase(std::remove(lineStartsOut->begin(), lineStartsOut->end(), out.size()), lineStartsOut->end());

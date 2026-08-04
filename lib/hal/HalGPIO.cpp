@@ -153,8 +153,7 @@ void HalGPIO::enqueueInputEdges(const uint8_t pressed, const uint8_t released) {
   if (inputEventCount >= INPUT_EVENT_QUEUE_SIZE) {
     if (!inputQueueOverflowLogged) {
       inputQueueOverflowLogged = true;
-      LOG_ERR("INPUT", "Input queue full; dropping edge pressed=0x%02x released=0x%02x", pressed,
-              unmatchedReleases);
+      LOG_ERR("INPUT", "Input queue full; dropping edge pressed=0x%02x released=0x%02x", pressed, unmatchedReleases);
     }
     return;
   }

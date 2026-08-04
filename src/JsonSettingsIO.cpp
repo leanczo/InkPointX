@@ -241,10 +241,9 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
 
   // Dynamic sleep-screen mapping is persisted manually. Migrate the removed
   // iPhone-style DARK clock mode to the clean light brand screen.
-  const uint8_t storedSleepScreen =
-      clamp(doc["sleepScreen"] | static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT),
-            CrossPointSettings::SLEEP_SCREEN_MODE_COUNT,
-            static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT));
+  const uint8_t storedSleepScreen = clamp(
+      doc["sleepScreen"] | static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT),
+      CrossPointSettings::SLEEP_SCREEN_MODE_COUNT, static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT));
   s.sleepScreen = storedSleepScreen == static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::DARK)
                       ? static_cast<uint8_t>(CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT)
                       : storedSleepScreen;

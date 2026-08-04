@@ -138,11 +138,16 @@ bool StarDictLookup::parseIfo(const std::string& path) {
     const std::string key = line.substr(first, equals - first);
     std::string value = line.substr(equals + 1);
     while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(value.begin());
-    if (key == "bookname") bookname_ = value;
-    else if (key == "wordcount") wordCount_ = static_cast<uint32_t>(strtoul(value.c_str(), nullptr, 10));
-    else if (key == "idxfilesize") idxFileSize_ = static_cast<uint32_t>(strtoul(value.c_str(), nullptr, 10));
-    else if (key == "sametypesequence") sameTypeSequence_ = value;
-    else if (key == "idxoffsetbits") use64BitOffsets_ = strtoul(value.c_str(), nullptr, 10) == 64;
+    if (key == "bookname")
+      bookname_ = value;
+    else if (key == "wordcount")
+      wordCount_ = static_cast<uint32_t>(strtoul(value.c_str(), nullptr, 10));
+    else if (key == "idxfilesize")
+      idxFileSize_ = static_cast<uint32_t>(strtoul(value.c_str(), nullptr, 10));
+    else if (key == "sametypesequence")
+      sameTypeSequence_ = value;
+    else if (key == "idxoffsetbits")
+      use64BitOffsets_ = strtoul(value.c_str(), nullptr, 10) == 64;
   }
   return true;
 }
@@ -156,9 +161,12 @@ bool StarDictLookup::open(const std::string& folderPath) {
     const std::string name = entry.c_str();
     if (name.empty() || name.front() == '.') continue;
     const std::string full = folderPath + "/" + name;
-    if (endsWithIgnoreCase(name, ".ifo")) ifoPath = full;
-    else if (endsWithIgnoreCase(name, ".idx")) idxPath = full;
-    else if (endsWithIgnoreCase(name, ".dict")) dictPath = full;
+    if (endsWithIgnoreCase(name, ".ifo"))
+      ifoPath = full;
+    else if (endsWithIgnoreCase(name, ".idx"))
+      idxPath = full;
+    else if (endsWithIgnoreCase(name, ".dict"))
+      dictPath = full;
   }
   if (ifoPath.empty() || idxPath.empty() || dictPath.empty()) {
     LOG_ERR("DICT", "Missing .ifo/.idx/.dict in %s", folderPath.c_str());
@@ -215,8 +223,10 @@ bool StarDictLookup::lookupViaCheckpoints(const std::string& candidate, uint64_t
   size_t high = checkpoints_.size();
   while (low < high) {
     const size_t mid = low + (high - low) / 2;
-    if (checkpoints_[mid].entryText.compare(candidate) <= 0) low = mid + 1;
-    else high = mid;
+    if (checkpoints_[mid].entryText.compare(candidate) <= 0)
+      low = mid + 1;
+    else
+      high = mid;
   }
   // A query before the first checkpoint can still match the first bracket.
   const size_t bracket = low == 0 ? 0 : low - 1;
@@ -234,8 +244,7 @@ bool StarDictLookup::lookupViaCheckpoints(const std::string& candidate, uint64_t
   return false;
 }
 
-bool StarDictLookup::lookupViaLinearScan(const std::string& candidateLower, uint64_t& dictOffset,
-                                         uint32_t& dictSize) {
+bool StarDictLookup::lookupViaLinearScan(const std::string& candidateLower, uint64_t& dictOffset, uint32_t& dictSize) {
   uint32_t offset = 0;
   while (offset < idxFileSize_) {
     std::string word;

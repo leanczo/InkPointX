@@ -1,7 +1,6 @@
-#include <gtest/gtest.h>
-
 #include <HalStorage.h>
 #include <StarDictLookup.h>
+#include <gtest/gtest.h>
 
 #include <array>
 #include <filesystem>
@@ -14,8 +13,7 @@ namespace {
 void writeBe32(std::ofstream& out, uint32_t value) {
   const std::array<unsigned char, 4> bytes{static_cast<unsigned char>(value >> 24),
                                            static_cast<unsigned char>(value >> 16),
-                                           static_cast<unsigned char>(value >> 8),
-                                           static_cast<unsigned char>(value)};
+                                           static_cast<unsigned char>(value >> 8), static_cast<unsigned char>(value)};
   out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
@@ -43,8 +41,10 @@ class StarDictLookupTest : public testing::Test {
     for (const auto& [word, definition] : entries) {
       dict.write(definition.data(), definition.size());
       idx.write(word.c_str(), word.size() + 1);
-      if (offsets64) writeBe64(idx, offset);
-      else writeBe32(idx, static_cast<uint32_t>(offset));
+      if (offsets64)
+        writeBe64(idx, offset);
+      else
+        writeBe32(idx, static_cast<uint32_t>(offset));
       writeBe32(idx, static_cast<uint32_t>(definition.size()));
       offset += definition.size();
     }

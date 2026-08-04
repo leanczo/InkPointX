@@ -1,8 +1,8 @@
 #include "LyraTheme.h"
 
+#include <BidiUtils.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
-#include <BidiUtils.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
@@ -119,8 +119,7 @@ void drawAccessory(const GfxRenderer& renderer, const UIAccessory accessory, con
       const int knobSize = toggleHeight - 8;
       if (on) {
         renderer.fillRoundedRect(x, y, toggleWidth, toggleHeight, toggleHeight / 2, Color::Black);
-        renderer.fillRoundedRect(x + toggleWidth - knobSize - 4, y + 4, knobSize, knobSize, knobSize / 2,
-                                 Color::White);
+        renderer.fillRoundedRect(x + toggleWidth - knobSize - 4, y + 4, knobSize, knobSize, knobSize / 2, Color::White);
       } else {
         renderer.drawRoundedRect(x, y, toggleWidth, toggleHeight, 1, toggleHeight / 2, true);
         renderer.fillRoundedRect(x + 4, y + 4, knobSize, knobSize, knobSize / 2, Color::Black);
@@ -186,8 +185,7 @@ void LyraTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
   const bool rtl = label && BidiUtils::startsWithRtl(label);
   int secondarySpace = LyraMetrics::values.contentSidePadding;
   if (rightLabel) {
-    auto secondary =
-        renderer.truncatedText(SMALL_FONT_ID, rightLabel, maxListValueWidth, EpdFontFamily::REGULAR);
+    auto secondary = renderer.truncatedText(SMALL_FONT_ID, rightLabel, maxListValueWidth, EpdFontFamily::REGULAR);
     const int secondaryWidth = renderer.getTextWidth(SMALL_FONT_ID, secondary.c_str());
     const int secondaryX = rtl ? rect.x + LyraMetrics::values.contentSidePadding
                                : rect.x + rect.width - LyraMetrics::values.contentSidePadding - secondaryWidth;
@@ -195,9 +193,8 @@ void LyraTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
     secondarySpace += secondaryWidth + hPaddingInSelection;
   }
 
-  auto heading = renderer.truncatedText(UI_10_FONT_ID, label,
-                                        rect.width - LyraMetrics::values.contentSidePadding - secondarySpace,
-                                        EpdFontFamily::BOLD);
+  auto heading = renderer.truncatedText(
+      UI_10_FONT_ID, label, rect.width - LyraMetrics::values.contentSidePadding - secondarySpace, EpdFontFamily::BOLD);
   const int headingWidth = renderer.getTextWidth(UI_10_FONT_ID, heading.c_str());
   const int headingX = rtl ? rect.x + rect.width - LyraMetrics::values.contentSidePadding - headingWidth
                            : rect.x + LyraMetrics::values.contentSidePadding;
@@ -206,7 +203,6 @@ void LyraTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char
   drawHairline(renderer, rect.x + LyraMetrics::values.contentSidePadding,
                rect.x + rect.width - LyraMetrics::values.contentSidePadding, rect.y + rect.height - 1);
 }
-
 
 int LyraTheme::getListPageItems(int contentHeight, bool hasSubtitle) const {
   int rowHeight = (hasSubtitle) ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
@@ -220,8 +216,7 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
                          const std::function<std::string(int index)>& rowValue, bool highlightValue,
                          const std::function<bool(int index)>& rowDimmed,
                          const std::function<UIAccessory(int index)>& rowAccessory) const {
-  const int rowHeight =
-      rowSubtitle ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
+  const int rowHeight = rowSubtitle ? LyraMetrics::values.listWithSubtitleRowHeight : LyraMetrics::values.listRowHeight;
   const int titleFontId = rowSubtitle ? UI_12_FONT_ID : UI_10_FONT_ID;
   const int subtitleFontId = UI_10_FONT_ID;
   const int pageItems = std::max(1, rect.height / rowHeight);
@@ -298,16 +293,14 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     const int iconX = rowRtl ? rowRight - iconSize : rowLeft;
     const int accessoryX = rowRtl ? rowLeft : rowRight - accessoryW;
     const int textLeft = rowLeft + (rowRtl ? accessorySpace : (iconSize > 0 ? iconSize + hPaddingInSelection : 0));
-    const int textRight =
-        rowRight - (rowRtl ? (iconSize > 0 ? iconSize + hPaddingInSelection : 0) : accessorySpace);
+    const int textRight = rowRight - (rowRtl ? (iconSize > 0 ? iconSize + hPaddingInSelection : 0) : accessorySpace);
 
     std::string valueText;
     int valueWidth = 0;
     if (rowValue) {
       valueText = rowValue(i);
       const int valueMaxWidth = std::min(maxListValueWidth, std::max(0, (textRight - textLeft) / 2));
-      const auto valueStyle =
-          highlightValue && i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+      const auto valueStyle = highlightValue && i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
       valueText = renderer.truncatedText(UI_10_FONT_ID, valueText.c_str(), valueMaxWidth, valueStyle);
       valueWidth = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str(), valueStyle);
     }
@@ -325,8 +318,7 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     // top-anchored title and an empty band below it, which read as a gap in the
     // rhythm rather than as a row with less to say.
     const bool rowHasSubtitle = rowSubtitle && !rowSubtitle(i).empty();
-    const int titleY =
-        rowHasSubtitle ? itemY + 8 : itemY + std::max(0, (rowHeight - titleLineHeight) / 2);
+    const int titleY = rowHasSubtitle ? itemY + 8 : itemY + std::max(0, (rowHeight - titleLineHeight) / 2);
     renderer.drawText(titleFontId, titleX, titleY, item.c_str(), true,
                       i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
 
@@ -354,8 +346,7 @@ void LyraTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
     if (!valueText.empty()) {
       const int valueX = rowRtl ? textLeft : textRight - valueWidth;
       const int valueY = itemY + std::max(0, (rowHeight - titleLineHeight) / 2);
-      const auto valueStyle =
-          highlightValue && i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+      const auto valueStyle = highlightValue && i == selectedIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
       renderer.drawText(UI_10_FONT_ID, valueX, valueY, valueText.c_str(), true, valueStyle);
     }
 
@@ -438,8 +429,6 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
   }
 }
 
-
-
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
@@ -457,10 +446,9 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     // Same right edge and same vertical inset as drawList, so a selection moving
     // between menu tiles and list rows on one screen does not visibly jog.
     const int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2 - scrollGutterWidth;
-    const Rect tileRect =
-        Rect{rect.x + LyraMetrics::values.contentSidePadding,
-             rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing), tileWidth,
-             LyraMetrics::values.menuRowHeight};
+    const Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding,
+                               rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing),
+                               tileWidth, LyraMetrics::values.menuRowHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -475,8 +463,7 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     const int iconX = rtl ? tileRect.x + tileRect.width - 16 - mainMenuIconSize : tileRect.x + 16;
     const int accessoryX = rtl ? tileRect.x + 12 : tileRect.x + tileRect.width - 28;
     const int textLeft = tileRect.x + 16 + (rtl ? 22 : mainMenuIconSize + hPaddingInSelection);
-    const int textRight =
-        tileRect.x + tileRect.width - 16 - (rtl ? mainMenuIconSize + hPaddingInSelection : 22);
+    const int textRight = tileRect.x + tileRect.width - 16 - (rtl ? mainMenuIconSize + hPaddingInSelection : 22);
     const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
     const int textY = tileRect.y + (LyraMetrics::values.menuRowHeight - lineHeight) / 2;
 
@@ -488,16 +475,15 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                           mainMenuIconSize);
     }
 
-    const auto truncated =
-        renderer.truncatedText(UI_12_FONT_ID, label, std::max(0, textRight - textLeft),
-                               selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const auto truncated = renderer.truncatedText(UI_12_FONT_ID, label, std::max(0, textRight - textLeft),
+                                                  selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     const int labelWidth = renderer.getTextWidth(UI_12_FONT_ID, truncated.c_str(),
                                                  selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     const int textX = rtl ? textRight - labelWidth : textLeft;
     renderer.drawText(UI_12_FONT_ID, textX, textY, truncated.c_str(), true,
                       selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    drawAccessory(renderer, UIAccessory::Chevron, accessoryX,
-                  tileRect.y + (tileRect.height - accessoryIconSize) / 2, rtl);
+    drawAccessory(renderer, UIAccessory::Chevron, accessoryX, tileRect.y + (tileRect.height - accessoryIconSize) / 2,
+                  rtl);
 
     const bool nextSelected = i + 1 == selectedIndex;
     if (!selected && !nextSelected && i + 1 < buttonCount) {

@@ -101,7 +101,6 @@ class FontDecompressor {
   uint16_t glyphCacheWriteOffset = 0;
   uint32_t glyphCacheClock = 0;
 
-
   void freeHotGroup();
   void freeGlyphCache();
   const uint8_t* findCachedGlyph(const EpdFontData* fontData, uint32_t glyphIndex);

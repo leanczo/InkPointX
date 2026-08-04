@@ -41,8 +41,8 @@ void BookInfoActivity::render(RenderLock&&) {
   snprintf(pageValue, sizeof(pageValue), "%d / %d", currentPage, totalPages);
   char progressValue[16];
   snprintf(progressValue, sizeof(progressValue), "%d%%", progressPercent);
-  const std::array<const char*, 6> labels = {tr(STR_TITLE), tr(STR_AUTHOR), tr(STR_FORMAT),
-                                             tr(STR_LANGUAGE), tr(STR_PAGE), tr(STR_PROGRESS)};
+  const std::array<const char*, 6> labels = {tr(STR_TITLE),    tr(STR_AUTHOR), tr(STR_FORMAT),
+                                             tr(STR_LANGUAGE), tr(STR_PAGE),   tr(STR_PROGRESS)};
   const std::array<std::string, 6> values = {title,     author.empty() ? tr(STR_NOT_SET) : author,
                                              format,    language.empty() ? tr(STR_NOT_SET) : language,
                                              pageValue, progressValue};
@@ -50,9 +50,7 @@ void BookInfoActivity::render(RenderLock&&) {
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentBottom = UITheme::getListContentBottom(renderer, false);
   GUI.drawList(
-      renderer,
-      Rect{0, top, width, std::max(0, contentBottom - top)},
-      static_cast<int>(labels.size()), -1,
+      renderer, Rect{0, top, width, std::max(0, contentBottom - top)}, static_cast<int>(labels.size()), -1,
       [&labels](const int index) { return std::string(labels[index]); }, nullptr, nullptr,
       [&values](const int index) { return values[index]; }, false);
 

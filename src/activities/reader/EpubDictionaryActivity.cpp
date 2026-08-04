@@ -1,7 +1,7 @@
 #include "EpubDictionaryActivity.h"
 
-#include <GfxRenderer.h>
 #include <FontCacheManager.h>
+#include <GfxRenderer.h>
 #include <HalDisplay.h>
 #include <I18n.h>
 #include <Memory.h>
@@ -57,12 +57,18 @@ std::string stripHtml(const std::string& input) {
       const size_t semi = input.find(';', i + 1);
       if (semi != std::string::npos && semi - i <= 10) {
         const std::string entity = input.substr(i + 1, semi - i - 1);
-        if (entity == "amp") out.push_back('&');
-        else if (entity == "lt") out.push_back('<');
-        else if (entity == "gt") out.push_back('>');
-        else if (entity == "quot") out.push_back('"');
-        else if (entity == "apos" || entity == "#39") out.push_back('\'');
-        else if (entity == "nbsp") out.push_back(' ');
+        if (entity == "amp")
+          out.push_back('&');
+        else if (entity == "lt")
+          out.push_back('<');
+        else if (entity == "gt")
+          out.push_back('>');
+        else if (entity == "quot")
+          out.push_back('"');
+        else if (entity == "apos" || entity == "#39")
+          out.push_back('\'');
+        else if (entity == "nbsp")
+          out.push_back(' ');
         else {
           out.append(input, i, semi - i + 1);
         }
@@ -121,8 +127,10 @@ void EpubDictionaryActivity::onExit() {
 
 void EpubDictionaryActivity::moveWord(const int delta) {
   if (words_.empty()) return;
-  if (delta < 0 && focus_ > 0) --focus_;
-  else if (delta > 0 && focus_ + 1 < words_.size()) ++focus_;
+  if (delta < 0 && focus_ > 0)
+    --focus_;
+  else if (delta > 0 && focus_ + 1 < words_.size())
+    ++focus_;
 }
 
 void EpubDictionaryActivity::moveLine(const int delta) {
@@ -135,8 +143,8 @@ void EpubDictionaryActivity::moveLine(const int delta) {
       break;
     }
   }
-  const size_t targetLine = delta < 0 ? (currentLine == 0 ? 0 : currentLine - 1)
-                                      : std::min(currentLine + 1, lineStarts_.size() - 1);
+  const size_t targetLine =
+      delta < 0 ? (currentLine == 0 ? 0 : currentLine - 1) : std::min(currentLine + 1, lineStarts_.size() - 1);
   if (targetLine == currentLine) return;
   const int targetX = words_[focus_].screenX + words_[focus_].screenW / 2;
   const size_t begin = lineStarts_[targetLine];
@@ -176,7 +184,8 @@ void EpubDictionaryActivity::loop() {
       scrollLine_ = scrollLine_ > 3 ? scrollLine_ - 3 : 0;
       requestUpdate();
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
-      if (scrollLine_ + 1 < definitionLines_.size()) scrollLine_ = std::min(scrollLine_ + 3, definitionLines_.size() - 1);
+      if (scrollLine_ + 1 < definitionLines_.size())
+        scrollLine_ = std::min(scrollLine_ + 3, definitionLines_.size() - 1);
       requestUpdate();
     }
     return;
@@ -210,8 +219,10 @@ void EpubDictionaryActivity::performLookup() {
       dictionaryOpenAttempted_ = true;
       dictionary_.open(std::string("/dictionaries/") + SETTINGS.dictionaryFolder);
     }
-    if (!dictionary_.isOpen()) definition_ = tr(STR_DICTIONARY_OPEN_FAILED);
-    else if (!dictionary_.lookup(lookupWord_, definition_, &truncated)) definition_ = tr(STR_DEFINITION_NOT_FOUND);
+    if (!dictionary_.isOpen())
+      definition_ = tr(STR_DICTIONARY_OPEN_FAILED);
+    else if (!dictionary_.lookup(lookupWord_, definition_, &truncated))
+      definition_ = tr(STR_DEFINITION_NOT_FOUND);
   }
   if (truncated) {
     while (!definition_.empty() && (static_cast<unsigned char>(definition_.back()) & 0xc0) == 0x80)
@@ -337,11 +348,13 @@ void EpubDictionaryActivity::render(RenderLock&&) {
     if (SETTINGS.readerInvertColors) renderer.invertScreen();
     captureBaseFrame();
   }
-  if (showingDefinition_) drawDefinitionPanel();
-  else drawHighlight();
-  const auto labels = mappedInput.mapLabels(showingDefinition_ ? tr(STR_CLOSE) : tr(STR_BACK),
-                                            showingDefinition_ ? "" : tr(STR_LOOK_UP), tr(STR_DIR_UP),
-                                            tr(STR_DIR_DOWN));
+  if (showingDefinition_)
+    drawDefinitionPanel();
+  else
+    drawHighlight();
+  const auto labels =
+      mappedInput.mapLabels(showingDefinition_ ? tr(STR_CLOSE) : tr(STR_BACK),
+                            showingDefinition_ ? "" : tr(STR_LOOK_UP), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

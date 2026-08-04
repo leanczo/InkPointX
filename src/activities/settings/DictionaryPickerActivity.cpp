@@ -19,7 +19,8 @@ bool hasExtension(const std::string& name, const char* extension) {
   if (name.size() < n) return false;
   for (size_t i = 0; i < n; ++i) {
     if (std::tolower(static_cast<unsigned char>(name[name.size() - n + i])) !=
-        std::tolower(static_cast<unsigned char>(extension[i]))) return false;
+        std::tolower(static_cast<unsigned char>(extension[i])))
+      return false;
   }
   return true;
 }
@@ -104,15 +105,16 @@ void DictionaryPickerActivity::render(RenderLock&&) {
     GUI.drawEmptyState(renderer, Rect{screen.x, contentTop, screen.width, contentBottom - contentTop},
                        tr(STR_NO_DICTIONARIES), tr(STR_DICTIONARY_INSTALL_HINT));
   } else {
-    GUI.drawList(renderer, Rect{screen.x, contentTop, screen.width, contentBottom - contentTop}, folders_.size(),
-                 selectedIndex_, [this](int index) { return folders_[index].c_str(); }, nullptr, nullptr, nullptr,
-                 false, nullptr, [this](int index) {
-                   return folders_[index] == SETTINGS.dictionaryFolder ? UIAccessory::Check : UIAccessory::None;
-                 });
+    GUI.drawList(
+        renderer, Rect{screen.x, contentTop, screen.width, contentBottom - contentTop}, folders_.size(), selectedIndex_,
+        [this](int index) { return folders_[index].c_str(); }, nullptr, nullptr, nullptr, false, nullptr,
+        [this](int index) {
+          return folders_[index] == SETTINGS.dictionaryFolder ? UIAccessory::Check : UIAccessory::None;
+        });
     GUI.drawFooterCounter(renderer, selectedIndex_, static_cast<int>(folders_.size()));
   }
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), folders_.empty() ? "" : tr(STR_SELECT), tr(STR_DIR_UP),
-                                            tr(STR_DIR_DOWN));
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), folders_.empty() ? "" : tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

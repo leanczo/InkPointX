@@ -3,11 +3,11 @@
 #include <Logging.h>
 
 #include <memory>
+#include <new>
 #include <string>
 
 #include "JpegToFramebufferConverter.h"
 #include "PngToFramebufferConverter.h"
-#include <new>
 
 std::unique_ptr<JpegToFramebufferConverter> ImageDecoderFactory::jpegDecoder = nullptr;
 std::unique_ptr<PngToFramebufferConverter> ImageDecoderFactory::pngDecoder = nullptr;

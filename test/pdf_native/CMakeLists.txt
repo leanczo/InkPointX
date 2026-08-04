@@ -33,7 +33,11 @@ add_executable(pdf_native_harness
 )
 target_compile_definitions(pdf_native_harness PRIVATE PDFIO_READ_ONLY=1)
 target_compile_options(pdf_native_harness PRIVATE -ffunction-sections -fdata-sections)
-target_link_options(pdf_native_harness PRIVATE -Wl,-dead_strip)
+if(APPLE)
+  target_link_options(pdf_native_harness PRIVATE -Wl,-dead_strip)
+else()
+  target_link_options(pdf_native_harness PRIVATE -Wl,--gc-sections)
+endif()
 target_link_libraries(pdf_native_harness PRIVATE ZLIB::ZLIB)
 target_include_directories(pdf_native_harness BEFORE PRIVATE
   ${REPO_ROOT}/test/fb2_encoding/mocks

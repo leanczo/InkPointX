@@ -9,28 +9,23 @@
 
 #include "pdfio-private.h"
 #ifdef PDFIO_PNGDEC_ZLIB
-#  include <zutil.h>
-#  include <inftrees.h>
-#  include <inflate.h>
-#endif // PDFIO_PNGDEC_ZLIB
+#include <inflate.h>
+#include <inftrees.h>
+#include <zutil.h>
+#endif  // PDFIO_PNGDEC_ZLIB
 
 #ifdef PDFIO_PNGDEC_ZLIB
-static void *shared_flate_state = NULL;
-static void *shared_flate_window = NULL;
-static void *shared_flate_cbuffer = NULL;
+static void* shared_flate_state = NULL;
+static void* shared_flate_window = NULL;
+static void* shared_flate_cbuffer = NULL;
 static bool shared_flate_in_use = false;
-static pdfio_stream_t *shared_stream = NULL;
+static pdfio_stream_t* shared_stream = NULL;
 static bool shared_stream_in_use = false;
 
-static void
-release_stream_flate_storage(pdfio_stream_t *st)
-{
-  if (st->flate_uses_shared)
-  {
+static void release_stream_flate_storage(pdfio_stream_t* st) {
+  if (st->flate_uses_shared) {
     shared_flate_in_use = false;
-  }
-  else
-  {
+  } else {
     free(st->flate_state_storage);
     free(st->flate_window_storage);
   }
@@ -38,51 +33,38 @@ release_stream_flate_storage(pdfio_stream_t *st)
   st->flate_window_storage = NULL;
   st->flate_uses_shared = false;
 }
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
 
-
-static pdfio_stream_t *
-allocate_stream_object(void)
-{
+static pdfio_stream_t* allocate_stream_object(void) {
 #ifdef PDFIO_PNGDEC_ZLIB
-  if (shared_stream && !shared_stream_in_use)
-  {
+  if (shared_stream && !shared_stream_in_use) {
     memset(shared_stream, 0, sizeof(pdfio_stream_t));
     shared_stream_in_use = true;
     return (shared_stream);
   }
-#endif // PDFIO_PNGDEC_ZLIB
-  return ((pdfio_stream_t *)calloc(1, sizeof(pdfio_stream_t)));
+#endif  // PDFIO_PNGDEC_ZLIB
+  return ((pdfio_stream_t*)calloc(1, sizeof(pdfio_stream_t)));
 }
 
-
-static void
-release_stream_object(pdfio_stream_t *st)
-{
+static void release_stream_object(pdfio_stream_t* st) {
 #ifdef PDFIO_PNGDEC_ZLIB
-  if (st == shared_stream)
-  {
+  if (st == shared_stream) {
     shared_stream_in_use = false;
     return;
   }
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
   free(st);
 }
 
-
-bool
-pdfioPrepareFlateWorkspace(void)
-{
+bool pdfioPrepareFlateWorkspace(void) {
 #ifdef PDFIO_PNGDEC_ZLIB
-  if (shared_flate_state && shared_flate_window && shared_flate_cbuffer && shared_stream)
-    return (true);
+  if (shared_flate_state && shared_flate_window && shared_flate_cbuffer && shared_stream) return (true);
 
   shared_flate_window = malloc(32768);
   shared_flate_state = calloc(1, sizeof(struct inflate_state));
   shared_flate_cbuffer = malloc(1024);
-  shared_stream = (pdfio_stream_t *)calloc(1, sizeof(pdfio_stream_t));
-  if (!shared_flate_window || !shared_flate_state || !shared_flate_cbuffer || !shared_stream)
-  {
+  shared_stream = (pdfio_stream_t*)calloc(1, sizeof(pdfio_stream_t));
+  if (!shared_flate_window || !shared_flate_state || !shared_flate_cbuffer || !shared_stream) {
     free(shared_flate_state);
     free(shared_flate_window);
     free(shared_flate_cbuffer);
@@ -93,17 +75,13 @@ pdfioPrepareFlateWorkspace(void)
     shared_stream = NULL;
     return (false);
   }
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
   return (true);
 }
 
-
-void
-pdfioReleaseFlateWorkspace(void)
-{
+void pdfioReleaseFlateWorkspace(void) {
 #ifdef PDFIO_PNGDEC_ZLIB
-  if (shared_flate_in_use || shared_stream_in_use)
-    return;
+  if (shared_flate_in_use || shared_stream_in_use) return;
   free(shared_flate_state);
   free(shared_flate_window);
   free(shared_flate_cbuffer);
@@ -112,131 +90,106 @@ pdfioReleaseFlateWorkspace(void)
   shared_flate_window = NULL;
   shared_flate_cbuffer = NULL;
   shared_stream = NULL;
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
 }
-
 
 //
 // Local functions...
 //
 
-static unsigned char	stream_paeth(unsigned char a, unsigned char b, unsigned char c);
-static ssize_t		stream_read(pdfio_stream_t *st, char *buffer, size_t bytes);
-static bool		stream_write(pdfio_stream_t *st, const void *buffer, size_t bytes);
-static const char	*zstrerror(int error);
-
+static unsigned char stream_paeth(unsigned char a, unsigned char b, unsigned char c);
+static ssize_t stream_read(pdfio_stream_t* st, char* buffer, size_t bytes);
+static bool stream_write(pdfio_stream_t* st, const void* buffer, size_t bytes);
+static const char* zstrerror(int error);
 
 //
 // 'pdfioStreamClose()' - Close a (data) stream in a PDF file.
 //
 
-bool					// O - `true` on success, `false` on failure
-pdfioStreamClose(pdfio_stream_t *st)	// I - Stream
+bool                                  // O - `true` on success, `false` on failure
+pdfioStreamClose(pdfio_stream_t* st)  // I - Stream
 {
-  bool	ret = true;			// Return value
-  uint8_t temp[PDFIO_BUF_SIZE + 32];	// Temporary buffer
-
+  bool ret = true;                    // Return value
+  uint8_t temp[PDFIO_BUF_SIZE + 32];  // Temporary buffer
 
   // Range check input...
-  if (!st)
-    return (false);
+  if (!st) return (false);
 
   // Finish reads/writes and free memory...
-  if (st->pdf->mode == _PDFIO_MODE_READ)
-  {
-    if (st->filter == PDFIO_FILTER_FLATE)
-      inflateEnd(&(st->flate));
-  }
-  else
-  {
+  if (st->pdf->mode == _PDFIO_MODE_READ) {
+    if (st->filter == PDFIO_FILTER_FLATE) inflateEnd(&(st->flate));
+  } else {
 #ifdef PDFIO_READ_ONLY
     _pdfioFileError(st->pdf, "Writing PDF streams is disabled in this build.");
     ret = false;
 #else
     // Close stream for writing...
-    if (st->filter == PDFIO_FILTER_FLATE)
-    {
+    if (st->filter == PDFIO_FILTER_FLATE) {
       // Finalize flate compression stream...
-      int status;			// Deflate status
+      int status;  // Deflate status
 
-      while ((status = deflate(&st->flate, Z_FINISH)) != Z_STREAM_END)
-      {
-        size_t	bytes = st->cbsize - st->flate.avail_out,
-					// Bytes to write
-		outbytes;		// Actual bytes written
+      while ((status = deflate(&st->flate, Z_FINISH)) != Z_STREAM_END) {
+        size_t bytes = st->cbsize - st->flate.avail_out,
+               // Bytes to write
+            outbytes;  // Actual bytes written
 
-	if (status < Z_OK && status != Z_BUF_ERROR)
-	{
-	  _pdfioFileError(st->pdf, "Flate compression failed: %s", zstrerror(status));
-	  ret = false;
-	  goto done;
-	}
+        if (status < Z_OK && status != Z_BUF_ERROR) {
+          _pdfioFileError(st->pdf, "Flate compression failed: %s", zstrerror(status));
+          ret = false;
+          goto done;
+        }
 
-	if (st->crypto_cb)
-	{
-	  // Encrypt it first...
-	  outbytes = (st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, bytes & (size_t)~15, /*last*/false);
-	}
-	else
-	{
-	  // No encryption
-	  outbytes = bytes;
-	}
+        if (st->crypto_cb) {
+          // Encrypt it first...
+          outbytes = (st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, bytes & (size_t)~15, /*last*/ false);
+        } else {
+          // No encryption
+          outbytes = bytes;
+        }
 
-	if (!_pdfioFileWrite(st->pdf, st->cbuffer, outbytes))
-	{
-	  ret = false;
-	  goto done;
-	}
+        if (!_pdfioFileWrite(st->pdf, st->cbuffer, outbytes)) {
+          ret = false;
+          goto done;
+        }
 
-        if (bytes > outbytes)
-        {
+        if (bytes > outbytes) {
           bytes -= outbytes;
           memmove(st->cbuffer, st->cbuffer + outbytes, bytes);
-        }
-        else
-        {
+        } else {
           bytes = 0;
         }
 
-	st->flate.next_out  = (Bytef *)st->cbuffer + bytes;
-	st->flate.avail_out = (uInt)(st->cbsize - bytes);
+        st->flate.next_out = (Bytef*)st->cbuffer + bytes;
+        st->flate.avail_out = (uInt)(st->cbsize - bytes);
       }
 
-      if (st->flate.avail_out < (uInt)st->cbsize || st->crypto_cb)
-      {
+      if (st->flate.avail_out < (uInt)st->cbsize || st->crypto_cb) {
         // Write any residuals...
         size_t bytes = st->cbsize - st->flate.avail_out;
-					// Bytes to write
+        // Bytes to write
 
-	if (st->crypto_cb)
-	{
-	  // Encrypt it first...
-	  bytes = (st->crypto_cb)(&st->crypto_ctx, temp, st->cbuffer, bytes, /*last*/true);
+        if (st->crypto_cb) {
+          // Encrypt it first...
+          bytes = (st->crypto_cb)(&st->crypto_ctx, temp, st->cbuffer, bytes, /*last*/ true);
 
-	  if (bytes > 0 && !_pdfioFileWrite(st->pdf, temp, bytes))
-	  {
-	    ret = false;
-	    goto done;
-	  }
-	}
-	else if (!_pdfioFileWrite(st->pdf, st->cbuffer, bytes))
-	{
-	  ret = false;
-	  goto done;
-	}
+          if (bytes > 0 && !_pdfioFileWrite(st->pdf, temp, bytes)) {
+            ret = false;
+            goto done;
+          }
+        } else if (!_pdfioFileWrite(st->pdf, st->cbuffer, bytes)) {
+          ret = false;
+          goto done;
+        }
       }
 
       deflateEnd(&st->flate);
-    }
-    else if (st->crypto_cb && st->bufptr >= st->buffer)
-    {
+    } else if (st->crypto_cb && st->bufptr >= st->buffer) {
       // Encrypt and flush
-      size_t	outbytes;		// Output bytes
+      size_t outbytes;  // Output bytes
 
-      outbytes = (st->crypto_cb)(&st->crypto_ctx, temp, (uint8_t *)st->buffer, (size_t)(st->bufptr - st->buffer), /*last*/true);
-      if (outbytes > 0 && !_pdfioFileWrite(st->pdf, temp, outbytes))
-      {
+      outbytes = (st->crypto_cb)(&st->crypto_ctx, temp, (uint8_t*)st->buffer, (size_t)(st->bufptr - st->buffer),
+                                 /*last*/ true);
+      if (outbytes > 0 && !_pdfioFileWrite(st->pdf, temp, outbytes)) {
         ret = false;
         goto done;
       }
@@ -246,62 +199,54 @@ pdfioStreamClose(pdfio_stream_t *st)	// I - Stream
     st->obj->stream_length = (size_t)(_pdfioFileTell(st->pdf) - st->obj->stream_offset);
 
     // End of stream marker...
-    if (!_pdfioFilePuts(st->pdf, "\nendstream\nendobj\n"))
-    {
+    if (!_pdfioFilePuts(st->pdf, "\nendstream\nendobj\n")) {
       ret = false;
       goto done;
     }
 
     // Update the length as needed...
-    if (st->length_obj)
-    {
+    if (st->length_obj) {
       st->length_obj->value.value.number = (double)st->obj->stream_length;
       pdfioObjClose(st->length_obj);
-    }
-    else if (st->obj->length_offset)
-    {
+    } else if (st->obj->length_offset) {
       // Seek back to the "/Length 9999999999" we wrote...
-      if (_pdfioFileSeek(st->pdf, st->obj->length_offset, SEEK_SET) < 0)
-      {
+      if (_pdfioFileSeek(st->pdf, st->obj->length_offset, SEEK_SET) < 0) {
         ret = false;
         goto done;
       }
 
       // Write the updated length value...
-      if (!_pdfioFilePrintf(st->pdf, "%-10lu", (unsigned long)st->obj->stream_length))
-      {
+      if (!_pdfioFilePrintf(st->pdf, "%-10lu", (unsigned long)st->obj->stream_length)) {
         ret = false;
         goto done;
       }
 
       // Seek to the end of the PDF file...
-      if (_pdfioFileSeek(st->pdf, 0, SEEK_END) < 0)
-      {
+      if (_pdfioFileSeek(st->pdf, 0, SEEK_END) < 0) {
         ret = false;
         goto done;
       }
     }
-#endif // PDFIO_READ_ONLY
+#endif  // PDFIO_READ_ONLY
   }
 
-  done:
+done:
 
   st->pdf->current_obj = NULL;
 
 #ifdef PDFIO_PNGDEC_ZLIB
   if (!st->cbuffer_uses_shared)
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
     free(st->cbuffer);
   free(st->prbuffer);
   free(st->psbuffer);
 #ifdef PDFIO_PNGDEC_ZLIB
   release_stream_flate_storage(st);
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
   release_stream_object(st);
 
   return (ret);
 }
-
 
 //
 // '_pdfioStreamCreate()' - Create a stream for writing.
@@ -309,149 +254,125 @@ pdfioStreamClose(pdfio_stream_t *st)	// I - Stream
 // Note: pdfioObjCreateStream handles writing the object and its dictionary.
 //
 
-pdfio_stream_t *			// O - Stream or `NULL` on error
-_pdfioStreamCreate(
-    pdfio_obj_t    *obj,		// I - Object
-    pdfio_obj_t    *length_obj,		// I - Length object, if any
-    size_t         cbsize,		// I - Size of compression buffer
-    pdfio_filter_t compression)		// I - Compression to apply
+pdfio_stream_t*                                 // O - Stream or `NULL` on error
+_pdfioStreamCreate(pdfio_obj_t* obj,            // I - Object
+                   pdfio_obj_t* length_obj,     // I - Length object, if any
+                   size_t cbsize,               // I - Size of compression buffer
+                   pdfio_filter_t compression)  // I - Compression to apply
 {
 #ifdef PDFIO_READ_ONLY
   (void)length_obj;
   (void)cbsize;
   (void)compression;
-  if (obj)
-    _pdfioFileError(obj->pdf, "Writing PDF streams is disabled in this build.");
+  if (obj) _pdfioFileError(obj->pdf, "Writing PDF streams is disabled in this build.");
   return (NULL);
 #else
-  pdfio_stream_t	*st;		// Stream
-
+  pdfio_stream_t* st;  // Stream
 
   // Allocate a new stream object...
-  if ((st = (pdfio_stream_t *)calloc(1, sizeof(pdfio_stream_t))) == NULL)
-  {
+  if ((st = (pdfio_stream_t*)calloc(1, sizeof(pdfio_stream_t))) == NULL) {
     _pdfioFileError(obj->pdf, "Unable to allocate memory for a stream.");
     return (NULL);
   }
 
-  st->pdf        = obj->pdf;
-  st->obj        = obj;
+  st->pdf = obj->pdf;
+  st->obj = obj;
   st->length_obj = length_obj;
-  st->filter     = compression;
-  st->bufptr     = st->buffer;
-  st->bufend     = st->buffer + sizeof(st->buffer);
+  st->filter = compression;
+  st->bufptr = st->buffer;
+  st->bufend = st->buffer + sizeof(st->buffer);
 
-  if (obj->pdf->encryption)
-  {
-    uint8_t	iv[64];			// Initialization vector
-    size_t	ivlen = sizeof(iv);	// Length of initialization vector, if any
+  if (obj->pdf->encryption) {
+    uint8_t iv[64];             // Initialization vector
+    size_t ivlen = sizeof(iv);  // Length of initialization vector, if any
 
-    if ((st->crypto_cb = _pdfioCryptoMakeWriter(st->pdf, obj, &st->crypto_ctx, iv, &ivlen)) == NULL)
-    {
+    if ((st->crypto_cb = _pdfioCryptoMakeWriter(st->pdf, obj, &st->crypto_ctx, iv, &ivlen)) == NULL) {
       // TODO: Add error message?
       free(st);
       return (NULL);
     }
 
-    if (ivlen > 0)
-      _pdfioFileWrite(st->pdf, iv, ivlen);
+    if (ivlen > 0) _pdfioFileWrite(st->pdf, iv, ivlen);
   }
 
-  if (compression == PDFIO_FILTER_FLATE)
-  {
+  if (compression == PDFIO_FILTER_FLATE) {
     // Flate compression
-    pdfio_dict_t *params = pdfioDictGetDict(obj->value.value.dict, "DecodeParms");
-					// Decoding parameters
+    pdfio_dict_t* params = pdfioDictGetDict(obj->value.value.dict, "DecodeParms");
+    // Decoding parameters
     int bpc = (int)pdfioDictGetNumber(params, "BitsPerComponent");
-					// Bits per component
+    // Bits per component
     int colors = (int)pdfioDictGetNumber(params, "Colors");
-					// Number of colors
+    // Number of colors
     int columns = (int)pdfioDictGetNumber(params, "Columns");
-					// Number of columns
+    // Number of columns
     int predictor = (int)pdfioDictGetNumber(params, "Predictor");
-					// Predictory value, if any
-    int status;				// ZLIB status code
+    // Predictory value, if any
+    int status;  // ZLIB status code
 
-    PDFIO_DEBUG("_pdfioStreamCreate: FlateDecode - BitsPerComponent=%d, Colors=%d, Columns=%d, Predictor=%d\n", bpc, colors, columns, predictor);
+    PDFIO_DEBUG("_pdfioStreamCreate: FlateDecode - BitsPerComponent=%d, Colors=%d, Columns=%d, Predictor=%d\n", bpc,
+                colors, columns, predictor);
 
-    if (bpc == 0)
-    {
+    if (bpc == 0) {
       bpc = 8;
-    }
-    else if (bpc < 1 || bpc == 3 || (bpc > 4 && bpc < 8) || (bpc > 8 && bpc < 16) || bpc > 16)
-    {
+    } else if (bpc < 1 || bpc == 3 || (bpc > 4 && bpc < 8) || (bpc > 8 && bpc < 16) || bpc > 16) {
       _pdfioFileError(st->pdf, "Unsupported BitsPerColor value %d.", bpc);
       free(st);
       return (NULL);
     }
 
-    if (colors == 0)
-    {
+    if (colors == 0) {
       colors = 1;
-    }
-    else if (colors < 0 || colors > 32)
-    {
+    } else if (colors < 0 || colors > 32) {
       _pdfioFileError(st->pdf, "Unsupported Colors value %d.", colors);
       free(st);
       return (NULL);
     }
 
-    if (columns == 0)
-    {
+    if (columns == 0) {
       columns = 1;
-    }
-    else if (columns < 0 || columns > 65536)
-    {
+    } else if (columns < 0 || columns > 65536) {
       _pdfioFileError(st->pdf, "Unsupported Columns value %d.", columns);
       free(st);
       return (NULL);
     }
 
-    if ((predictor > 1 && predictor < 10) || predictor > 15)
-    {
+    if ((predictor > 1 && predictor < 10) || predictor > 15) {
       _pdfioFileError(st->pdf, "Unsupported Predictor function %d.", predictor);
       free(st);
       return (NULL);
-    }
-    else if (predictor)
-    {
+    } else if (predictor) {
       // Using a PNG predictor function
       st->predictor = (_pdfio_predictor_t)predictor;
-      st->pbpixel   = (size_t)(bpc * colors + 7) / 8;
-      st->pbsize    = (size_t)(bpc * colors * columns + 7) / 8;
-      if (predictor >= 10)
-	st->pbsize ++;		// Add PNG predictor byte
+      st->pbpixel = (size_t)(bpc * colors + 7) / 8;
+      st->pbsize = (size_t)(bpc * colors * columns + 7) / 8;
+      if (predictor >= 10) st->pbsize++;  // Add PNG predictor byte
 
-      if ((st->prbuffer = calloc(1, st->pbsize - 1)) == NULL || (st->psbuffer = calloc(1, st->pbsize)) == NULL)
-      {
-	_pdfioFileError(st->pdf, "Unable to allocate %lu bytes for Predictor buffers.", (unsigned long)st->pbsize);
-	free(st->prbuffer);
-	free(st->psbuffer);
-	free(st);
-	return (NULL);
+      if ((st->prbuffer = calloc(1, st->pbsize - 1)) == NULL || (st->psbuffer = calloc(1, st->pbsize)) == NULL) {
+        _pdfioFileError(st->pdf, "Unable to allocate %lu bytes for Predictor buffers.", (unsigned long)st->pbsize);
+        free(st->prbuffer);
+        free(st->psbuffer);
+        free(st);
+        return (NULL);
       }
-    }
-    else
+    } else
       st->predictor = _PDFIO_PREDICTOR_NONE;
 
-    if (cbsize == 0)
-      cbsize = 4096;
+    if (cbsize == 0) cbsize = 4096;
 
     st->cbsize = cbsize;
-    if ((st->cbuffer = malloc(cbsize)) == NULL)
-    {
-      _pdfioFileError(st->pdf, "Unable to allocate %lu bytes for Flate output buffer: %s", (unsigned long)cbsize, strerror(errno));
+    if ((st->cbuffer = malloc(cbsize)) == NULL) {
+      _pdfioFileError(st->pdf, "Unable to allocate %lu bytes for Flate output buffer: %s", (unsigned long)cbsize,
+                      strerror(errno));
       free(st->prbuffer);
       free(st->psbuffer);
       free(st);
       return (NULL);
     }
 
-    st->flate.next_out  = (Bytef *)st->cbuffer;
+    st->flate.next_out = (Bytef*)st->cbuffer;
     st->flate.avail_out = (uInt)cbsize;
 
-    if ((status = deflateInit(&(st->flate), 9)) != Z_OK)
-    {
+    if ((status = deflateInit(&(st->flate), 9)) != Z_OK) {
       _pdfioFileError(st->pdf, "Unable to start Flate filter: %s", zstrerror(status));
       free(st->prbuffer);
       free(st->psbuffer);
@@ -461,39 +382,32 @@ _pdfioStreamCreate(
   }
 
   return (st);
-#endif // PDFIO_READ_ONLY
+#endif  // PDFIO_READ_ONLY
 }
-
 
 //
 // 'pdfioStreamConsume()' - Consume bytes from the stream.
 //
 
-bool					// O - `true` on success, `false` on EOF
-pdfioStreamConsume(pdfio_stream_t *st,	// I - Stream
-                   size_t         bytes)// I - Number of bytes to consume
+bool                                    // O - `true` on success, `false` on EOF
+pdfioStreamConsume(pdfio_stream_t* st,  // I - Stream
+                   size_t bytes)        // I - Number of bytes to consume
 {
-  size_t	remaining;		// Remaining bytes in buffer
-  ssize_t	rbytes;			// Bytes read
-
+  size_t remaining;  // Remaining bytes in buffer
+  ssize_t rbytes;    // Bytes read
 
   // Range check input...
-  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !bytes)
-    return (false);
+  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !bytes) return (false);
 
   // Skip bytes in the stream buffer until we've consumed the requested number
   // or get to the end of the stream...
-  while ((remaining = (size_t)(st->bufend - st->bufptr)) < bytes)
-  {
+  while ((remaining = (size_t)(st->bufend - st->bufptr)) < bytes) {
     bytes -= remaining;
 
-    if ((rbytes = stream_read(st, st->buffer, sizeof(st->buffer))) > 0)
-    {
+    if ((rbytes = stream_read(st, st->buffer, sizeof(st->buffer))) > 0) {
       st->bufptr = st->buffer;
       st->bufend = st->buffer + rbytes;
-    }
-    else
-    {
+    } else {
       st->bufptr = st->bufend = st->buffer;
       return (false);
     }
@@ -503,7 +417,6 @@ pdfioStreamConsume(pdfio_stream_t *st,	// I - Stream
 
   return (true);
 }
-
 
 //
 // 'pdfioStreamGetToken()' - Read a single PDF token from a stream.
@@ -517,19 +430,16 @@ pdfioStreamConsume(pdfio_stream_t *st,	// I - Stream
 // removed.
 //
 
-bool					// O - `true` on success, `false` on end-of-stream or error
-pdfioStreamGetToken(
-    pdfio_stream_t *st,			// I - Stream
-    char           *buffer,		// I - String buffer
-    size_t         bufsize)		// I - Size of string buffer
+bool                                     // O - `true` on success, `false` on end-of-stream or error
+pdfioStreamGetToken(pdfio_stream_t* st,  // I - Stream
+                    char* buffer,        // I - String buffer
+                    size_t bufsize)      // I - Size of string buffer
 {
-  _pdfio_token_t	tb;		// Token buffer/stack
-  bool			ret;		// Return value
-
+  _pdfio_token_t tb;  // Token buffer/stack
+  bool ret;           // Return value
 
   // Range check input...
-  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !buffer || !bufsize)
-    return (false);
+  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !buffer || !bufsize) return (false);
 
   // Read using the token engine...
   _pdfioTokenInit(&tb, st->pdf, (_pdfio_tconsume_cb_t)pdfioStreamConsume, (_pdfio_tpeek_cb_t)pdfioStreamPeek, st);
@@ -540,7 +450,6 @@ pdfioStreamGetToken(
   return (ret);
 }
 
-
 //
 // '_pdfioStreamOpen()' - Create a stream for reading.
 //
@@ -548,21 +457,20 @@ pdfioStreamGetToken(
 // getting the start of the stream data.
 //
 
-pdfio_stream_t *			// O - Stream or `NULL` on error
-_pdfioStreamOpen(pdfio_obj_t *obj,	// I - Object
-                 bool        decode)	// I - Decode/decompress the stream?
+pdfio_stream_t*                     // O - Stream or `NULL` on error
+_pdfioStreamOpen(pdfio_obj_t* obj,  // I - Object
+                 bool decode)       // I - Decode/decompress the stream?
 {
-  pdfio_stream_t	*st;		// Stream
-  pdfio_dict_t		*dict = pdfioObjGetDict(obj);
-					// Object dictionary
-  const char		*type;		// Object type
+  pdfio_stream_t* st;  // Stream
+  pdfio_dict_t* dict = pdfioObjGetDict(obj);
+  // Object dictionary
+  const char* type;  // Object type
 
-
-  PDFIO_DEBUG("_pdfioStreamOpen(obj=%p(%u), decode=%s)\n", (void *)obj, (unsigned)obj->number, decode ? "true" : "false");
+  PDFIO_DEBUG("_pdfioStreamOpen(obj=%p(%u), decode=%s)\n", (void*)obj, (unsigned)obj->number,
+              decode ? "true" : "false");
 
   // Allocate a new stream object...
-  if ((st = allocate_stream_object()) == NULL)
-  {
+  if ((st = allocate_stream_object()) == NULL) {
     _pdfioFileError(obj->pdf, "Unable to allocate memory for a stream.");
     return (NULL);
   }
@@ -570,147 +478,120 @@ _pdfioStreamOpen(pdfio_obj_t *obj,	// I - Object
   st->pdf = obj->pdf;
   st->obj = obj;
 
-  if ((st->remaining = pdfioObjGetLength(obj)) == 0 && !_pdfioDictGetValue(pdfioObjGetDict(obj), "Length"))
-  {
+  if ((st->remaining = pdfioObjGetLength(obj)) == 0 && !_pdfioDictGetValue(pdfioObjGetDict(obj), "Length")) {
     _pdfioFileError(obj->pdf, "No stream data.");
     goto error;
   }
 
-  if (_pdfioFileSeek(st->pdf, obj->stream_offset, SEEK_SET) != obj->stream_offset)
-  {
+  if (_pdfioFileSeek(st->pdf, obj->stream_offset, SEEK_SET) != obj->stream_offset) {
     _pdfioFileError(obj->pdf, "Unable to seek to stream data.");
     goto error;
   }
 
   type = pdfioObjGetType(obj);
 
-  if (obj->pdf->encryption && (!type || strcmp(type, "XRef")))
-  {
-    uint8_t	iv[64];			// Initialization vector
-    size_t	ivlen;			// Length of initialization vector, if any
+  if (obj->pdf->encryption && (!type || strcmp(type, "XRef"))) {
+    uint8_t iv[64];  // Initialization vector
+    size_t ivlen;    // Length of initialization vector, if any
 
     ivlen = (size_t)_pdfioFilePeek(st->pdf, iv, sizeof(iv));
 
-    if ((st->crypto_cb = _pdfioCryptoMakeReader(st->pdf, obj, &st->crypto_ctx, iv, &ivlen)) == NULL)
-      goto error;
+    if ((st->crypto_cb = _pdfioCryptoMakeReader(st->pdf, obj, &st->crypto_ctx, iv, &ivlen)) == NULL) goto error;
 
     PDFIO_DEBUG("_pdfioStreamOpen: ivlen=%d\n", (int)ivlen);
-    if (ivlen > 0)
-    {
+    if (ivlen > 0) {
       _pdfioFileConsume(st->pdf, ivlen);
       st->remaining -= ivlen;
     }
 
-    if (st->pdf->encryption >= PDFIO_ENCRYPTION_AES_128)
-      st->remaining = (st->remaining + 15) & (size_t)~15;
+    if (st->pdf->encryption >= PDFIO_ENCRYPTION_AES_128) st->remaining = (st->remaining + 15) & (size_t)~15;
   }
 
-  if (decode)
-  {
+  if (decode) {
     // Try to decode/decompress the contents of this object...
-    const char	*filter = pdfioDictGetName(dict, "Filter");
-					// Filter value
-    pdfio_array_t *fa = pdfioDictGetArray(dict, "Filter");
-					// Filter array
+    const char* filter = pdfioDictGetName(dict, "Filter");
+    // Filter value
+    pdfio_array_t* fa = pdfioDictGetArray(dict, "Filter");
+    // Filter array
 
-    if (!filter && fa && pdfioArrayGetSize(fa) == 1)
-    {
+    if (!filter && fa && pdfioArrayGetSize(fa) == 1) {
       // Support single-valued arrays...
       filter = pdfioArrayGetName(fa, 0);
     }
 
-    if (!filter)
-    {
+    if (!filter) {
       // No single filter name, do we have a compound filter?
-      if (fa)
-      {
-	// TODO: Implement compound filters...
-	_pdfioFileError(st->pdf, "Unsupported compound stream filter.");
-	goto error;
+      if (fa) {
+        // TODO: Implement compound filters...
+        _pdfioFileError(st->pdf, "Unsupported compound stream filter.");
+        goto error;
       }
 
       // No filter, read as-is...
       st->filter = PDFIO_FILTER_NONE;
-    }
-    else if (!strcmp(filter, "FlateDecode"))
-    {
+    } else if (!strcmp(filter, "FlateDecode")) {
       // Flate compression
-      pdfio_dict_t *params = pdfioDictGetDict(dict, "DecodeParms");
-					// Decoding parameters
+      pdfio_dict_t* params = pdfioDictGetDict(dict, "DecodeParms");
+      // Decoding parameters
       int bpc = (int)pdfioDictGetNumber(params, "BitsPerComponent");
-					// Bits per component
+      // Bits per component
       int colors = (int)pdfioDictGetNumber(params, "Colors");
-					// Number of colors
+      // Number of colors
       int columns = (int)pdfioDictGetNumber(params, "Columns");
-					// Number of columns
+      // Number of columns
       int predictor = (int)pdfioDictGetNumber(params, "Predictor");
-					// Predictory value, if any
-      int status;			// ZLIB status
-      ssize_t rbytes;			// Bytes read
+      // Predictory value, if any
+      int status;      // ZLIB status
+      ssize_t rbytes;  // Bytes read
 
-      PDFIO_DEBUG("_pdfioStreamOpen: FlateDecode - BitsPerComponent=%d, Colors=%d, Columns=%d, Predictor=%d\n", bpc, colors, columns, predictor);
+      PDFIO_DEBUG("_pdfioStreamOpen: FlateDecode - BitsPerComponent=%d, Colors=%d, Columns=%d, Predictor=%d\n", bpc,
+                  colors, columns, predictor);
 
       st->filter = PDFIO_FILTER_FLATE;
 
-      if (bpc == 0)
-      {
+      if (bpc == 0) {
         bpc = 8;
-      }
-      else if (bpc < 1 || bpc == 3 || (bpc > 4 && bpc < 8) || (bpc > 8 && bpc < 16) || bpc > 16)
-      {
+      } else if (bpc < 1 || bpc == 3 || (bpc > 4 && bpc < 8) || (bpc > 8 && bpc < 16) || bpc > 16) {
         _pdfioFileError(st->pdf, "Unsupported BitsPerColor value %d.", bpc);
-	goto error;
+        goto error;
       }
 
-      if (colors == 0)
-      {
+      if (colors == 0) {
         colors = 1;
-      }
-      else if (colors < 0 || colors > 32)
-      {
+      } else if (colors < 0 || colors > 32) {
         _pdfioFileError(st->pdf, "Unsupported Colors value %d.", colors);
-	goto error;
+        goto error;
       }
 
-      if (columns == 0)
-      {
+      if (columns == 0) {
         columns = 1;
-      }
-      else if (columns < 0 || columns > 65536)
-      {
+      } else if (columns < 0 || columns > 65536) {
         _pdfioFileError(st->pdf, "Unsupported Columns value %d.", columns);
-	goto error;
+        goto error;
       }
 
-      if ((predictor > 2 && predictor < 10) || predictor > 15)
-      {
+      if ((predictor > 2 && predictor < 10) || predictor > 15) {
         _pdfioFileError(st->pdf, "Unsupported Predictor function %d.", predictor);
-	goto error;
-      }
-      else if (predictor > 1)
-      {
+        goto error;
+      } else if (predictor > 1) {
         // Using a predictor function
         st->predictor = (_pdfio_predictor_t)predictor;
-        st->pbpixel   = (size_t)(bpc * colors + 7) / 8;
-        st->pbsize    = (size_t)(bpc * colors * columns + 7) / 8;
-        if (predictor >= 10)
-          st->pbsize ++;		// Add PNG predictor byte
+        st->pbpixel = (size_t)(bpc * colors + 7) / 8;
+        st->pbsize = (size_t)(bpc * colors * columns + 7) / 8;
+        if (predictor >= 10) st->pbsize++;  // Add PNG predictor byte
 
-        if (st->pbsize < 2)
-        {
+        if (st->pbsize < 2) {
           _pdfioFileError(st->pdf, "Bad Predictor buffer size %lu.", (unsigned long)st->pbsize);
-	  goto error;
+          goto error;
         }
 
-        PDFIO_DEBUG("_pdfioStreamOpen: st->predictor=%d, st->pbpixel=%u, st->pbsize=%lu\n", st->predictor, (unsigned)st->pbpixel, (unsigned long)st->pbsize);
-        if ((st->prbuffer = calloc(1, st->pbsize - 1)) == NULL || (st->psbuffer = calloc(1, st->pbsize)) == NULL)
-        {
+        PDFIO_DEBUG("_pdfioStreamOpen: st->predictor=%d, st->pbpixel=%u, st->pbsize=%lu\n", st->predictor,
+                    (unsigned)st->pbpixel, (unsigned long)st->pbsize);
+        if ((st->prbuffer = calloc(1, st->pbsize - 1)) == NULL || (st->psbuffer = calloc(1, st->pbsize)) == NULL) {
           _pdfioFileError(st->pdf, "Unable to allocate %lu bytes for Predictor buffers.", (unsigned long)st->pbsize);
-	  goto error;
+          goto error;
         }
-      }
-      else
-      {
+      } else {
         st->predictor = _PDFIO_PREDICTOR_NONE;
       }
 
@@ -718,36 +599,33 @@ _pdfioStreamOpen(pdfio_obj_t *obj,	// I - Object
       // leaves substantially more heap for page/font dictionaries on ESP32-C3.
       st->cbsize = 1024;
 #ifdef PDFIO_PNGDEC_ZLIB
-      if (shared_flate_cbuffer && shared_flate_window && shared_flate_state && !shared_flate_in_use)
-      {
+      if (shared_flate_cbuffer && shared_flate_window && shared_flate_state && !shared_flate_in_use) {
         st->cbuffer = shared_flate_cbuffer;
         st->cbuffer_uses_shared = true;
-      }
-      else
-#endif // PDFIO_PNGDEC_ZLIB
+      } else
+#endif  // PDFIO_PNGDEC_ZLIB
         st->cbuffer = malloc(st->cbsize);
-      if (st->cbuffer == NULL)
-      {
-	_pdfioFileError(st->pdf, "Unable to allocate %lu bytes for Flate compression buffer.", (unsigned long)st->cbsize);
-	goto error;
+      if (st->cbuffer == NULL) {
+        _pdfioFileError(st->pdf, "Unable to allocate %lu bytes for Flate compression buffer.",
+                        (unsigned long)st->cbsize);
+        goto error;
       }
 
       PDFIO_DEBUG("_pdfioStreamOpen: pos=%ld\n", (long)_pdfioFileTell(st->pdf));
       if (st->cbsize > st->remaining)
-	rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
+        rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
       else
-	rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
+        rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
 
-      if (rbytes <= 0)
-      {
-	_pdfioFileError(st->pdf, "Unable to read bytes for stream.");
-	goto error;
+      if (rbytes <= 0) {
+        _pdfioFileError(st->pdf, "Unable to read bytes for stream.");
+        goto error;
       }
 
       if (st->crypto_cb)
-        rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes, /*last*/false);
+        rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes, /*last*/ false);
 
-      st->flate.next_in  = (Bytef *)st->cbuffer;
+      st->flate.next_in = (Bytef*)st->cbuffer;
       st->flate.avail_in = (uInt)rbytes;
 
 #ifdef PDFIO_PNGDEC_ZLIB
@@ -756,117 +634,100 @@ _pdfioStreamOpen(pdfio_obj_t *obj,	// I - Object
       // Keep them in separate allocations: the X4 can supply both after page
       // dictionaries are loaded but often cannot supply one contiguous 40 KiB
       // block. Its zlib free hooks are no-ops, so the stream owns both blocks.
-      if (shared_flate_window && shared_flate_state && !shared_flate_in_use)
-      {
+      if (shared_flate_window && shared_flate_state && !shared_flate_in_use) {
         st->flate_window_storage = shared_flate_window;
         st->flate_state_storage = shared_flate_state;
         st->flate_uses_shared = true;
         shared_flate_in_use = true;
         memset(st->flate_state_storage, 0, sizeof(struct inflate_state));
-      }
-      else
-      {
+      } else {
         st->flate_window_storage = malloc(32768);
         st->flate_state_storage = calloc(1, sizeof(struct inflate_state));
       }
-      if (!st->flate_window_storage || !st->flate_state_storage)
-      {
-	_pdfioFileError(st->pdf, "Unable to allocate the Flate decoder window.");
-	goto error;
+      if (!st->flate_window_storage || !st->flate_state_storage) {
+        _pdfioFileError(st->pdf, "Unable to allocate the Flate decoder window.");
+        goto error;
       }
-      st->flate.state = (struct internal_state *)st->flate_state_storage;
-      ((struct inflate_state *)st->flate_state_storage)->window =
-          (unsigned char *)st->flate_window_storage;
-#endif // PDFIO_PNGDEC_ZLIB
+      st->flate.state = (struct internal_state*)st->flate_state_storage;
+      ((struct inflate_state*)st->flate_state_storage)->window = (unsigned char*)st->flate_window_storage;
+#endif  // PDFIO_PNGDEC_ZLIB
 
-      PDFIO_DEBUG("_pdfioStreamOpen: avail_in=%u, cbuffer=<%02X%02X%02X%02X%02X%02X%02X%02X...>\n", st->flate.avail_in, st->cbuffer[0], st->cbuffer[1], st->cbuffer[2], st->cbuffer[3], st->cbuffer[4], st->cbuffer[5], st->cbuffer[6], st->cbuffer[7]);
+      PDFIO_DEBUG("_pdfioStreamOpen: avail_in=%u, cbuffer=<%02X%02X%02X%02X%02X%02X%02X%02X...>\n", st->flate.avail_in,
+                  st->cbuffer[0], st->cbuffer[1], st->cbuffer[2], st->cbuffer[3], st->cbuffer[4], st->cbuffer[5],
+                  st->cbuffer[6], st->cbuffer[7]);
 
-      if ((status = inflateInit(&(st->flate))) != Z_OK)
-      {
-	_pdfioFileError(st->pdf, "Unable to start Flate filter: %s", zstrerror(status));
-	goto error;
+      if ((status = inflateInit(&(st->flate))) != Z_OK) {
+        _pdfioFileError(st->pdf, "Unable to start Flate filter: %s", zstrerror(status));
+        goto error;
       }
 
       st->remaining -= st->flate.avail_in;
-    }
-    else
-    {
+    } else {
       // Something else we don't support
       _pdfioFileError(st->pdf, "Unsupported stream filter '/%s'.", filter);
       goto error;
     }
-  }
-  else
-  {
+  } else {
     // Just return the stream data as-is...
     st->filter = PDFIO_FILTER_NONE;
   }
 
   return (st);
 
-  // If we get here something went wrong...
-  error:
+// If we get here something went wrong...
+error:
 
 #ifdef PDFIO_PNGDEC_ZLIB
   if (!st->cbuffer_uses_shared)
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
     free(st->cbuffer);
   free(st->prbuffer);
   free(st->psbuffer);
 #ifdef PDFIO_PNGDEC_ZLIB
   release_stream_flate_storage(st);
-#endif // PDFIO_PNGDEC_ZLIB
+#endif  // PDFIO_PNGDEC_ZLIB
   release_stream_object(st);
   return (NULL);
-
 }
-
 
 //
 // 'pdfioStreamPeek()' - Peek at data in a stream.
 //
 
-ssize_t					// O - Bytes returned or `-1` on error
-pdfioStreamPeek(pdfio_stream_t *st,	// I - Stream
-                void           *buffer,	// I - Buffer
-                size_t         bytes)	// I - Size of buffer
+ssize_t                              // O - Bytes returned or `-1` on error
+pdfioStreamPeek(pdfio_stream_t* st,  // I - Stream
+                void* buffer,        // I - Buffer
+                size_t bytes)        // I - Size of buffer
 {
-  size_t	remaining;		// Remaining bytes in buffer
-
+  size_t remaining;  // Remaining bytes in buffer
 
   // Range check input...
-  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !buffer || !bytes)
-    return (-1);
+  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !buffer || !bytes) return (-1);
 
   // See if we have enough bytes in the buffer...
-  if ((remaining = (size_t)(st->bufend - st->bufptr)) < bytes)
-  {
+  if ((remaining = (size_t)(st->bufend - st->bufptr)) < bytes) {
     // No, shift the buffer and read more
-    ssize_t	rbytes;			// Bytes read
+    ssize_t rbytes;  // Bytes read
 
-    if (remaining > 0)
-      memmove(st->buffer, st->bufptr, remaining);
+    if (remaining > 0) memmove(st->buffer, st->bufptr, remaining);
 
     st->bufptr = st->buffer;
     st->bufend = st->buffer + remaining;
 
-    if ((rbytes = stream_read(st, st->bufend, sizeof(st->buffer) - remaining)) > 0)
-    {
+    if ((rbytes = stream_read(st, st->bufend, sizeof(st->buffer) - remaining)) > 0) {
       st->bufend += rbytes;
-      remaining  += (size_t)rbytes;
+      remaining += (size_t)rbytes;
     }
   }
 
   // Copy bytes from the buffer...
-  if (bytes > remaining)
-    bytes = remaining;
+  if (bytes > remaining) bytes = remaining;
 
   memcpy(buffer, st->bufptr, bytes);
 
   // Return the number of bytes that were copied...
   return ((ssize_t)bytes);
 }
-
 
 //
 // 'pdfioStreamPrintf()' - Write a formatted string to a stream.
@@ -877,19 +738,16 @@ pdfioStreamPeek(pdfio_stream_t *st,	// I - Stream
 // a PDF string ("(String)") value.
 //
 
-bool					// O - `true` on success, `false` on failure
-pdfioStreamPrintf(
-    pdfio_stream_t *st,			// I - Stream
-    const char     *format,		// I - `printf`-style format string
-    ...)				// I - Additional arguments as needed
+bool                                   // O - `true` on success, `false` on failure
+pdfioStreamPrintf(pdfio_stream_t* st,  // I - Stream
+                  const char* format,  // I - `printf`-style format string
+                  ...)                 // I - Additional arguments as needed
 {
-  char		buffer[8192];		// String buffer
-  va_list	ap;			// Argument pointer
-
+  char buffer[8192];  // String buffer
+  va_list ap;         // Argument pointer
 
   // Range check input...
-  if (!st || st->pdf->mode != _PDFIO_MODE_WRITE || !format)
-    return (false);
+  if (!st || st->pdf->mode != _PDFIO_MODE_WRITE || !format) return (false);
 
   // Format the string...
   va_start(ap, format);
@@ -900,41 +758,36 @@ pdfioStreamPrintf(
   return (pdfioStreamWrite(st, buffer, strlen(buffer)));
 }
 
-
 //
 // 'pdfioStreamPutChar()' - Write a single character to a stream.
 //
 
-bool					// O - `true` on success, `false` on failure
-pdfioStreamPutChar(pdfio_stream_t *st,	// I - Stream
-                   int            ch)	// I - Character
+bool                                    // O - `true` on success, `false` on failure
+pdfioStreamPutChar(pdfio_stream_t* st,  // I - Stream
+                   int ch)              // I - Character
 {
-  char	buffer[1];			// Write buffer
+  char buffer[1];  // Write buffer
 
-
-  if (!st || st->pdf->mode != _PDFIO_MODE_WRITE)
-    return (false);
+  if (!st || st->pdf->mode != _PDFIO_MODE_WRITE) return (false);
 
   buffer[0] = (char)ch;
 
   return (pdfioStreamWrite(st, buffer, 1));
 }
 
-
 //
 // 'pdfioStreamPuts()' - Write a literal string to a stream.
 //
 
-bool					// O - `true` on success, `false` on failure
-pdfioStreamPuts(pdfio_stream_t *st,	// I - Stream
-                const char     *s)	// I - Literal string
+bool                                 // O - `true` on success, `false` on failure
+pdfioStreamPuts(pdfio_stream_t* st,  // I - Stream
+                const char* s)       // I - Literal string
 {
   if (!st || st->pdf->mode != _PDFIO_MODE_WRITE || !s)
     return (false);
   else
     return (pdfioStreamWrite(st, s, strlen(s)));
 }
-
 
 //
 // 'pdfioStreamRead()' - Read data from a stream.
@@ -945,46 +798,36 @@ pdfioStreamPuts(pdfio_stream_t *st,	// I - Stream
 // proper read length.
 //
 
-ssize_t					// O - Number of bytes read or `-1` on error
-pdfioStreamRead(
-    pdfio_stream_t *st,			// I - Stream
-    void           *buffer,		// I - Buffer
-    size_t         bytes)		// I - Bytes to read
+ssize_t                              // O - Number of bytes read or `-1` on error
+pdfioStreamRead(pdfio_stream_t* st,  // I - Stream
+                void* buffer,        // I - Buffer
+                size_t bytes)        // I - Bytes to read
 {
-  char		*bufptr = (char *)buffer;
-					// Pointer into buffer
-  size_t	remaining;		// Remaining bytes in buffer
-  ssize_t	rbytes;			// Bytes read
-
+  char* bufptr = (char*)buffer;
+  // Pointer into buffer
+  size_t remaining;  // Remaining bytes in buffer
+  ssize_t rbytes;    // Bytes read
 
   // Range check input...
-  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !buffer || !bytes)
-    return (-1);
+  if (!st || st->pdf->mode != _PDFIO_MODE_READ || !buffer || !bytes) return (-1);
 
   // Loop until we have the requested bytes or hit the end of the stream...
-  while ((remaining = (size_t)(st->bufend - st->bufptr)) < bytes)
-  {
+  while ((remaining = (size_t)(st->bufend - st->bufptr)) < bytes) {
     memcpy(bufptr, st->bufptr, remaining);
     bufptr += remaining;
     bytes -= remaining;
 
-    if (bytes >= sizeof(st->buffer))
-    {
+    if (bytes >= sizeof(st->buffer)) {
       // Read large amounts directly to caller's buffer...
-      if ((rbytes = stream_read(st, bufptr, bytes)) > 0)
-        bufptr += rbytes;
+      if ((rbytes = stream_read(st, bufptr, bytes)) > 0) bufptr += rbytes;
 
-      bytes      = 0;
+      bytes = 0;
       st->bufptr = st->bufend = st->buffer;
       break;
-    }
-    else if ((rbytes = stream_read(st, st->buffer, sizeof(st->buffer))) > 0)
-    {
+    } else if ((rbytes = stream_read(st, st->buffer, sizeof(st->buffer))) > 0) {
       st->bufptr = st->buffer;
       st->bufend = st->buffer + rbytes;
-    }
-    else
-    {
+    } else {
       st->bufptr = st->bufend = st->buffer;
       bytes = 0;
       break;
@@ -992,90 +835,73 @@ pdfioStreamRead(
   }
 
   // Copy any remaining bytes from the stream buffer...
-  if (bytes > 0)
-  {
+  if (bytes > 0) {
     memcpy(bufptr, st->bufptr, bytes);
-    bufptr     += bytes;
+    bufptr += bytes;
     st->bufptr += bytes;
   }
 
   // Return the number of bytes that were read...
-  return (bufptr - (char *)buffer);
+  return (bufptr - (char*)buffer);
 }
-
 
 //
 // 'pdfioStreamWrite()' - Write data to a stream.
 //
 
-bool					// O - `true` on success or `false` on failure
-pdfioStreamWrite(
-    pdfio_stream_t *st,			// I - Stream
-    const void     *buffer,		// I - Data to write
-    size_t         bytes)		// I - Number of bytes to write
+bool                                  // O - `true` on success or `false` on failure
+pdfioStreamWrite(pdfio_stream_t* st,  // I - Stream
+                 const void* buffer,  // I - Data to write
+                 size_t bytes)        // I - Number of bytes to write
 {
-  size_t		pbpixel,	// Size of pixel in bytes
-      			pbline,		// Bytes per line
-			remaining;	// Remaining bytes on this line
-  const unsigned char	*bufptr,	// Pointer into buffer
-			*bufsecond;	// Pointer to second pixel in buffer
-  unsigned char		*sptr,		// Pointer into sbuffer
-			*pptr;		// Previous raw buffer
+  size_t pbpixel,               // Size of pixel in bytes
+      pbline,                   // Bytes per line
+      remaining;                // Remaining bytes on this line
+  const unsigned char *bufptr,  // Pointer into buffer
+      *bufsecond;               // Pointer to second pixel in buffer
+  unsigned char *sptr,          // Pointer into sbuffer
+      *pptr;                    // Previous raw buffer
 
-
-  PDFIO_DEBUG("pdfioStreamWrite(st=%p, buffer=%p, bytes=%lu)\n", (void *)st, buffer, (unsigned long)bytes);
+  PDFIO_DEBUG("pdfioStreamWrite(st=%p, buffer=%p, bytes=%lu)\n", (void*)st, buffer, (unsigned long)bytes);
 
   // Range check input...
-  if (!st || st->pdf->mode != _PDFIO_MODE_WRITE || !buffer || !bytes)
-    return (false);
+  if (!st || st->pdf->mode != _PDFIO_MODE_WRITE || !buffer || !bytes) return (false);
 
   // Write it...
-  if (st->filter == PDFIO_FILTER_NONE)
-  {
+  if (st->filter == PDFIO_FILTER_NONE) {
     // No filtering...
-    if (st->crypto_cb)
-    {
+    if (st->crypto_cb) {
       // Encrypt data before writing...
-      uint8_t	temp[PDFIO_BUF_SIZE];	// Temporary buffer
-      size_t	cbytes,			// Current bytes
-		outbytes;		// Output bytes
+      uint8_t temp[PDFIO_BUF_SIZE];  // Temporary buffer
+      size_t cbytes,                 // Current bytes
+          outbytes;                  // Output bytes
 
-      bufptr = (const unsigned char *)buffer;
+      bufptr = (const unsigned char*)buffer;
 
-      while (bytes > 0)
-      {
-        if (st->bufptr > st->buffer || bytes < 16)
-        {
+      while (bytes > 0) {
+        if (st->bufptr > st->buffer || bytes < 16) {
           // Write through the stream's buffer...
-          if ((cbytes = bytes) > (size_t)(st->bufend - st->bufptr))
-            cbytes = (size_t)(st->bufend - st->bufptr);
+          if ((cbytes = bytes) > (size_t)(st->bufend - st->bufptr)) cbytes = (size_t)(st->bufend - st->bufptr);
 
           memcpy(st->bufptr, bufptr, cbytes);
           st->bufptr += cbytes;
-          if (st->bufptr >= st->bufend)
-          {
+          if (st->bufptr >= st->bufend) {
             // Encrypt and flush
-	    outbytes = (st->crypto_cb)(&st->crypto_ctx, temp, (uint8_t *)st->buffer, sizeof(st->buffer), /*last*/false);
-	    if (!_pdfioFileWrite(st->pdf, temp, outbytes))
-	      return (false);
+            outbytes = (st->crypto_cb)(&st->crypto_ctx, temp, (uint8_t*)st->buffer, sizeof(st->buffer), /*last*/ false);
+            if (!_pdfioFileWrite(st->pdf, temp, outbytes)) return (false);
 
-	    st->bufptr = st->buffer;
+            st->bufptr = st->buffer;
           }
-        }
-        else
-        {
+        } else {
           // Write directly up to sizeof(temp) bytes...
-          if ((cbytes = bytes) > sizeof(temp))
-            cbytes = sizeof(temp);
-          if (cbytes & 15)
-          {
+          if ((cbytes = bytes) > sizeof(temp)) cbytes = sizeof(temp);
+          if (cbytes & 15) {
             // AES has a 16-byte block size, so save the last few bytes...
             cbytes &= (size_t)~15;
           }
 
-	  outbytes = (st->crypto_cb)(&st->crypto_ctx, temp, bufptr, cbytes, /*last*/false);
-	  if (!_pdfioFileWrite(st->pdf, temp, outbytes))
-	    return (false);
+          outbytes = (st->crypto_cb)(&st->crypto_ctx, temp, bufptr, cbytes, /*last*/ false);
+          if (!_pdfioFileWrite(st->pdf, temp, outbytes)) return (false);
         }
 
         bytes -= cbytes;
@@ -1083,9 +909,7 @@ pdfioStreamWrite(
       }
 
       return (true);
-    }
-    else
-    {
+    } else {
       // Write unencrypted...
       return (_pdfioFileWrite(st->pdf, buffer, bytes));
     }
@@ -1093,26 +917,22 @@ pdfioStreamWrite(
 
   pbline = st->pbsize - 1;
 
-  if (st->predictor == _PDFIO_PREDICTOR_NONE)
-  {
+  if (st->predictor == _PDFIO_PREDICTOR_NONE) {
     // No predictor, just write it out straight...
     return (stream_write(st, buffer, bytes));
-  }
-  else if ((bytes % pbline) != 0)
-  {
+  } else if ((bytes % pbline) != 0) {
     _pdfioFileError(st->pdf, "Write buffer size must be a multiple of a complete row.");
     return (false);
   }
 
-  pbpixel   = st->pbpixel;
-  bufptr    = (const unsigned char *)buffer;
+  pbpixel = st->pbpixel;
+  bufptr = (const unsigned char*)buffer;
   bufsecond = bufptr + pbpixel;
 
-  while (bytes > 0)
-  {
+  while (bytes > 0) {
     // Store the PNG predictor in the first byte of the buffer...
     if (st->predictor == _PDFIO_PREDICTOR_PNG_AUTO)
-      st->psbuffer[0] = 4;		// Use Paeth predictor for auto...
+      st->psbuffer[0] = 4;  // Use Paeth predictor for auto...
     else
       st->psbuffer[0] = (unsigned char)(st->predictor - 10);
 
@@ -1120,63 +940,57 @@ pdfioStreamWrite(
     sptr = st->psbuffer + 1;
     pptr = st->prbuffer;
 
-    switch (st->predictor)
-    {
-      default :
-          // Anti-compiler-warning code (NONE is handled above, TIFF is not supported for writing)
-	  return (false);
+    switch (st->predictor) {
+      default:
+        // Anti-compiler-warning code (NONE is handled above, TIFF is not supported for writing)
+        return (false);
 
-      case _PDFIO_PREDICTOR_PNG_NONE :
-          // No PNG predictor...
-          memcpy(sptr, buffer, pbline);
-          break;
+      case _PDFIO_PREDICTOR_PNG_NONE:
+        // No PNG predictor...
+        memcpy(sptr, buffer, pbline);
+        break;
 
-      case _PDFIO_PREDICTOR_PNG_SUB :
-	  // Encode the difference from the previous column
-	  for (remaining = pbline; remaining > 0; remaining --, bufptr ++, sptr ++)
-	  {
-	    if (bufptr >= bufsecond)
-	      *sptr = *bufptr - bufptr[-(int)pbpixel];
-	    else
-	      *sptr = *bufptr;
-	  }
-	  break;
+      case _PDFIO_PREDICTOR_PNG_SUB:
+        // Encode the difference from the previous column
+        for (remaining = pbline; remaining > 0; remaining--, bufptr++, sptr++) {
+          if (bufptr >= bufsecond)
+            *sptr = *bufptr - bufptr[-(int)pbpixel];
+          else
+            *sptr = *bufptr;
+        }
+        break;
 
-      case _PDFIO_PREDICTOR_PNG_UP :
-	  // Encode the difference from the previous line
-	  for (remaining = pbline; remaining > 0; remaining --, bufptr ++, sptr ++, pptr ++)
-	  {
-	    *sptr = *bufptr - *pptr;
-	  }
-	  break;
+      case _PDFIO_PREDICTOR_PNG_UP:
+        // Encode the difference from the previous line
+        for (remaining = pbline; remaining > 0; remaining--, bufptr++, sptr++, pptr++) {
+          *sptr = *bufptr - *pptr;
+        }
+        break;
 
-      case _PDFIO_PREDICTOR_PNG_AVERAGE :
-          // Encode the difference with the average of the previous column and line
-	  for (remaining = pbline; remaining > 0; remaining --, bufptr ++, sptr ++, pptr ++)
-	  {
-	    if (bufptr >= bufsecond)
-	      *sptr = *bufptr - (bufptr[-(int)pbpixel] + *pptr) / 2;
-	    else
-	      *sptr = *bufptr - *pptr / 2;
-	  }
-	  break;
+      case _PDFIO_PREDICTOR_PNG_AVERAGE:
+        // Encode the difference with the average of the previous column and line
+        for (remaining = pbline; remaining > 0; remaining--, bufptr++, sptr++, pptr++) {
+          if (bufptr >= bufsecond)
+            *sptr = *bufptr - (bufptr[-(int)pbpixel] + *pptr) / 2;
+          else
+            *sptr = *bufptr - *pptr / 2;
+        }
+        break;
 
-      case _PDFIO_PREDICTOR_PNG_PAETH :
-      case _PDFIO_PREDICTOR_PNG_AUTO :
-          // Encode the difference with a linear transform function
-	  for (remaining = pbline; remaining > 0; remaining --, bufptr ++, sptr ++, pptr ++)
-	  {
-	    if (bufptr >= bufsecond)
-	      *sptr = *bufptr - stream_paeth(bufptr[-(int)pbpixel], *pptr, pptr[-(int)pbpixel]);
-	    else
-	      *sptr = *bufptr - stream_paeth(0, *pptr, 0);
-	  }
-	  break;
+      case _PDFIO_PREDICTOR_PNG_PAETH:
+      case _PDFIO_PREDICTOR_PNG_AUTO:
+        // Encode the difference with a linear transform function
+        for (remaining = pbline; remaining > 0; remaining--, bufptr++, sptr++, pptr++) {
+          if (bufptr >= bufsecond)
+            *sptr = *bufptr - stream_paeth(bufptr[-(int)pbpixel], *pptr, pptr[-(int)pbpixel]);
+          else
+            *sptr = *bufptr - stream_paeth(0, *pptr, 0);
+        }
+        break;
     }
 
     // Write the encoded line...
-    if (!stream_write(st, st->psbuffer, st->pbsize))
-      return (false);
+    if (!stream_write(st, st->psbuffer, st->pbsize)) return (false);
 
     memcpy(st->prbuffer, buffer, pbline);
     bytes -= pbline;
@@ -1185,87 +999,79 @@ pdfioStreamWrite(
   return (true);
 }
 
-
 //
 // 'stream_paeth()' - PaethPredictor function for PNG decompression filter.
 //
 
-static unsigned char			// O - Predictor value
-stream_paeth(unsigned char a,		// I - Left pixel
-             unsigned char b,		// I - Top pixel
-             unsigned char c)		// I - Top-left pixel
+static unsigned char           // O - Predictor value
+stream_paeth(unsigned char a,  // I - Left pixel
+             unsigned char b,  // I - Top pixel
+             unsigned char c)  // I - Top-left pixel
 {
-  int	p = a + b - c;			// Initial estimate
-  int	pa = abs(p - a);		// Distance to a
-  int	pb = abs(p - b);		// Distance to b
-  int	pc = abs(p - c);		// Distance to c
+  int p = a + b - c;    // Initial estimate
+  int pa = abs(p - a);  // Distance to a
+  int pb = abs(p - b);  // Distance to b
+  int pc = abs(p - c);  // Distance to c
 
   return ((pa <= pb && pa <= pc) ? a : (pb <= pc) ? b : c);
 }
-
 
 //
 // 'stream_read()' - Read data from a stream, including filters.
 //
 
-static ssize_t				// O - Number of bytes read or `-1` on error
-stream_read(pdfio_stream_t *st,		// I - Stream
-            char           *buffer,	// I - Buffer
-            size_t         bytes)	// I - Number of bytes to read
+static ssize_t                   // O - Number of bytes read or `-1` on error
+stream_read(pdfio_stream_t* st,  // I - Stream
+            char* buffer,        // I - Buffer
+            size_t bytes)        // I - Number of bytes to read
 {
-  ssize_t	rbytes;			// Bytes read
-  uInt		avail_in, avail_out;	// Previous flate values
+  ssize_t rbytes;            // Bytes read
+  uInt avail_in, avail_out;  // Previous flate values
 
-
-  if (st->filter == PDFIO_FILTER_NONE)
-  {
+  if (st->filter == PDFIO_FILTER_NONE) {
     // No filtering, but limit reads to the length of the stream...
     if (bytes > st->remaining)
       rbytes = _pdfioFileRead(st->pdf, buffer, st->remaining);
     else
       rbytes = _pdfioFileRead(st->pdf, buffer, bytes);
 
-    if (rbytes > 0)
-    {
+    if (rbytes > 0) {
       st->remaining -= (size_t)rbytes;
 
       if (st->crypto_cb)
-        rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, (uint8_t *)buffer, (uint8_t *)buffer, (size_t)rbytes, /*last*/st->remaining == 0);
+        rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, (uint8_t*)buffer, (uint8_t*)buffer, (size_t)rbytes,
+                                          /*last*/ st->remaining == 0);
     }
 
     return (rbytes);
-  }
-  else if (st->filter == PDFIO_FILTER_FLATE)
-  {
+  } else if (st->filter == PDFIO_FILTER_FLATE) {
     // Deflate compression...
-    int	status;				// Status of decompression
+    int status;  // Status of decompression
 
-    if (st->predictor == _PDFIO_PREDICTOR_NONE)
-    {
+    if (st->predictor == _PDFIO_PREDICTOR_NONE) {
       // Decompress into the buffer...
       PDFIO_DEBUG("stream_read: No predictor.\n");
 
-      if (st->flate.avail_in == 0)
-      {
-	// Read more from the file...
-	if (st->cbsize > st->remaining)
-	  rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
-	else
-	  rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
+      if (st->flate.avail_in == 0) {
+        // Read more from the file...
+        if (st->cbsize > st->remaining)
+          rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
+        else
+          rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
 
-	if (rbytes <= 0)
-	  return (-1);			// End of file...
+        if (rbytes <= 0) return (-1);  // End of file...
 
-	st->remaining -= (size_t)rbytes;
+        st->remaining -= (size_t)rbytes;
 
-	if (st->crypto_cb)
-	  rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes, /*last*/st->remaining == 0);
+        if (st->crypto_cb)
+          rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes,
+                                            /*last*/ st->remaining == 0);
 
-	st->flate.next_in  = (Bytef *)st->cbuffer;
-	st->flate.avail_in = (uInt)rbytes;
+        st->flate.next_in = (Bytef*)st->cbuffer;
+        st->flate.avail_in = (uInt)rbytes;
       }
 
-      st->flate.next_out  = (Bytef *)buffer;
+      st->flate.next_out = (Bytef*)buffer;
       st->flate.avail_out = (uInt)bytes;
 
 #ifdef ARDUINO
@@ -1274,59 +1080,55 @@ stream_read(pdfio_stream_t *st,		// I - Stream
       if ((status = inflate(&(st->flate), Z_NO_FLUSH)) < Z_OK)
 #endif
       {
-	_pdfioFileError(st->pdf, "Unable to decompress stream data for object %ld: %s", (long)st->obj->number, zstrerror(status));
-	return (-1);
+        _pdfioFileError(st->pdf, "Unable to decompress stream data for object %ld: %s", (long)st->obj->number,
+                        zstrerror(status));
+        return (-1);
       }
 
-      return (st->flate.next_out - (Bytef *)buffer);
-    }
-    else if (st->predictor == _PDFIO_PREDICTOR_TIFF2)
-    {
-      size_t		pbpixel = st->pbpixel,
-					// Size of pixel in bytes
-      			remaining = st->pbsize;
-					// Remaining bytes
-      unsigned char	*bufptr = (unsigned char *)buffer,
-					// Pointer into buffer
-			*bufsecond = (unsigned char *)buffer + pbpixel,
-					// Pointer to second pixel in buffer
-			*sptr = st->psbuffer;
-					// Current (raw) line
+      return (st->flate.next_out - (Bytef*)buffer);
+    } else if (st->predictor == _PDFIO_PREDICTOR_TIFF2) {
+      size_t pbpixel = st->pbpixel,
+             // Size of pixel in bytes
+          remaining = st->pbsize;
+      // Remaining bytes
+      unsigned char *bufptr = (unsigned char*)buffer,
+                    // Pointer into buffer
+          *bufsecond = (unsigned char*)buffer + pbpixel,
+                    // Pointer to second pixel in buffer
+              *sptr = st->psbuffer;
+      // Current (raw) line
 
       PDFIO_DEBUG("stream_read: TIFF predictor 2.\n");
 
-      if (bytes < st->pbsize)
-      {
+      if (bytes < st->pbsize) {
         _pdfioFileError(st->pdf, "Read buffer too small for stream.");
         return (-1);
       }
 
-      st->flate.next_out  = (Bytef *)sptr;
+      st->flate.next_out = (Bytef*)sptr;
       st->flate.avail_out = (uInt)st->pbsize;
 
-      while (st->flate.avail_out > 0)
-      {
-	if (st->flate.avail_in == 0)
-	{
-	  // Read more from the file...
-	  if (st->cbsize > st->remaining)
-	    rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
-	  else
-	    rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
+      while (st->flate.avail_out > 0) {
+        if (st->flate.avail_in == 0) {
+          // Read more from the file...
+          if (st->cbsize > st->remaining)
+            rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
+          else
+            rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
 
-	  if (rbytes <= 0)
-	    return (-1);		// End of file...
+          if (rbytes <= 0) return (-1);  // End of file...
 
-	  st->remaining -= (size_t)rbytes;
+          st->remaining -= (size_t)rbytes;
 
-	  if (st->crypto_cb)
-	    rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes, /*last*/st->remaining == 0);
+          if (st->crypto_cb)
+            rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes,
+                                              /*last*/ st->remaining == 0);
 
-	  st->flate.next_in  = (Bytef *)st->cbuffer;
-	  st->flate.avail_in = (uInt)rbytes;
-	}
+          st->flate.next_in = (Bytef*)st->cbuffer;
+          st->flate.avail_in = (uInt)rbytes;
+        }
 
-        avail_in  = st->flate.avail_in;
+        avail_in = st->flate.avail_in;
         avail_out = st->flate.avail_out;
 
 #ifdef ARDUINO
@@ -1334,74 +1136,66 @@ stream_read(pdfio_stream_t *st,		// I - Stream
 #else
         if ((status = inflate(&(st->flate), Z_NO_FLUSH)) < Z_OK)
 #endif
-	{
-	  _pdfioFileError(st->pdf, "Unable to decompress stream data for object %ld: %s", (long)st->obj->number, zstrerror(status));
-	  return (-1);
-	}
-	else if (status == Z_STREAM_END || (avail_in == st->flate.avail_in && avail_out == st->flate.avail_out))
-	  break;
+        {
+          _pdfioFileError(st->pdf, "Unable to decompress stream data for object %ld: %s", (long)st->obj->number,
+                          zstrerror(status));
+          return (-1);
+        } else if (status == Z_STREAM_END || (avail_in == st->flate.avail_in && avail_out == st->flate.avail_out))
+          break;
       }
 
-      if (st->flate.avail_out > 0)
-        return (-1);			// Early end of stream
+      if (st->flate.avail_out > 0) return (-1);  // Early end of stream
 
-      for (; bufptr < bufsecond; remaining --, sptr ++)
-	*bufptr++ = *sptr;
-      for (; remaining > 0; remaining --, sptr ++, bufptr ++)
-	*bufptr = *sptr + bufptr[-(int)pbpixel];
+      for (; bufptr < bufsecond; remaining--, sptr++) *bufptr++ = *sptr;
+      for (; remaining > 0; remaining--, sptr++, bufptr++) *bufptr = *sptr + bufptr[-(int)pbpixel];
 
       return ((ssize_t)st->pbsize);
-    }
-    else
-    {
+    } else {
       // PNG predictor
-      size_t		pbpixel = st->pbpixel,
-					// Size of pixel in bytes
-      			remaining = st->pbsize - 1;
-					// Remaining bytes
-      unsigned char	*bufptr = (unsigned char *)buffer,
-					// Pointer into buffer
-			*bufsecond = (unsigned char *)buffer + pbpixel,
-					// Pointer to second pixel in buffer
-			*sptr = st->psbuffer + 1,
-					// Current (raw) line
-			*pptr = st->prbuffer;
-					// Previous (raw) line
+      size_t pbpixel = st->pbpixel,
+             // Size of pixel in bytes
+          remaining = st->pbsize - 1;
+      // Remaining bytes
+      unsigned char *bufptr = (unsigned char*)buffer,
+                    // Pointer into buffer
+          *bufsecond = (unsigned char*)buffer + pbpixel,
+                    // Pointer to second pixel in buffer
+              *sptr = st->psbuffer + 1,
+                    // Current (raw) line
+                  *pptr = st->prbuffer;
+      // Previous (raw) line
 
       PDFIO_DEBUG("stream_read: PNG predictor.\n");
 
-      if (bytes < (st->pbsize - 1))
-      {
+      if (bytes < (st->pbsize - 1)) {
         _pdfioFileError(st->pdf, "Read buffer too small for stream.");
         return (-1);
       }
 
-      st->flate.next_out  = (Bytef *)sptr - 1;
+      st->flate.next_out = (Bytef*)sptr - 1;
       st->flate.avail_out = (uInt)st->pbsize;
 
-      while (st->flate.avail_out > 0)
-      {
-	if (st->flate.avail_in == 0)
-	{
-	  // Read more from the file...
-	  if (st->cbsize > st->remaining)
-	    rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
-	  else
-	    rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
+      while (st->flate.avail_out > 0) {
+        if (st->flate.avail_in == 0) {
+          // Read more from the file...
+          if (st->cbsize > st->remaining)
+            rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->remaining);
+          else
+            rbytes = _pdfioFileRead(st->pdf, st->cbuffer, st->cbsize);
 
-	  if (rbytes <= 0)
-	    return (-1);		// End of file...
+          if (rbytes <= 0) return (-1);  // End of file...
 
-	  st->remaining -= (size_t)rbytes;
+          st->remaining -= (size_t)rbytes;
 
-	  if (st->crypto_cb)
-	    rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes, /*last*/st->remaining == 0);
+          if (st->crypto_cb)
+            rbytes = (ssize_t)(st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, (size_t)rbytes,
+                                              /*last*/ st->remaining == 0);
 
-	  st->flate.next_in  = (Bytef *)st->cbuffer;
-	  st->flate.avail_in = (uInt)rbytes;
-	}
+          st->flate.next_in = (Bytef*)st->cbuffer;
+          st->flate.avail_in = (uInt)rbytes;
+        }
 
-        avail_in  = st->flate.avail_in;
+        avail_in = st->flate.avail_in;
         avail_out = st->flate.avail_out;
 
 #ifdef ARDUINO
@@ -1409,71 +1203,68 @@ stream_read(pdfio_stream_t *st,		// I - Stream
 #else
         if ((status = inflate(&(st->flate), Z_NO_FLUSH)) < Z_OK)
 #endif
-	{
-	  _pdfioFileError(st->pdf, "Unable to decompress stream data for object %ld: %s", (long)st->obj->number, zstrerror(status));
-	  return (-1);
-	}
-	else if (status == Z_STREAM_END || (avail_in == st->flate.avail_in && avail_out == st->flate.avail_out))
-	  break;
+        {
+          _pdfioFileError(st->pdf, "Unable to decompress stream data for object %ld: %s", (long)st->obj->number,
+                          zstrerror(status));
+          return (-1);
+        } else if (status == Z_STREAM_END || (avail_in == st->flate.avail_in && avail_out == st->flate.avail_out))
+          break;
       }
 
-      if (st->flate.avail_out > 0)
-      {
-	// Early end of stream
-        PDFIO_DEBUG("stream_read: Early EOF (remaining=%u, avail_in=%d, avail_out=%d, data_type=%d, next_in=<%02X%02X%02X%02X...>).\n", (unsigned)st->remaining, st->flate.avail_in, st->flate.avail_out, st->flate.data_type, st->flate.next_in[0], st->flate.next_in[1], st->flate.next_in[2], st->flate.next_in[3]);
+      if (st->flate.avail_out > 0) {
+        // Early end of stream
+        PDFIO_DEBUG(
+            "stream_read: Early EOF (remaining=%u, avail_in=%d, avail_out=%d, data_type=%d, "
+            "next_in=<%02X%02X%02X%02X...>).\n",
+            (unsigned)st->remaining, st->flate.avail_in, st->flate.avail_out, st->flate.data_type, st->flate.next_in[0],
+            st->flate.next_in[1], st->flate.next_in[2], st->flate.next_in[3]);
         return (-1);
       }
 
       // Apply predictor for this line
 #ifdef DEBUG
       if (remaining > 4)
-	PDFIO_DEBUG("stream_read: Line %02X %02X %02X %02X %02X ...\n", sptr[-1], sptr[0], sptr[1], sptr[2], sptr[3]);
+        PDFIO_DEBUG("stream_read: Line %02X %02X %02X %02X %02X ...\n", sptr[-1], sptr[0], sptr[1], sptr[2], sptr[3]);
       else if (remaining > 3)
-	PDFIO_DEBUG("stream_read: Line %02X %02X %02X %02X %02X.\n", sptr[-1], sptr[0], sptr[1], sptr[2], sptr[3]);
+        PDFIO_DEBUG("stream_read: Line %02X %02X %02X %02X %02X.\n", sptr[-1], sptr[0], sptr[1], sptr[2], sptr[3]);
       else if (remaining > 2)
-	PDFIO_DEBUG("stream_read: Line %02X %02X %02X %02X.\n", sptr[-1], sptr[0], sptr[1], sptr[2]);
+        PDFIO_DEBUG("stream_read: Line %02X %02X %02X %02X.\n", sptr[-1], sptr[0], sptr[1], sptr[2]);
       else if (remaining > 1)
-	PDFIO_DEBUG("stream_read: Line %02X %02X %02X.\n", sptr[-1], sptr[0], sptr[1]);
+        PDFIO_DEBUG("stream_read: Line %02X %02X %02X.\n", sptr[-1], sptr[0], sptr[1]);
       else
-	PDFIO_DEBUG("stream_read: Line %02X %02X.\n", sptr[-1], sptr[0]);
-#endif // DEBUG
+        PDFIO_DEBUG("stream_read: Line %02X %02X.\n", sptr[-1], sptr[0]);
+#endif  // DEBUG
 
-      switch (sptr[-1])
-      {
-        case 0 : // None
-        case 10 : // None (for buggy PDF writers)
-            memcpy(buffer, sptr, remaining);
-            break;
-        case 1 : // Sub
-        case 11 : // Sub (for buggy PDF writers)
-            for (; bufptr < bufsecond; remaining --, sptr ++)
-              *bufptr++ = *sptr;
-            for (; remaining > 0; remaining --, sptr ++, bufptr ++)
-              *bufptr = *sptr + bufptr[-(int)pbpixel];
-            break;
-        case 2 : // Up
-        case 12 : // Up (for buggy PDF writers)
-            for (; remaining > 0; remaining --, sptr ++, pptr ++)
-              *bufptr++ = *sptr + *pptr;
-            break;
-        case 3 : // Average
-        case 13 : // Average (for buggy PDF writers)
-	    for (; bufptr < bufsecond; remaining --, sptr ++, pptr ++)
-	      *bufptr++ = *sptr + *pptr / 2;
-	    for (; remaining > 0; remaining --, sptr ++, pptr ++, bufptr ++)
-	      *bufptr = *sptr + (bufptr[-(int)pbpixel] + *pptr) / 2;
-            break;
-        case 4 : // Paeth
-        case 14 : // Paeth (for buggy PDF writers)
-            for (; bufptr < bufsecond; remaining --, sptr ++, pptr ++)
-              *bufptr++ = *sptr + stream_paeth(0, *pptr, 0);
-            for (; remaining > 0; remaining --, sptr ++, pptr ++, bufptr ++)
-              *bufptr = *sptr + stream_paeth(bufptr[-(int)pbpixel], *pptr, pptr[-(int)pbpixel]);
-            break;
+      switch (sptr[-1]) {
+        case 0:   // None
+        case 10:  // None (for buggy PDF writers)
+          memcpy(buffer, sptr, remaining);
+          break;
+        case 1:   // Sub
+        case 11:  // Sub (for buggy PDF writers)
+          for (; bufptr < bufsecond; remaining--, sptr++) *bufptr++ = *sptr;
+          for (; remaining > 0; remaining--, sptr++, bufptr++) *bufptr = *sptr + bufptr[-(int)pbpixel];
+          break;
+        case 2:   // Up
+        case 12:  // Up (for buggy PDF writers)
+          for (; remaining > 0; remaining--, sptr++, pptr++) *bufptr++ = *sptr + *pptr;
+          break;
+        case 3:   // Average
+        case 13:  // Average (for buggy PDF writers)
+          for (; bufptr < bufsecond; remaining--, sptr++, pptr++) *bufptr++ = *sptr + *pptr / 2;
+          for (; remaining > 0; remaining--, sptr++, pptr++, bufptr++)
+            *bufptr = *sptr + (bufptr[-(int)pbpixel] + *pptr) / 2;
+          break;
+        case 4:   // Paeth
+        case 14:  // Paeth (for buggy PDF writers)
+          for (; bufptr < bufsecond; remaining--, sptr++, pptr++) *bufptr++ = *sptr + stream_paeth(0, *pptr, 0);
+          for (; remaining > 0; remaining--, sptr++, pptr++, bufptr++)
+            *bufptr = *sptr + stream_paeth(bufptr[-(int)pbpixel], *pptr, pptr[-(int)pbpixel]);
+          break;
 
-        default :
-            _pdfioFileError(st->pdf, "Bad PNG filter %d in data stream.", sptr[-1]);
-            return (-1);
+        default:
+          _pdfioFileError(st->pdf, "Bad PNG filter %d in data stream.", sptr[-1]);
+          return (-1);
       }
 
       // Copy the computed line and swap buffers...
@@ -1488,15 +1279,14 @@ stream_read(pdfio_stream_t *st,		// I - Stream
   return (-1);
 }
 
-
 //
 // 'stream_write()' - Write flate-compressed data...
 //
 
-static bool				// O - `true` on success, `false` on failure
-stream_write(pdfio_stream_t *st,	// I - Stream
-             const void     *buffer,	// I - Buffer to write
-             size_t         bytes)	// I - Number of bytes to write
+static bool                       // O - `true` on success, `false` on failure
+stream_write(pdfio_stream_t* st,  // I - Stream
+             const void* buffer,  // I - Buffer to write
+             size_t bytes)        // I - Number of bytes to write
 {
 #ifdef PDFIO_READ_ONLY
   (void)st;
@@ -1504,102 +1294,88 @@ stream_write(pdfio_stream_t *st,	// I - Stream
   (void)bytes;
   return (false);
 #else
-  int	status;				// Compression status
-
+  int status;  // Compression status
 
   // Flate-compress the buffer...
   st->flate.avail_in = (uInt)bytes;
-  st->flate.next_in  = (Bytef *)buffer;
+  st->flate.next_in = (Bytef*)buffer;
 
-  while (st->flate.avail_in > 0)
-  {
-    if (st->flate.avail_out < (st->cbsize / 8))
-    {
+  while (st->flate.avail_in > 0) {
+    if (st->flate.avail_out < (st->cbsize / 8)) {
       // Flush the compression buffer...
-      size_t	cbytes = st->cbsize - st->flate.avail_out,
-		outbytes;
+      size_t cbytes = st->cbsize - st->flate.avail_out, outbytes;
 
-      if (st->crypto_cb)
-      {
+      if (st->crypto_cb) {
         // Encrypt it first...
-        outbytes = (st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, cbytes & (size_t)~15, /*last*/false);
-      }
-      else
-      {
+        outbytes = (st->crypto_cb)(&st->crypto_ctx, st->cbuffer, st->cbuffer, cbytes & (size_t)~15, /*last*/ false);
+      } else {
         outbytes = cbytes;
       }
 
-//      fprintf(stderr, "stream_write: bytes=%u, outbytes=%u\n", (unsigned)bytes, (unsigned)outbytes);
+      //      fprintf(stderr, "stream_write: bytes=%u, outbytes=%u\n", (unsigned)bytes, (unsigned)outbytes);
 
-      if (!_pdfioFileWrite(st->pdf, st->cbuffer, outbytes))
-        return (false);
+      if (!_pdfioFileWrite(st->pdf, st->cbuffer, outbytes)) return (false);
 
-      if (cbytes > outbytes)
-      {
+      if (cbytes > outbytes) {
         cbytes -= outbytes;
         memmove(st->cbuffer, st->cbuffer + outbytes, cbytes);
-      }
-      else
-      {
+      } else {
         cbytes = 0;
       }
 
-      st->flate.next_out  = (Bytef *)st->cbuffer + cbytes;
+      st->flate.next_out = (Bytef*)st->cbuffer + cbytes;
       st->flate.avail_out = (uInt)(st->cbsize - cbytes);
     }
 
     // Deflate what we can this time...
     status = deflate(&st->flate, Z_NO_FLUSH);
 
-    if (status < Z_OK && status != Z_BUF_ERROR)
-    {
+    if (status < Z_OK && status != Z_BUF_ERROR) {
       _pdfioFileError(st->pdf, "Flate compression failed: %s", zstrerror(status));
       return (false);
     }
   }
 
   return (true);
-#endif // PDFIO_READ_ONLY
+#endif  // PDFIO_READ_ONLY
 }
-
 
 //
 // 'zstrerror()' - Return a string for a zlib error number.
 //
 
-static const char *			// O - Error string
-zstrerror(int error)			// I - Error number
+static const char*    // O - Error string
+zstrerror(int error)  // I - Error number
 {
-  switch (error)
-  {
-    case Z_OK :
-        return ("No error.");
+  switch (error) {
+    case Z_OK:
+      return ("No error.");
 
-    case Z_STREAM_END :
-        return ("End of stream.");
+    case Z_STREAM_END:
+      return ("End of stream.");
 
-    case Z_NEED_DICT :
-        return ("Need a huffman dictinary.");
+    case Z_NEED_DICT:
+      return ("Need a huffman dictinary.");
 
-    case Z_ERRNO :
-        return (strerror(errno));
+    case Z_ERRNO:
+      return (strerror(errno));
 
-    case Z_STREAM_ERROR :
-        return ("Stream error.");
+    case Z_STREAM_ERROR:
+      return ("Stream error.");
 
-    case Z_DATA_ERROR :
-        return ("Data error.");
+    case Z_DATA_ERROR:
+      return ("Data error.");
 
-    case Z_MEM_ERROR :
-        return ("Out of memory.");
+    case Z_MEM_ERROR:
+      return ("Out of memory.");
 
-    case Z_BUF_ERROR :
-        return ("Out of buffers.");
+    case Z_BUF_ERROR:
+      return ("Out of buffers.");
 
-    case Z_VERSION_ERROR :
-        return ("Mismatched zlib library.");
+    case Z_VERSION_ERROR:
+      return ("Mismatched zlib library.");
 
-    default :
-        return ("Unknown error.");
+    default:
+      return ("Unknown error.");
   }
 }

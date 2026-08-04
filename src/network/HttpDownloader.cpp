@@ -551,8 +551,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
   return runGetSecure(url, username, password, sink) == OK;
 }
 
-bool HttpDownloader::resolveFirstRedirects(const std::vector<std::string>& urls,
-                                           std::vector<std::string>& outUrls) {
+bool HttpDownloader::resolveFirstRedirects(const std::vector<std::string>& urls, std::vector<std::string>& outUrls) {
 #if defined(FREEINK_NET_WOLFSSL)
   if (urls.empty()) {
     outUrls.clear();
@@ -582,12 +581,11 @@ bool HttpDownloader::resolveFirstRedirects(const std::vector<std::string>& urls,
         break;
       }
       LOG_DBG("HTTP", "Resolving release asset: %s", url.c_str());
-      const int status = http.GET(
-          [](const uint8_t*, size_t) { return true; },
-          []() {
-            esp_task_wdt_reset();
-            return false;
-          });
+      const int status = http.GET([](const uint8_t*, size_t) { return true; },
+                                  []() {
+                                    esp_task_wdt_reset();
+                                    return false;
+                                  });
       if (status < 0 || !isRedirect(status) || !http.responseComplete()) {
         success = false;
         break;

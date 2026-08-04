@@ -22,9 +22,9 @@
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "EpubDictionaryActivity.h"
 #include "EpubReaderBookmarksActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
-#include "EpubDictionaryActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
@@ -691,10 +691,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
       marginTop += SETTINGS.screenMargin;
       marginLeft += SETTINGS.screenMargin;
-      startActivityForResult(makeUniqueNoThrow<EpubDictionaryActivity>(renderer, mappedInput, std::move(page),
-                                                                        SETTINGS.getReaderFontId(), marginLeft,
-                                                                        marginTop),
-                             [this](const ActivityResult&) { requestUpdate(); });
+      startActivityForResult(
+          makeUniqueNoThrow<EpubDictionaryActivity>(renderer, mappedInput, std::move(page), SETTINGS.getReaderFontId(),
+                                                    marginLeft, marginTop),
+          [this](const ActivityResult&) { requestUpdate(); });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::FOOTNOTES: {

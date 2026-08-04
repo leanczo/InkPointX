@@ -12,8 +12,8 @@
 
 class EpubDictionaryActivity final : public Activity {
  public:
-  EpubDictionaryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Page> page,
-                         int fontId, int marginLeft, int marginTop);
+  EpubDictionaryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Page> page, int fontId,
+                         int marginLeft, int marginTop);
 
   void onEnter() override;
   void onExit() override;

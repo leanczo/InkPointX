@@ -7,8 +7,8 @@
 #include <utility>
 
 #include "activities/Activity.h"
-#include "util/HoldGestures.h"
 #include "util/ButtonNavigator.h"
+#include "util/HoldGestures.h"
 
 struct KeyDef {
   char primary;

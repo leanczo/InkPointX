@@ -73,8 +73,7 @@ void EpubReaderFootnotesActivity::render(RenderLock&&) {
       renderer, Rect{screen.x, contentTop, screen.width, contentHeight}, static_cast<int>(footnotes.size()),
       selectedIndex,
       [this](int index) {
-        return footnotes[index].number[0] == '\0' ? std::string(tr(STR_LINK))
-                                                  : std::string(footnotes[index].number);
+        return footnotes[index].number[0] == '\0' ? std::string(tr(STR_LINK)) : std::string(footnotes[index].number);
       },
       nullptr, nullptr, nullptr, false, nullptr, [](int) { return UIAccessory::Chevron; });
 

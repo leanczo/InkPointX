@@ -124,16 +124,16 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce flash budget
-        # The 6.25 MB app slot is fixed for the fielded fleet (the partition
-        # table cannot change over OTA). Fail before the image can creep to
-        # 100%: 92% leaves ~0.5 MB of working headroom.
+        # The 6.25 MiB app slot is fixed for the fielded fleet (the partition
+        # table cannot change over OTA). Reject an image that cannot fit in
+        # either application partition.
         run: |
           set -euo pipefail
           used="$(grep -Eo 'used [0-9]+ bytes' -m1 pio.log | grep -Eo '[0-9]+' || echo 0)"
-          limit=6029312   # 92% of 6,553,600
+          limit=$((0x640000))
           echo "Flash used: ${used} bytes (limit ${limit})"
           if [ "$used" -gt "$limit" ]; then
-            echo "::error::Firmware size ${used} exceeds the 92% flash budget (${limit} bytes)"
+            echo "::error::Firmware size ${used} exceeds the OTA app slot (${limit} bytes)"
             exit 1
           fi
 

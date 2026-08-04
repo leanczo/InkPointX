@@ -93,8 +93,9 @@ void InterfaceFontSelectActivity::render(RenderLock&&) {
   const bool usingBuiltIn = !current || current[0] == '\0';
   GUI.drawList(
       renderer, Rect{0, contentTop, width, contentHeight}, static_cast<int>(options.size()), selectedIndex,
-      [this](const int index) { return index == 0 ? std::string(I18N.get(builtInNameId())) : options[index]; },
-      nullptr, nullptr, nullptr, false, nullptr, [this, current, usingBuiltIn](const int index) {
+      [this](const int index) { return index == 0 ? std::string(I18N.get(builtInNameId())) : options[index]; }, nullptr,
+      nullptr, nullptr, false, nullptr,
+      [this, current, usingBuiltIn](const int index) {
         const bool isCurrent = index == 0 ? usingBuiltIn : (!usingBuiltIn && options[index] == current);
         return isCurrent ? UIAccessory::Check : UIAccessory::None;
       });

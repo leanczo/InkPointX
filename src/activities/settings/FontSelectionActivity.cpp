@@ -214,9 +214,8 @@ void FontSelectionActivity::render(RenderLock&&) {
         if (index == previewFontIndex_ && index != currentFontIndex) return tr(STR_PREVIEW);
         return "";
       },
-      true, nullptr, [currentFontIndex](int index) {
-        return index == currentFontIndex ? UIAccessory::Check : UIAccessory::None;
-      });
+      true, nullptr,
+      [currentFontIndex](int index) { return index == currentFontIndex ? UIAccessory::Check : UIAccessory::None; });
 
   const bool onPreviewed = selectedIndex_ == previewFontIndex_;
   const char* confirmLabel = onPreviewed ? tr(STR_SELECT) : tr(STR_PREVIEW);

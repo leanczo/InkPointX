@@ -398,8 +398,7 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   // A reader page is scanned and prewarmed as one unit. Re-prewarming the SD
   // font for every measured word would replace that page cache and turn each
   // subsequent glyph into another SD seek.
-  if (!fontCacheManager_ ||
-      (!fontCacheManager_->isScanning() && !fontCacheManager_->isPagePrewarmedFor(fontId))) {
+  if (!fontCacheManager_ || (!fontCacheManager_->isScanning() && !fontCacheManager_->isPagePrewarmedFor(fontId))) {
     prepareSdCardGlyphs(fontId, renderedText, style, /*metadataOnly=*/true);
   }
 
@@ -694,9 +693,9 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
   }
 }
 
-void GfxRenderer::invertRoundedRect(const int x, const int y, const int width, const int height,
-                                    const int cornerRadius, const bool roundTopLeft, const bool roundTopRight,
-                                    const bool roundBottomLeft, const bool roundBottomRight) const {
+void GfxRenderer::invertRoundedRect(const int x, const int y, const int width, const int height, const int cornerRadius,
+                                    const bool roundTopLeft, const bool roundTopRight, const bool roundBottomLeft,
+                                    const bool roundBottomRight) const {
   if (width <= 0 || height <= 0 || !frameBuffer || _stripActive) return;
 
   const int radius = std::min({cornerRadius, width / 2, height / 2});
@@ -1133,7 +1132,8 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
   display.drawImage(bitmap, rotatedX, rotatedY, width, height);
 }
 
-void GfxRenderer::drawImageTransparent(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
+void GfxRenderer::drawImageTransparent(const uint8_t bitmap[], const int x, const int y, const int width,
+                                       const int height) const {
   int rotatedX = 0;
   int rotatedY = 0;
   rotateCoordinates(orientation, x, y, &rotatedX, &rotatedY, panelWidth, panelHeight);
@@ -1322,9 +1322,9 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
   // them with an implicit OR. Fine dither then collapsed into dark square
   // blocks and moire. Sampling each destination pixel exactly once preserves
   // the intended density and avoids that bias.
-  const int outputWidth =
-      isScaled ? std::max(1, static_cast<int>(std::ceil(static_cast<float>(bitmap.getWidth()) * scale)))
-               : bitmap.getWidth();
+  const int outputWidth = isScaled
+                              ? std::max(1, static_cast<int>(std::ceil(static_cast<float>(bitmap.getWidth()) * scale)))
+                              : bitmap.getWidth();
 
   for (int bmpY = 0; bmpY < bitmap.getHeight(); bmpY++) {
     // Read rows sequentially using readNextRow
@@ -1339,8 +1339,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
     const int sourceY = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
     int outputY = sourceY;
     if (isScaled) {
-      const int outputYEnd =
-          static_cast<int>(std::ceil(static_cast<float>(sourceY + 1) * scale));
+      const int outputYEnd = static_cast<int>(std::ceil(static_cast<float>(sourceY + 1) * scale));
       outputY = static_cast<int>(std::ceil(static_cast<float>(sourceY) * scale));
       if (outputY >= outputYEnd) continue;  // This source row is skipped by the inverse mapping.
     }
@@ -1354,8 +1353,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
 
     for (int outputX = 0; outputX < outputWidth; outputX++) {
       const int sourceX =
-          isScaled ? std::min(bitmap.getWidth() - 1,
-                              static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
+          isScaled ? std::min(bitmap.getWidth() - 1, static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
                    : outputX;
       const int screenX = x + outputX;
       if (screenX >= getScreenWidth()) {

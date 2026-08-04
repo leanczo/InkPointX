@@ -377,9 +377,8 @@ void FontDownloadActivity::downloadFamily(const int familyIndex, const bool fina
             cancelRequested_ = true;
           }
           const size_t effectiveTotal = fileTotal_;
-          const int percent = effectiveTotal > 0
-                                  ? std::min(100, static_cast<int>(downloaded * 100 / effectiveTotal))
-                                  : 0;
+          const int percent =
+              effectiveTotal > 0 ? std::min(100, static_cast<int>(downloaded * 100 / effectiveTotal)) : 0;
           const unsigned long now = millis();
           // A synchronous download runs under ActivityManager's state lock.
           // requestUpdate() alone queues frames that cannot render until the
@@ -387,8 +386,8 @@ void FontDownloadActivity::downloadFamily(const int familyIndex, const bool fina
           // wait for a real frame at e-ink-friendly intervals: first visible
           // progress, then at most once per 20 percentage points and 1.5 s.
           const bool firstVisibleProgress = lastNotifiedPercent_ < 0 && percent > 0;
-          const bool reachedNextStep = lastNotifiedPercent_ >= 0 && percent >= lastNotifiedPercent_ + 20 &&
-                                       now - lastProgressRenderMs_ >= 1500;
+          const bool reachedNextStep =
+              lastNotifiedPercent_ >= 0 && percent >= lastNotifiedPercent_ + 20 && now - lastProgressRenderMs_ >= 1500;
           if (firstVisibleProgress || reachedNextStep) {
             lastNotifiedPercent_ = percent;
             lastProgressRenderMs_ = now;

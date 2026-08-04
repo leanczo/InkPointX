@@ -9,10 +9,10 @@
 #include <algorithm>
 
 #include "MappedInputManager.h"
-#include "util/HoldGestures.h"
 #include "ProgressMapper.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/HoldGestures.h"
 
 namespace {
 // Acting on the selected bookmark, so the shared short hold.

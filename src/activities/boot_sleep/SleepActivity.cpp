@@ -297,8 +297,7 @@ void SleepActivity::renderCoverSleepScreen() const {
 
     coverBmpPath = lastTxt.getCoverBmpPath();
   } else if (FsHelpers::hasEpubExtension(APP_STATE.openEpubPath) ||
-             FsHelpers::hasFb2Extension(APP_STATE.openEpubPath) ||
-             FsHelpers::hasPdfExtension(APP_STATE.openEpubPath)) {
+             FsHelpers::hasFb2Extension(APP_STATE.openEpubPath) || FsHelpers::hasPdfExtension(APP_STATE.openEpubPath)) {
     // FB2/PDF packages use the same metadata, cover, and rendering pipeline as EPUB.
     Epub lastEpub(APP_STATE.openEpubPath, "/.crosspoint");
     // Skip loading css since we only need metadata here

@@ -75,14 +75,13 @@ void IntervalSelectionActivity::render(RenderLock&&) {
   // like the shared empty state — it used to crowd the top third and leave
   // ~490 px of void below.
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentBottom =
-      renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  const int contentBottom = renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing;
   const int valueLineHeight = renderer.getLineHeight(UI_18_FONT_ID);
   const int hintLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   constexpr int barHeight = 8;
   constexpr int knobSize = 16;
-  const int blockHeight = valueLineHeight + metrics.verticalSpacing * 2 + knobSize + metrics.verticalSpacing * 2 +
-                          hintLineHeight;
+  const int blockHeight =
+      valueLineHeight + metrics.verticalSpacing * 2 + knobSize + metrics.verticalSpacing * 2 + hintLineHeight;
   const int valueY = contentTop + std::max(0, (contentBottom - contentTop - blockHeight) * 2 / 5);
   renderer.drawCenteredText(UI_18_FONT_ID, valueY, formattedValue, true, EpdFontFamily::BOLD);
 

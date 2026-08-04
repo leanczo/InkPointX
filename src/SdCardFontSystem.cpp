@@ -2,8 +2,8 @@
 
 #include <Arduino.h>
 #include <GfxRenderer.h>
-#include <SdCardFont.h>
 #include <Logging.h>
+#include <SdCardFont.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -151,8 +151,9 @@ int SdCardFontSystem::loadInterfaceFaces(const char* familyName, GfxRenderer& re
 
     // Already loaded for an earlier slot: register the same face again rather
     // than paying for a second copy of identical glyph data.
-    const auto existing = std::find_if(uiFaces_.cbegin(), uiFaces_.cend(),
-                                       [best](const InterfaceFace& loadedFace) { return loadedFace.path == best->path; });
+    const auto existing = std::find_if(uiFaces_.cbegin(), uiFaces_.cend(), [best](const InterfaceFace& loadedFace) {
+      return loadedFace.path == best->path;
+    });
     SdCardFont* face = existing == uiFaces_.cend() ? nullptr : existing->font;
 
     if (!face) {
@@ -173,9 +174,8 @@ int SdCardFontSystem::loadInterfaceFaces(const char* familyName, GfxRenderer& re
     }
 
     renderer.registerSdCardFont(slots[i].fontId, face);
-    renderer.insertFont(slots[i].fontId,
-                        EpdFontFamily(face->getEpdFont(0), face->getEpdFont(1), face->getEpdFont(2),
-                                      face->getEpdFont(3)));
+    renderer.insertFont(slots[i].fontId, EpdFontFamily(face->getEpdFont(0), face->getEpdFont(1), face->getEpdFont(2),
+                                                       face->getEpdFont(3)));
     uiBoundIds_.push_back(slots[i].fontId);
     ++bound;
   }
