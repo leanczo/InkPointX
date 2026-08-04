@@ -5,8 +5,8 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
-#include "activities/Activity.h"
 #include "ReadingSessionStats.h"
+#include "activities/Activity.h"
 
 class TxtReaderActivity final : public Activity {
   std::unique_ptr<Txt> txt;

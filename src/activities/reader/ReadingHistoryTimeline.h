@@ -39,8 +39,8 @@ inline uint32_t dailyReadingSecondsForDay(const uint32_t anchorDay, const DailyR
   return index < values.size() ? values[index] : 0;
 }
 
-inline void mergeDailyReadingTimeline(uint32_t& targetAnchor, DailyReadingTimeline& target,
-                                      const uint32_t sourceAnchor, const DailyReadingTimeline& source) {
+inline void mergeDailyReadingTimeline(uint32_t& targetAnchor, DailyReadingTimeline& target, const uint32_t sourceAnchor,
+                                      const DailyReadingTimeline& source) {
   if (sourceAnchor == 0) return;
   const uint32_t mergedAnchor = std::max(targetAnchor, sourceAnchor);
   if (targetAnchor != 0 && mergedAnchor > targetAnchor) shiftDailyReadingTimeline(target, mergedAnchor - targetAnchor);

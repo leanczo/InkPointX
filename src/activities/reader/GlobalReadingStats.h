@@ -2,8 +2,8 @@
 #include <array>
 #include <cstdint>
 
-#include "ReadingStatsUtils.h"
 #include "ReadingHistoryTimeline.h"
+#include "ReadingStatsUtils.h"
 
 // Cumulative reading statistics across all books, persisted to
 // /.crosspoint/global_stats.bin.

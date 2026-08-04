@@ -12,8 +12,8 @@
 #include <string>
 #include <utility>
 
-#include "activities/Activity.h"
 #include "ReadingSessionStats.h"
+#include "activities/Activity.h"
 
 class XtcReaderActivity final : public Activity {
   std::shared_ptr<Xtc> xtc;

@@ -405,8 +405,8 @@ void GlobalReadingStats::recordReadingSpan(const ReadingStatsDateTime& localStar
   ReadingStatsDateTime cursor = localStart;
   uint32_t remaining = seconds;
   while (cursor.isValid() && remaining > 0) {
-    const uint32_t secondOfDay = static_cast<uint32_t>(cursor.hour) * 3600u +
-                                 static_cast<uint32_t>(cursor.minute) * 60u + cursor.second;
+    const uint32_t secondOfDay =
+        static_cast<uint32_t>(cursor.hour) * 3600u + static_cast<uint32_t>(cursor.minute) * 60u + cursor.second;
     const uint32_t segment = std::min(remaining, 86400u - secondOfDay);
     const uint32_t day = readingStatsDayIndex(cursor.date);
     addDailyReadingSeconds(readingHistoryAnchorDay, dailyReadingSeconds, day, segment);

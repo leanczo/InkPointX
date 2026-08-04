@@ -23,9 +23,9 @@ constexpr int PAGE_MARGIN = 20;
 constexpr int CARD_GAP = 12;
 constexpr int CARD_RADIUS = 12;
 
-constexpr std::array<StrId, 7> DAY_LABELS = {
-    StrId::STR_STATS_MON, StrId::STR_STATS_TUE, StrId::STR_STATS_WED, StrId::STR_STATS_THU,
-    StrId::STR_STATS_FRI, StrId::STR_STATS_SAT, StrId::STR_STATS_SUN};
+constexpr std::array<StrId, 7> DAY_LABELS = {StrId::STR_STATS_MON, StrId::STR_STATS_TUE, StrId::STR_STATS_WED,
+                                             StrId::STR_STATS_THU, StrId::STR_STATS_FRI, StrId::STR_STATS_SAT,
+                                             StrId::STR_STATS_SUN};
 constexpr std::array<StrId, 4> TIME_LABELS = {StrId::STR_STATS_MORNING, StrId::STR_STATS_AFTERNOON,
                                               StrId::STR_STATS_EVENING, StrId::STR_STATS_NIGHT};
 
@@ -112,8 +112,8 @@ void drawBackHints(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
-void drawVerticalBars(const GfxRenderer& renderer, const Rect& rect, const uint32_t* values,
-                      const char* const* labels, const int count, const int labelFont = SMALL_FONT_ID) {
+void drawVerticalBars(const GfxRenderer& renderer, const Rect& rect, const uint32_t* values, const char* const* labels,
+                      const int count, const int labelFont = SMALL_FONT_ID) {
   renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, CARD_RADIUS, true);
   uint32_t maxValue = 0;
   for (int i = 0; i < count; ++i) maxValue = std::max(maxValue, values[i]);
@@ -278,8 +278,7 @@ void ReadingStatsActivity::renderMenu() {
   constexpr std::array<UIIcon, 5> ICONS = {UIIcon::ReaderStats, UIIcon::Clock, UIIcon::Recent, UIIcon::Book,
                                            UIIcon::Reading};
   const std::array<const char*, 5> labels = {tr(STR_STATS_OVERVIEW), tr(STR_STATS_LAST_7_DAYS),
-                                             tr(STR_STATS_LAST_8_WEEKS), tr(STR_BOOKS),
-                                             tr(STR_STATS_READING_HABITS)};
+                                             tr(STR_STATS_LAST_8_WEEKS), tr(STR_BOOKS), tr(STR_STATS_READING_HABITS)};
   std::array<std::string, 5> values;
   char duration[40];
   if (hasClock) {
@@ -292,9 +291,10 @@ void ReadingStatsActivity::renderMenu() {
   }
   values[3] = std::to_string(books.size());
   const int top = pageContentTop();
-  GUI.drawList(renderer, Rect{0, top, width, UITheme::getListContentBottom(renderer, false) - top}, labels.size(),
-               selectedIndex, [&](const int i) { return std::string(labels[i]); }, nullptr,
-               [&](const int i) { return ICONS[i]; }, [&](const int i) { return values[i]; });
+  GUI.drawList(
+      renderer, Rect{0, top, width, UITheme::getListContentBottom(renderer, false) - top}, labels.size(), selectedIndex,
+      [&](const int i) { return std::string(labels[i]); }, nullptr, [&](const int i) { return ICONS[i]; },
+      [&](const int i) { return values[i]; });
   const auto hints = mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), "", "");
   GUI.drawButtonHints(renderer, hints.btn1, hints.btn2, hints.btn3, hints.btn4);
 }
@@ -424,8 +424,7 @@ void ReadingStatsActivity::renderWeeks() {
   formatDuration(total, totalText, sizeof(totalText));
   formatDuration(best, bestText, sizeof(bestText));
   drawMetricCard(renderer, Rect{PAGE_MARGIN, top, cellW, 100}, totalText, tr(STR_STATS_TOTAL_READING_TIME_LBL));
-  drawMetricCard(renderer, Rect{PAGE_MARGIN + cellW + CARD_GAP, top, cellW, 100}, bestText,
-                 tr(STR_STATS_BEST_WEEK));
+  drawMetricCard(renderer, Rect{PAGE_MARGIN + cellW + CARD_GAP, top, cellW, 100}, bestText, tr(STR_STATS_BEST_WEEK));
   drawVerticalBars(renderer, Rect{PAGE_MARGIN, top + 112, contentW, 430}, values.data(), labels.data(), 8,
                    MICRO_FONT_ID);
   drawBackHints(renderer, mappedInput);
@@ -440,15 +439,15 @@ void ReadingStatsActivity::renderBooks() {
   if (books.empty()) {
     GUI.drawEmptyState(renderer, Rect{0, top, width, height}, tr(STR_STATS_NO_BOOK_DATA), nullptr, true);
   } else {
-    GUI.drawList(renderer, Rect{0, top, width, height}, books.size(), selectedBook,
-                 [&](const int i) { return books[i].title; },
-                 [&](const int i) {
-                   char duration[40];
-                   formatDuration(books[i].stats.totalReadingSeconds, duration, sizeof(duration));
-                   if (books[i].progressPercent == 0) return std::string(duration);
-                   return std::string(duration) + " · " + std::to_string(books[i].progressPercent) + "%";
-                 },
-                 [](const int) { return UIIcon::Book; });
+    GUI.drawList(
+        renderer, Rect{0, top, width, height}, books.size(), selectedBook, [&](const int i) { return books[i].title; },
+        [&](const int i) {
+          char duration[40];
+          formatDuration(books[i].stats.totalReadingSeconds, duration, sizeof(duration));
+          if (books[i].progressPercent == 0) return std::string(duration);
+          return std::string(duration) + " · " + std::to_string(books[i].progressPercent) + "%";
+        },
+        [](const int) { return UIIcon::Book; });
     GUI.drawFooterCounter(renderer, selectedBook, books.size());
   }
   const auto hints = mappedInput.mapLabels(tr(STR_BACK), books.empty() ? "" : tr(STR_OPEN), "", "");
