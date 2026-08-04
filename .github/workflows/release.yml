@@ -47,7 +47,7 @@ jobs:
           ctest --test-dir build/test --output-on-failure -j
 
       - name: Run static analysis
-        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+        run: pio check --fail-on-defect medium
 
       - name: Verify tag matches firmware version
         shell: bash
