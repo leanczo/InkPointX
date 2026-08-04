@@ -120,7 +120,7 @@ bool TextBlock::serialize(HalFile& file) const {
 }
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
-  uint16_t wc;
+  uint16_t wc = 0;
   std::vector<std::string> words;
   std::vector<int16_t> wordXpos;
   std::vector<EpdFontFamily::Style> wordStyles;
@@ -129,10 +129,14 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   BlockStyle blockStyle;
 
   // Word count
-  serialization::readPod(file, wc);
+  if (!serialization::readPod(file, wc)) return nullptr;
 
-  // Sanity check: prevent allocation of unreasonably large vectors (max 10000 words per block)
-  if (wc > 10000) {
+  // A TextBlock is one laid-out line on a sub-600-pixel screen. Even one-byte
+  // words cannot plausibly reach 512; keeping a hard cap prevents a torn cache
+  // from allocating several large vectors under -fno-exceptions.
+  constexpr uint16_t MAX_WORDS_PER_BLOCK = 512;
+  constexpr size_t MAX_TEXT_BYTES_PER_BLOCK = 16 * 1024;
+  if (wc > MAX_WORDS_PER_BLOCK) {
     LOG_ERR("TXB", "Deserialization failed: word count %u exceeds maximum", wc);
     return nullptr;
   }
@@ -141,37 +145,41 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   words.resize(wc);
   wordXpos.resize(wc);
   wordStyles.resize(wc);
-  for (auto& w : words) serialization::readString(file, w);
-  for (auto& x : wordXpos) serialization::readPod(file, x);
-  for (auto& s : wordStyles) serialization::readPod(file, s);
+  size_t totalTextBytes = 0;
+  for (auto& w : words) {
+    if (!serialization::readString(file, w) || w.size() > MAX_TEXT_BYTES_PER_BLOCK - totalTextBytes) return nullptr;
+    totalTextBytes += w.size();
+  }
+  for (auto& x : wordXpos)
+    if (!serialization::readPod(file, x)) return nullptr;
+  for (auto& s : wordStyles)
+    if (!serialization::readPod(file, s)) return nullptr;
   // Focus block: presence flag, then vectors only if present. Empty vectors when absent
   // signal "no splits in this block" to render() (zero per-word RAM cost).
-  uint8_t hasFocus;
-  serialization::readPod(file, hasFocus);
+  uint8_t hasFocus = 0;
+  if (!serialization::readPod(file, hasFocus) || hasFocus > 1) return nullptr;
   if (hasFocus) {
     wordFocusBoundary.resize(wc);
     wordFocusSuffixX.resize(wc);
-    for (auto& b : wordFocusBoundary) serialization::readPod(file, b);
-    for (auto& sx : wordFocusSuffixX) serialization::readPod(file, sx);
+    for (auto& b : wordFocusBoundary)
+      if (!serialization::readPod(file, b)) return nullptr;
+    for (auto& sx : wordFocusSuffixX)
+      if (!serialization::readPod(file, sx)) return nullptr;
   }
 
   // Style (alignment + margins/padding/indent)
-  serialization::readPod(file, blockStyle.alignment);
-  serialization::readPod(file, blockStyle.textAlignDefined);
-  serialization::readPod(file, blockStyle.marginTop);
-  serialization::readPod(file, blockStyle.marginBottom);
-  serialization::readPod(file, blockStyle.marginLeft);
-  serialization::readPod(file, blockStyle.marginRight);
-  serialization::readPod(file, blockStyle.paddingTop);
-  serialization::readPod(file, blockStyle.paddingBottom);
-  serialization::readPod(file, blockStyle.paddingLeft);
-  serialization::readPod(file, blockStyle.paddingRight);
-  serialization::readPod(file, blockStyle.textIndent);
-  serialization::readPod(file, blockStyle.textIndentDefined);
-  serialization::readPod(file, blockStyle.isRtl);
-  serialization::readPod(file, blockStyle.directionDefined);
+  if (!serialization::readPod(file, blockStyle.alignment) ||
+      !serialization::readPod(file, blockStyle.textAlignDefined) ||
+      !serialization::readPod(file, blockStyle.marginTop) || !serialization::readPod(file, blockStyle.marginBottom) ||
+      !serialization::readPod(file, blockStyle.marginLeft) || !serialization::readPod(file, blockStyle.marginRight) ||
+      !serialization::readPod(file, blockStyle.paddingTop) || !serialization::readPod(file, blockStyle.paddingBottom) ||
+      !serialization::readPod(file, blockStyle.paddingLeft) || !serialization::readPod(file, blockStyle.paddingRight) ||
+      !serialization::readPod(file, blockStyle.textIndent) ||
+      !serialization::readPod(file, blockStyle.textIndentDefined) || !serialization::readPod(file, blockStyle.isRtl) ||
+      !serialization::readPod(file, blockStyle.directionDefined))
+    return nullptr;
 
-  return std::unique_ptr<TextBlock>(new (std::nothrow) TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles),
-                                                  std::move(wordFocusBoundary), std::move(wordFocusSuffixX),
-                                                  blockStyle));
+  return std::unique_ptr<TextBlock>(new (std::nothrow) TextBlock(std::move(words), std::move(wordXpos),
+                                                                 std::move(wordStyles), std::move(wordFocusBoundary),
+                                                                 std::move(wordFocusSuffixX), blockStyle));
 }

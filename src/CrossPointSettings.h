@@ -279,6 +279,11 @@ class CrossPointSettings {
   // would silently come to mean a different font.
   char uiSdFontFamilyName[SD_FONT_NAME_MAX] = "";
   char scriptSdFontFamilyName[SD_FONT_NAME_MAX] = "";
+  // Folder name below /dictionaries containing the active StarDict set.
+  // Persist the stable name instead of a scan index so adding another
+  // dictionary cannot silently switch the user's selection.
+  static constexpr size_t DICTIONARY_FOLDER_MAX = 64;
+  char dictionaryFolder[DICTIONARY_FOLDER_MAX] = "";
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
   // Remove a book from the Recent Books list when its End-of-Book screen is reached (0 = off, 1 = on)

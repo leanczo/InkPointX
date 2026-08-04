@@ -6,13 +6,18 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <esp_system.h>
 #include <esp_task_wdt.h>
 
 #include <algorithm>
+#include <cstring>
+#include <new>
 
 #include "CrossPointSettings.h"
 #include "FontInstaller.h"
+#include "HttpDownloader.h"
 #include "OpdsServerStore.h"
+#include "SdCardFont.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
@@ -30,6 +35,9 @@ namespace {
 // Note: Items starting with "." are automatically hidden
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 constexpr uint16_t LOCAL_UDP_PORT = 8134;
+constexpr const char* PAIRING_COOKIE = "InkPointPair";
+constexpr const char* PAIRING_HEADER = "X-InkPoint-Token";
+constexpr const char* PAIRING_QUERY = "pair";
 
 // Static pointer for WebSocket callback (WebSocketsServer requires C-style callback)
 CrossPointWebServer* wsInstance = nullptr;
@@ -38,6 +46,8 @@ CrossPointWebServer* wsInstance = nullptr;
 HalFile wsUploadFile;
 String wsUploadFileName;
 String wsUploadPath;
+String wsUploadFinalPath;
+String wsUploadTempPath;
 size_t wsUploadSize = 0;
 size_t wsUploadReceived = 0;
 unsigned long wsUploadStartTime = 0;
@@ -130,6 +140,34 @@ bool isSafeItemName(const String& name) {
   }
   return name.indexOf("..") < 0;
 }
+
+bool secureTokenEquals(const String& supplied, const char* expected) {
+  constexpr size_t TOKEN_LENGTH = 32;
+  if (!expected || supplied.length() != TOKEN_LENGTH) return false;
+  uint8_t difference = 0;
+  for (size_t i = 0; i < TOKEN_LENGTH; ++i) {
+    difference |= static_cast<uint8_t>(supplied.charAt(i)) ^ static_cast<uint8_t>(expected[i]);
+  }
+  return difference == 0;
+}
+
+bool cookieHasPairingToken(const String& cookie, const char* expected) {
+  const char* current = cookie.c_str();
+  constexpr size_t nameLength = 12;  // strlen("InkPointPair")
+  while (*current) {
+    while (*current == ' ' || *current == ';') ++current;
+    const char* end = strchr(current, ';');
+    if (!end) end = current + strlen(current);
+    if (static_cast<size_t>(end - current) == nameLength + 1 + 32 &&
+        strncmp(current, PAIRING_COOKIE, nameLength) == 0 && current[nameLength] == '=') {
+      String value(current + nameLength + 1, 32);
+      return secureTokenEquals(value, expected);
+    }
+    current = *end ? end + 1 : end;
+  }
+  return false;
+}
+
 }  // namespace
 
 // File listing page template - now using generated headers:
@@ -140,11 +178,40 @@ CrossPointWebServer::CrossPointWebServer() {}
 
 CrossPointWebServer::~CrossPointWebServer() { stop(); }
 
+void CrossPointWebServer::generatePairingToken() {
+  static constexpr char hex[] = "0123456789abcdef";
+  for (size_t word = 0; word < 4; ++word) {
+    uint32_t random = esp_random();
+    for (size_t nibble = 0; nibble < 8; ++nibble) {
+      pairingToken[word * 8 + 7 - nibble] = hex[random & 0x0F];
+      random >>= 4;
+    }
+  }
+  pairingToken[32] = '\0';
+}
+
+bool CrossPointWebServer::isAuthorizedRequest(WebServer& request) const {
+  if (request.hasArg(PAIRING_QUERY) && secureTokenEquals(request.arg(PAIRING_QUERY), pairingToken.data())) {
+    return true;
+  }
+  if (secureTokenEquals(request.header(PAIRING_HEADER), pairingToken.data())) return true;
+  if (cookieHasPairingToken(request.header("Cookie"), pairingToken.data())) return true;
+  return request.authenticate("inkpoint", pairingToken.data());
+}
+
+void CrossPointWebServer::rejectUnauthorized(WebServer& request) const {
+  request.sendHeader("Cache-Control", "no-store");
+  request.sendHeader("WWW-Authenticate", "Basic realm=\"InkPointX\", charset=\"UTF-8\"");
+  request.send(401, "text/plain", "Pairing required. Scan the URL shown on the InkPointX screen.");
+}
+
 void CrossPointWebServer::begin() {
   if (running) {
     LOG_DBG("WEB", "Web server already running");
     return;
   }
+
+  generatePairingToken();
 
   // Check if we have a valid network connection (either STA connected or AP mode)
   const wifi_mode_t wifiMode = WiFi.getMode();
@@ -165,7 +232,7 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "Network mode: %s", apMode ? "AP" : "STA");
 
   LOG_DBG("WEB", "Creating web server on port %d...", port);
-  server.reset(new WebServer(port));
+  server.reset(new (std::nothrow) WebServer(port));
 
   // Disable WiFi sleep to improve responsiveness and prevent 'unreachable' errors.
   // This is critical for reliable web server operation on ESP32.
@@ -183,6 +250,31 @@ void CrossPointWebServer::begin() {
     LOG_ERR("WEB", "Failed to create WebServer!");
     return;
   }
+
+  // Server-level middleware covers every normal route and WebDAV verb. Raw
+  // PUT/multipart callbacks run while the request is parsed, before middleware,
+  // so those callbacks repeat the same check before opening any SD file.
+  server->addMiddleware([this](WebServer& request, Middleware::Callback next) {
+    const bool pairedByQuery =
+        request.hasArg(PAIRING_QUERY) && secureTokenEquals(request.arg(PAIRING_QUERY), pairingToken.data());
+    if (!isAuthorizedRequest(request)) {
+      rejectUnauthorized(request);
+      return false;
+    }
+
+    if (pairedByQuery) {
+      String cookie = String(PAIRING_COOKIE) + "=" + pairingToken.data() + "; Path=/; HttpOnly; SameSite=Strict";
+      request.sendHeader("Set-Cookie", cookie);
+      request.sendHeader("Cache-Control", "no-store");
+      // Remove the credential from browser history, screenshots and Referer.
+      if (request.method() == HTTP_GET && request.uri() == "/") {
+        request.sendHeader("Location", "/", true);
+        request.send(303, "text/plain", "");
+        return false;
+      }
+    }
+    return next();
+  });
 
   // Setup routes
   LOG_DBG("WEB", "Setting up routes...");
@@ -234,18 +326,38 @@ void CrossPointWebServer::begin() {
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout"};
-  server->collectHeaders(davHeaders, 6);
-  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
+  const char* requestHeaders[] = {"Depth",      "Destination", "Overwrite", "If",
+                                  "Lock-Token", "Timeout",     "Cookie",    PAIRING_HEADER};
+  server->collectHeaders(requestHeaders, sizeof(requestHeaders) / sizeof(requestHeaders[0]));
+  auto* davHandler = new (std::nothrow) WebDAVHandler(pairingToken.data());
+  if (!davHandler) {
+    LOG_ERR("WEB", "No heap for WebDAV handler");
+    server.reset();
+    return;
+  }
+  server->addHandler(davHandler);  // WebServer owns and deletes the handler
   LOG_DBG("WEB", "WebDAV handler initialized");
 
   server->begin();
 
   // Start WebSocket server for fast binary uploads
   LOG_DBG("WEB", "Starting WebSocket server on port %d...", wsPort);
-  wsServer.reset(new WebSocketsServer(wsPort));
+  wsServer.reset(new (std::nothrow) WebSocketsServer(wsPort));
+  if (!wsServer) {
+    LOG_ERR("WEB", "No heap for WebSocket server");
+    server->stop();
+    server.reset();
+    return;
+  }
   wsInstance = const_cast<CrossPointWebServer*>(this);
   wsServer->begin();
+  const char* mandatoryWsHeaders[] = {"Cookie"};
+  wsServer->onValidateHttpHeader(
+      [this](String name, String value) {
+        if (!name.equalsIgnoreCase("Cookie")) return true;
+        return cookieHasPairingToken(value, pairingToken.data());
+      },
+      mandatoryWsHeaders, 1);
   wsServer->onEvent(wsEventCallback);
   // Ping the peer so a browser that vanished without closing the socket is
   // detected and its upload slot released instead of blocking every retry.
@@ -268,13 +380,12 @@ void CrossPointWebServer::begin() {
 void CrossPointWebServer::abortWsUpload(const char* tag) {
   // Explicit close() required: file-scope global persists beyond function scope
   wsUploadFile.close();
-  String filePath = wsUploadPath;
-  if (!filePath.endsWith("/")) filePath += "/";
-  filePath += wsUploadFileName;
-  if (Storage.remove(filePath.c_str())) {
-    LOG_DBG(tag, "Deleted incomplete upload: %s", filePath.c_str());
-  } else {
-    LOG_DBG(tag, "Failed to delete incomplete upload: %s", filePath.c_str());
+  if (!wsUploadTempPath.isEmpty()) {
+    if (Storage.remove(wsUploadTempPath.c_str())) {
+      LOG_DBG(tag, "Deleted incomplete staged upload: %s", wsUploadTempPath.c_str());
+    } else if (Storage.exists(wsUploadTempPath.c_str())) {
+      LOG_DBG(tag, "Failed to delete incomplete staged upload: %s", wsUploadTempPath.c_str());
+    }
   }
   wsUploadInProgress = false;
   wsUploadClientNum = 255;
@@ -643,7 +754,8 @@ static unsigned long totalWriteTime = 0;
 static size_t writeCount = 0;
 
 static bool flushUploadBuffer(CrossPointWebServer::UploadState& state) {
-  if (state.bufferPos > 0 && state.file) {
+  if (state.bufferPos > 0) {
+    if (!state.file) return false;
     esp_task_wdt_reset();  // Reset watchdog before potentially slow SD write
     const unsigned long writeStart = millis();
     const size_t written = state.file.write(state.buffer.data(), state.bufferPos);
@@ -678,16 +790,24 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
   if (upload.status == UPLOAD_FILE_START) {
     // Reset watchdog - this is the critical 1% crash point
     esp_task_wdt_reset();
+    if (state.file) state.file.close();
 
     state.fileName = upload.filename;
     state.size = 0;
     state.success = false;
     state.error = "";
+    state.finalPath = "";
+    state.tempPath = "";
     uploadStartTime = millis();
     lastLoggedSize = 0;
     state.bufferPos = 0;
     totalWriteTime = 0;
     writeCount = 0;
+
+    if (!isAuthorizedRequest(*server)) {
+      state.error = "Pairing required";
+      return;
+    }
 
     // The client controls both halves of the destination, so validate them:
     // an unchecked "../../.crosspoint/settings.json" would overwrite device
@@ -712,28 +832,36 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     LOG_DBG("WEB", "[UPLOAD] Free heap: %d bytes", ESP.getFreeHeap());
 
     // Create file path
-    String filePath = state.path;
-    if (!filePath.endsWith("/")) filePath += "/";
-    filePath += state.fileName;
+    state.finalPath = state.path;
+    if (!state.finalPath.endsWith("/")) state.finalPath += "/";
+    state.finalPath += state.fileName;
 
-    // Check if file already exists - SD operations can be slow
-    esp_task_wdt_reset();
-    if (Storage.exists(filePath.c_str())) {
-      LOG_DBG("WEB", "[UPLOAD] Overwriting existing file: %s", filePath.c_str());
-      esp_task_wdt_reset();
-      Storage.remove(filePath.c_str());
+    if (Storage.exists(state.finalPath.c_str())) {
+      HalFile existing = Storage.open(state.finalPath.c_str());
+      if (existing && existing.isDirectory()) {
+        existing.close();
+        state.error = "Destination is a directory";
+        return;
+      }
+      if (existing) existing.close();
+    }
+
+    if (!NetworkFileTransaction::prepare(state.finalPath, ".upload-tmp", "WEB", state.tempPath)) {
+      state.error = "Failed to prepare safe upload";
+      return;
     }
 
     // Open file for writing - this can be slow due to FAT cluster allocation
     esp_task_wdt_reset();
-    if (!Storage.openFileForWrite("WEB", filePath, state.file)) {
+    if (!Storage.openFileForWrite("WEB", state.tempPath, state.file)) {
+      Storage.remove(state.tempPath.c_str());
       state.error = "Failed to create file on SD card";
-      LOG_DBG("WEB", "[UPLOAD] FAILED to create file: %s", filePath.c_str());
+      LOG_DBG("WEB", "[UPLOAD] FAILED to create staged file: %s", state.tempPath.c_str());
       return;
     }
     esp_task_wdt_reset();
 
-    LOG_DBG("WEB", "[UPLOAD] File created successfully: %s", filePath.c_str());
+    LOG_DBG("WEB", "[UPLOAD] Staged file created successfully: %s", state.tempPath.c_str());
   } else if (upload.status == UPLOAD_FILE_WRITE) {
     if (state.file && state.error.isEmpty()) {
       // Buffer incoming data and flush when buffer is full
@@ -772,14 +900,25 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
     }
   } else if (upload.status == UPLOAD_FILE_END) {
+    // Flush any remaining buffered data before closing the staging file.
+    if (state.error.isEmpty() && !flushUploadBuffer(state)) {
+      state.error = "Failed to write final data to SD card";
+    }
     if (state.file) {
-      // Flush any remaining buffered data
-      if (!flushUploadBuffer(state)) {
-        state.error = "Failed to write final data to SD card";
-      }
+      state.file.flush();
       state.file.close();
+    }
 
-      if (state.error.isEmpty()) {
+    if (state.error.isEmpty() && state.size != upload.totalSize) {
+      state.error = "Incomplete upload";
+      LOG_ERR("WEB", "[UPLOAD] size mismatch: received=%u parser=%u", static_cast<unsigned>(state.size),
+              static_cast<unsigned>(upload.totalSize));
+    }
+
+    if (state.error.isEmpty()) {
+      if (!NetworkFileTransaction::commit(state.finalPath, state.tempPath, "WEB")) {
+        state.error = "Failed to replace destination safely";
+      } else {
         state.success = true;
         const unsigned long elapsed = millis() - uploadStartTime;
         [[maybe_unused]] const float avgKbps = (elapsed > 0) ? (state.size / 1024.0) / (elapsed / 1000.0) : 0;
@@ -790,22 +929,18 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
                 writePercent);
 
         // Clear epub cache to prevent stale metadata issues when overwriting files
-        String filePath = state.path;
-        if (!filePath.endsWith("/")) filePath += "/";
-        filePath += state.fileName;
-        clearBookCache(filePath.c_str());
+        clearBookCache(state.finalPath.c_str());
       }
+    }
+    if (!state.success && !state.tempPath.isEmpty()) {
+      Storage.remove(state.tempPath.c_str());
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
     state.bufferPos = 0;  // Discard buffered data
     if (state.file) {
       state.file.close();
-      // Try to delete the incomplete file
-      String filePath = state.path;
-      if (!filePath.endsWith("/")) filePath += "/";
-      filePath += state.fileName;
-      Storage.remove(filePath.c_str());
     }
+    if (!state.tempPath.isEmpty()) Storage.remove(state.tempPath.c_str());
     state.error = "Upload aborted";
     LOG_DBG("WEB", "Upload aborted");
   }
@@ -873,7 +1008,10 @@ void CrossPointWebServer::handleRename() const {
     return;
   }
 
-  String itemPath = normalizeWebPath(server->arg("path"));
+  String itemPath;
+  if (!resolveRequestPath(server.get(), server->arg("path"), itemPath)) {
+    return;
+  }
   String newName = server->arg("name");
   newName.trim();
 
@@ -895,10 +1033,6 @@ void CrossPointWebServer::handleRename() const {
   }
 
   const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-  if (isProtectedItemName(itemName)) {
-    server->send(403, "text/plain", "Cannot rename protected item");
-    return;
-  }
   if (newName == itemName) {
     server->send(200, "text/plain", "Name unchanged");
     return;
@@ -930,6 +1064,12 @@ void CrossPointWebServer::handleRename() const {
   }
   newPath += newName;
 
+  if (isProtectedWebPath(newPath)) {
+    file.close();
+    server->send(403, "text/plain", "Cannot rename to protected location");
+    return;
+  }
+
   if (Storage.exists(newPath.c_str())) {
     file.close();
     server->send(409, "text/plain", "Target already exists");
@@ -955,8 +1095,12 @@ void CrossPointWebServer::handleMove() const {
     return;
   }
 
-  String itemPath = normalizeWebPath(server->arg("path"));
-  String destPath = normalizeWebPath(server->arg("dest"));
+  String itemPath;
+  String destPath;
+  if (!resolveRequestPath(server.get(), server->arg("path"), itemPath) ||
+      !resolveRequestPath(server.get(), server->arg("dest"), destPath)) {
+    return;
+  }
 
   if (itemPath.isEmpty() || itemPath == "/") {
     server->send(400, "text/plain", "Invalid path");
@@ -968,17 +1112,6 @@ void CrossPointWebServer::handleMove() const {
   }
 
   const String itemName = itemPath.substring(itemPath.lastIndexOf('/') + 1);
-  if (isProtectedItemName(itemName)) {
-    server->send(403, "text/plain", "Cannot move protected item");
-    return;
-  }
-  if (destPath != "/") {
-    const String destName = destPath.substring(destPath.lastIndexOf('/') + 1);
-    if (isProtectedItemName(destName)) {
-      server->send(403, "text/plain", "Cannot move into protected folder");
-      return;
-    }
-  }
 
   if (!Storage.exists(itemPath.c_str())) {
     server->send(404, "text/plain", "Item not found");
@@ -1017,6 +1150,12 @@ void CrossPointWebServer::handleMove() const {
     newPath += "/";
   }
   newPath += itemName;
+
+  if (isProtectedWebPath(newPath)) {
+    file.close();
+    server->send(403, "text/plain", "Cannot move into protected folder");
+    return;
+  }
 
   if (newPath == itemPath) {
     file.close();
@@ -1667,8 +1806,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
           // example over /.crosspoint/settings.json.
           if (!isSafeItemName(wsUploadFileName) || isProtectedItemName(wsUploadFileName) ||
               isProtectedWebPath(wsUploadPath)) {
-            LOG_ERR("WS", "START rejected: unsafe destination %s/%s", wsUploadPath.c_str(),
-                    wsUploadFileName.c_str());
+            LOG_ERR("WS", "START rejected: unsafe destination %s/%s", wsUploadPath.c_str(), wsUploadFileName.c_str());
             wsServer->sendTXT(num, "ERROR:Invalid file name");
             return;
           }
@@ -1677,19 +1815,32 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
           String filePath = wsUploadPath;
           if (!filePath.endsWith("/")) filePath += "/";
           filePath += wsUploadFileName;
+          wsUploadFinalPath = filePath;
 
           LOG_DBG("WS", "Starting upload: %s (%d bytes) to %s", wsUploadFileName.c_str(), wsUploadSize,
                   filePath.c_str());
 
-          // Check if file exists and remove it
+          if (Storage.exists(wsUploadFinalPath.c_str())) {
+            HalFile existing = Storage.open(wsUploadFinalPath.c_str());
+            if (existing && existing.isDirectory()) {
+              existing.close();
+              wsServer->sendTXT(num, "ERROR:Destination is a directory");
+              return;
+            }
+            if (existing) existing.close();
+          }
+
+          // Preserve the existing destination until every byte has arrived.
           esp_task_wdt_reset();
-          if (Storage.exists(filePath.c_str())) {
-            Storage.remove(filePath.c_str());
+          if (!NetworkFileTransaction::prepare(wsUploadFinalPath, ".ws-tmp", "WS", wsUploadTempPath)) {
+            wsServer->sendTXT(num, "ERROR:Failed to prepare safe upload");
+            return;
           }
 
           // Open file for writing
           esp_task_wdt_reset();
-          if (!Storage.openFileForWrite("WS", filePath, wsUploadFile)) {
+          if (!Storage.openFileForWrite("WS", wsUploadTempPath, wsUploadFile)) {
+            Storage.remove(wsUploadTempPath.c_str());
             wsServer->sendTXT(num, "ERROR:Failed to create file");
             wsUploadInProgress = false;
             wsUploadClientNum = 255;
@@ -1700,7 +1851,13 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
           // Zero-byte upload: complete immediately without waiting for BIN frames
           if (wsUploadSize == 0) {
             // Explicit close() required: file-scope global persists beyond function scope
+            wsUploadFile.flush();
             wsUploadFile.close();
+            if (!NetworkFileTransaction::commit(wsUploadFinalPath, wsUploadTempPath, "WS")) {
+              Storage.remove(wsUploadTempPath.c_str());
+              wsServer->sendTXT(num, "ERROR:Failed to replace destination safely");
+              break;
+            }
             wsLastCompleteName = wsUploadFileName;
             wsLastCompleteSize = 0;
             wsLastCompleteAt = millis();
@@ -1758,7 +1915,15 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
       // Check if upload complete
       if (wsUploadReceived >= wsUploadSize) {
         // Explicit close() required: file-scope global persists beyond function scope
+        wsUploadFile.flush();
         wsUploadFile.close();
+        if (!NetworkFileTransaction::commit(wsUploadFinalPath, wsUploadTempPath, "WS")) {
+          Storage.remove(wsUploadTempPath.c_str());
+          wsUploadInProgress = false;
+          wsUploadClientNum = 255;
+          wsServer->sendTXT(num, "ERROR:Failed to replace destination safely");
+          return;
+        }
         wsUploadInProgress = false;
         wsUploadClientNum = 255;
 
@@ -1773,10 +1938,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
                 elapsed, kbps);
 
         // Clear epub cache to prevent stale metadata issues when overwriting files
-        String filePath = wsUploadPath;
-        if (!filePath.endsWith("/")) filePath += "/";
-        filePath += wsUploadFileName;
-        clearBookCache(filePath.c_str());
+        clearBookCache(wsUploadFinalPath.c_str());
 
         wsServer->sendTXT(num, "DONE");
         wsLastProgressSent = 0;
@@ -1847,10 +2009,18 @@ void CrossPointWebServer::handleFontUploadData() {
       fontUpload.file = HalFile();
       fontUpload.familyName.clear();
       fontUpload.filePath.clear();
+      fontUpload.tempPath.clear();
       fontUpload.valid = false;
       fontUpload.magicChecked = false;
+      memset(fontUpload.magic, 0, sizeof(fontUpload.magic));
+      fontUpload.magicSize = 0;
       fontUpload.bytesWritten = 0;
       fontUpload.bufferPos = 0;
+
+      if (!isAuthorizedRequest(*server)) {
+        LOG_ERR("WEB", "Rejected unauthenticated font upload");
+        break;
+      }
 
       if (!FontInstaller::isValidFamilyName(family.c_str())) {
         LOG_ERR("WEB", "Invalid font family name: %s", family.c_str());
@@ -1880,9 +2050,16 @@ void CrossPointWebServer::handleFontUploadData() {
       char path[128];
       FontInstaller::buildFontPath(family.c_str(), filename.c_str(), path, sizeof(path));
       fontUpload.filePath = path;
+      String tempPath;
+      if (!NetworkFileTransaction::prepare(path, ".font-tmp", "WEB", tempPath)) {
+        LOG_ERR("WEB", "Failed to prepare safe font upload: %s", path);
+        break;
+      }
+      fontUpload.tempPath = tempPath.c_str();
 
-      if (!Storage.openFileForWrite("WEB", path, fontUpload.file)) {
-        LOG_ERR("WEB", "Failed to open font file for write: %s", path);
+      if (!Storage.openFileForWrite("WEB", fontUpload.tempPath, fontUpload.file)) {
+        Storage.remove(fontUpload.tempPath.c_str());
+        LOG_ERR("WEB", "Failed to open staged font file for write: %s", fontUpload.tempPath.c_str());
         break;
       }
 
@@ -1895,14 +2072,21 @@ void CrossPointWebServer::handleFontUploadData() {
       if (!fontUpload.valid) break;
       esp_task_wdt_reset();
 
-      // Validate magic bytes on first chunk only
-      if (!fontUpload.magicChecked && upload.currentSize >= 8) {
-        if (memcmp(upload.buf, "CPFONT\0\0", 8) != 0) {
-          LOG_ERR("WEB", "Invalid .cpfont magic bytes");
-          fontUpload.valid = false;
-          break;
+      // Multipart boundaries may split the first eight bytes across arbitrary
+      // chunks. Accumulate them instead of assuming the first chunk is large.
+      if (!fontUpload.magicChecked) {
+        const size_t needed = sizeof(fontUpload.magic) - fontUpload.magicSize;
+        const size_t take = std::min(needed, upload.currentSize);
+        memcpy(fontUpload.magic + fontUpload.magicSize, upload.buf, take);
+        fontUpload.magicSize += take;
+        if (fontUpload.magicSize == sizeof(fontUpload.magic)) {
+          fontUpload.magicChecked = true;
+          if (memcmp(fontUpload.magic, "CPFONT\0\0", sizeof(fontUpload.magic)) != 0) {
+            LOG_ERR("WEB", "Invalid .cpfont magic bytes");
+            fontUpload.valid = false;
+            break;
+          }
         }
-        fontUpload.magicChecked = true;
       }
 
       // Buffer writes for efficiency
@@ -1917,9 +2101,15 @@ void CrossPointWebServer::handleFontUploadData() {
         remaining -= chunk;
 
         if (fontUpload.bufferPos >= FontUploadState::BUFFER_SIZE) {
-          fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos);
-          fontUpload.bytesWritten += fontUpload.bufferPos;
+          const size_t expected = fontUpload.bufferPos;
+          const size_t written = fontUpload.file.write(fontUpload.buffer.data(), expected);
+          fontUpload.bytesWritten += written;
           fontUpload.bufferPos = 0;
+          if (written != expected) {
+            LOG_ERR("WEB", "Short font upload write: %zu/%zu", written, expected);
+            fontUpload.valid = false;
+            break;
+          }
           esp_task_wdt_reset();
         }
       }
@@ -1929,16 +2119,44 @@ void CrossPointWebServer::handleFontUploadData() {
     case UPLOAD_FILE_END: {
       // Flush remaining buffer
       if (fontUpload.valid && fontUpload.bufferPos > 0) {
-        fontUpload.file.write(fontUpload.buffer.data(), fontUpload.bufferPos);
-        fontUpload.bytesWritten += fontUpload.bufferPos;
+        const size_t expected = fontUpload.bufferPos;
+        const size_t written = fontUpload.file.write(fontUpload.buffer.data(), expected);
+        fontUpload.bytesWritten += written;
         fontUpload.bufferPos = 0;
+        if (written != expected) {
+          LOG_ERR("WEB", "Short final font upload write: %zu/%zu", written, expected);
+          fontUpload.valid = false;
+        }
       }
       if (fontUpload.file.isOpen()) {
+        fontUpload.file.flush();
         fontUpload.file.close();
       }
 
-      if (!fontUpload.valid && !fontUpload.filePath.empty()) {
-        Storage.remove(fontUpload.filePath.c_str());
+      if (!fontUpload.magicChecked || fontUpload.bytesWritten != upload.totalSize) {
+        LOG_ERR("WEB", "Incomplete font upload: magic=%d bytes=%zu expected=%zu", fontUpload.magicChecked,
+                fontUpload.bytesWritten, upload.totalSize);
+        fontUpload.valid = false;
+      }
+
+      // SdCardFont validates format version, style table, interval counts and
+      // on-disk interval layout. Do this before replacing an installed font.
+      if (fontUpload.valid) {
+        SdCardFont candidate;
+        if (!candidate.load(fontUpload.tempPath.c_str())) {
+          LOG_ERR("WEB", "Uploaded .cpfont failed structural validation");
+          fontUpload.valid = false;
+        }
+      }
+
+      if (fontUpload.valid &&
+          !NetworkFileTransaction::commit(fontUpload.filePath.c_str(), fontUpload.tempPath.c_str(), "WEB")) {
+        LOG_ERR("WEB", "Failed to commit font upload safely");
+        fontUpload.valid = false;
+      }
+
+      if (!fontUpload.valid && !fontUpload.tempPath.empty()) {
+        Storage.remove(fontUpload.tempPath.c_str());
       }
 
       LOG_DBG("WEB", "Font upload end: valid=%d, %zu bytes", fontUpload.valid, fontUpload.bytesWritten);
@@ -1949,8 +2167,8 @@ void CrossPointWebServer::handleFontUploadData() {
       if (fontUpload.file) {
         fontUpload.file.close();
       }
-      if (!fontUpload.filePath.empty()) {
-        Storage.remove(fontUpload.filePath.c_str());
+      if (!fontUpload.tempPath.empty()) {
+        Storage.remove(fontUpload.tempPath.c_str());
       }
       fontUpload.valid = false;
       LOG_DBG("WEB", "Font upload aborted");

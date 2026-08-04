@@ -33,12 +33,12 @@ bool PageLine::serialize(HalFile& file) {
 }
 
 std::unique_ptr<PageLine> PageLine::deserialize(HalFile& file) {
-  int16_t xPos;
-  int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
+  int16_t xPos = 0;
+  int16_t yPos = 0;
+  if (!serialization::readPod(file, xPos) || !serialization::readPod(file, yPos)) return nullptr;
 
   auto tb = TextBlock::deserialize(file);
+  if (!tb) return nullptr;
   return std::unique_ptr<PageLine>(new (std::nothrow) PageLine(std::move(tb), xPos, yPos));
 }
 
@@ -56,12 +56,12 @@ bool PageImage::serialize(HalFile& file) {
 }
 
 std::unique_ptr<PageImage> PageImage::deserialize(HalFile& file) {
-  int16_t xPos;
-  int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
+  int16_t xPos = 0;
+  int16_t yPos = 0;
+  if (!serialization::readPod(file, xPos) || !serialization::readPod(file, yPos)) return nullptr;
 
   auto ib = ImageBlock::deserialize(file);
+  if (!ib) return nullptr;
   return std::unique_ptr<PageImage>(new (std::nothrow) PageImage(std::move(ib), xPos, yPos));
 }
 
@@ -87,10 +87,9 @@ std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(HalFile& fil
   int16_t yPos = 0;
   uint16_t width = 0;
   uint8_t thickness = 0;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-  serialization::readPod(file, width);
-  serialization::readPod(file, thickness);
+  if (!serialization::readPod(file, xPos) || !serialization::readPod(file, yPos) ||
+      !serialization::readPod(file, width) || !serialization::readPod(file, thickness))
+    return nullptr;
 
   if (width == 0 || thickness == 0) {
     LOG_ERR("PGE", "Deserialization failed: invalid horizontal rule metadata (width=%u thickness=%u)", width,
@@ -145,19 +144,29 @@ bool Page::serialize(HalFile& file) const {
 
 std::unique_ptr<Page> Page::deserialize(HalFile& file) {
   auto page = std::unique_ptr<Page>(new (std::nothrow) Page());
+  if (!page) {
+    LOG_ERR("PGE", "Deserialization failed: could not allocate Page");
+    return nullptr;
+  }
 
-  uint16_t count;
-  serialization::readPod(file, count);
+  uint16_t count = 0;
+  if (!serialization::readPod(file, count) || count > MAX_ELEMENTS_PER_PAGE) {
+    LOG_ERR("PGE", "Deserialization failed: invalid element count %u", count);
+    return nullptr;
+  }
+  page->elements.reserve(count);
 
   for (uint16_t i = 0; i < count; i++) {
-    uint8_t tag;
-    serialization::readPod(file, tag);
+    uint8_t tag = 0;
+    if (!serialization::readPod(file, tag)) return nullptr;
 
     if (tag == TAG_PageLine) {
       auto pl = PageLine::deserialize(file);
+      if (!pl) return nullptr;
       page->elements.push_back(std::move(pl));
     } else if (tag == TAG_PageImage) {
       auto pi = PageImage::deserialize(file);
+      if (!pi) return nullptr;
       page->elements.push_back(std::move(pi));
     } else if (tag == TAG_PageHorizontalRule) {
       auto rule = PageHorizontalRule::deserialize(file);
@@ -172,9 +181,8 @@ std::unique_ptr<Page> Page::deserialize(HalFile& file) {
   }
 
   // Deserialize footnotes
-  uint16_t fnCount;
-  serialization::readPod(file, fnCount);
-  if (fnCount > MAX_FOOTNOTES_PER_PAGE) {
+  uint16_t fnCount = 0;
+  if (!serialization::readPod(file, fnCount) || fnCount > MAX_FOOTNOTES_PER_PAGE) {
     LOG_ERR("PGE", "Invalid footnote count %u", fnCount);
     return nullptr;
   }

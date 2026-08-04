@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <deque>
 #include <string>
 
@@ -44,7 +45,9 @@ class BookMetadataCache {
 
  private:
   std::string cachePath;
+  std::string sourcePath;
   uint32_t lutOffset;
+  uint64_t bookFileSize;
   uint16_t spineCount;
   uint16_t tocCount;
   bool loaded;
@@ -84,8 +87,15 @@ class BookMetadataCache {
  public:
   BookMetadata coreMetadata;
 
-  explicit BookMetadataCache(std::string cachePath)
-      : cachePath(std::move(cachePath)), lutOffset(0), spineCount(0), tocCount(0), loaded(false), buildMode(false) {}
+  explicit BookMetadataCache(std::string cachePath, std::string sourcePath)
+      : cachePath(std::move(cachePath)),
+        sourcePath(std::move(sourcePath)),
+        lutOffset(0),
+        bookFileSize(0),
+        spineCount(0),
+        tocCount(0),
+        loaded(false),
+        buildMode(false) {}
   ~BookMetadataCache() = default;
 
   // Building phase (stream to disk immediately)
@@ -100,8 +110,7 @@ class BookMetadataCache {
   bool cleanupTmpFiles() const;
 
   // Post-processing to update mappings and sizes
-  bool buildBookBin(const std::string& epubPath, const BookMetadata& metadata,
-                    const std::string& looseItemRoot = {});
+  bool buildBookBin(const std::string& epubPath, const BookMetadata& metadata, const std::string& looseItemRoot = {});
 
   // Reading phase (read mode)
   bool load();

@@ -20,8 +20,8 @@
 #include "BidiUtils.h"
 #include "MappedInputManager.h"
 #include "activities/network/NetworkModeSelectionActivity.h"
-#include "activities/settings/SettingsActivity.h"
 #include "activities/reader/BookReadingStats.h"
+#include "activities/settings/SettingsActivity.h"
 #include "components/UITheme.h"
 #include "components/icons/lucide_ui.h"
 #include "fontIds.h"
@@ -117,8 +117,7 @@ int homeAuthorFontId(const GfxRenderer& renderer, const char* text) {
   auto* cursor = reinterpret_cast<const unsigned char*>(text);
   while (*cursor) {
     const uint32_t cp = utf8NextCodepoint(&cursor);
-    if ((cp >= 0x0590 && cp <= 0x08FF) || (cp >= 0xFB1D && cp <= 0xFDFF) ||
-        (cp >= 0xFE70 && cp <= 0xFEFF)) {
+    if ((cp >= 0x0590 && cp <= 0x08FF) || (cp >= 0xFB1D && cp <= 0xFDFF) || (cp >= 0xFE70 && cp <= 0xFEFF)) {
       return UI_16_FONT_ID;
     }
   }
@@ -129,8 +128,7 @@ int calculateHomeCoverSlotHeight(const GfxRenderer& renderer, const int titleLin
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_14_FONT_ID);
   const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  const int authorBlockHeight =
-      hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) : 0;
+  const int authorBlockHeight = hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) : 0;
   const int detailTailHeight = HOME_COVER_TO_TITLE_GAP + titleBlockHeight + authorBlockHeight + HOME_METADATA_GAP +
                                HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_BAR_GAP + captionLineHeight +
                                HOME_TIME_TO_ACTION_GAP + HOME_CONTINUE_HEIGHT;
@@ -153,8 +151,10 @@ void HomeActivity::onEnter() {
     recentBooks.push_back(*availableBook);
   }
   applyInitialSelection();
-  if (pageIndex == 0) loadRecentBookDetails();
-  requestUpdate();
+  // Paint the interactive shell before opening/parsing the recent book or
+  // generating a cover thumbnail.  Those SD/parser operations can take
+  // seconds on a cold cache and previously made entering Home look frozen.
+  requestUpdateAndWait();
 }
 
 void HomeActivity::onExit() {
@@ -173,10 +173,11 @@ void HomeActivity::loadRecentBookDetails() {
 
   const RecentBook& book = recentBooks.front();
   const std::string displayTitle = book.title.empty() ? filenameWithoutExtension(book.path) : book.title;
-  const int titleLineCount = static_cast<int>(
-      renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(),
-                           renderer.getScreenWidth() - HOME_CONTENT_MARGIN * 2, 2, EpdFontFamily::BOLD)
-          .size());
+  const int titleLineCount =
+      static_cast<int>(renderer
+                           .wrappedText(UI_14_FONT_ID, displayTitle.c_str(),
+                                        renderer.getScreenWidth() - HOME_CONTENT_MARGIN * 2, 2, EpdFontFamily::BOLD)
+                           .size());
   const int coverTargetHeight = calculateHomeCoverSlotHeight(renderer, titleLineCount, !book.author.empty());
   const bool epubCompatible = FsHelpers::hasEpubExtension(book.path) || FsHelpers::hasFb2Extension(book.path) ||
                               FsHelpers::hasPdfExtension(book.path);
@@ -191,9 +192,9 @@ void HomeActivity::loadRecentBookDetails() {
     if (prepareHomeThumb(epub, requestedThumb, coverTargetHeight)) {
       homeCoverPath = requestedThumb;
     } else {
-      const std::array<std::string, 4> fallbackCovers = {
-          epub.getCoverBmpPath(false), epub.getThumbBmpPath(HOME_COVER_SOURCE_HEIGHT), epub.getThumbBmpPath(300),
-          epub.getThumbBmpPath(226)};
+      const std::array<std::string, 4> fallbackCovers = {epub.getCoverBmpPath(false),
+                                                         epub.getThumbBmpPath(HOME_COVER_SOURCE_HEIGHT),
+                                                         epub.getThumbBmpPath(300), epub.getThumbBmpPath(226)};
       const auto fallback = std::find_if(fallbackCovers.begin(), fallbackCovers.end(),
                                          [](const std::string& path) { return isUsableBitmap(path); });
       if (fallback != fallbackCovers.end()) homeCoverPath = *fallback;
@@ -364,6 +365,11 @@ void HomeActivity::openSelection() {
 }
 
 void HomeActivity::loop() {
+  if (pageIndex == 0 && !recentDetailsLoaded) {
+    loadRecentBookDetails();
+    requestUpdate();
+  }
+
   const auto changePage = [this](const int delta) {
     rememberedSelection[pageIndex] = selectedIndex;
     pageIndex = (pageIndex + delta + PAGE_COUNT) % PAGE_COUNT;
@@ -411,9 +417,8 @@ void HomeActivity::render(RenderLock&&) {
     const bool hasRecentBook = !recentBooks.empty();
     const RecentBook* recentBook = hasRecentBook ? &recentBooks.front() : nullptr;
     const std::string displayTitle =
-        hasRecentBook
-            ? (recentBook->title.empty() ? filenameWithoutExtension(recentBook->path) : recentBook->title)
-            : std::string(tr(STR_NO_OPEN_BOOK));
+        hasRecentBook ? (recentBook->title.empty() ? filenameWithoutExtension(recentBook->path) : recentBook->title)
+                      : std::string(tr(STR_NO_OPEN_BOOK));
     const int textWidth = pageWidth - HOME_CONTENT_MARGIN * 2;
     // One step down from the old 18 pt: the title stays the anchor of the
     // screen, but no longer competes with the header.
@@ -423,8 +428,7 @@ void HomeActivity::render(RenderLock&&) {
     const int titleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
     const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const int titleBlockHeight = std::max(1, static_cast<int>(titleLines.size())) * titleLineHeight;
-    const int coverSlotHeight =
-        calculateHomeCoverSlotHeight(renderer, static_cast<int>(titleLines.size()), hasAuthor);
+    const int coverSlotHeight = calculateHomeCoverSlotHeight(renderer, static_cast<int>(titleLines.size()), hasAuthor);
 
     bool coverDrawn = false;
     if (!recentBooks.empty() && !homeCoverPath.empty()) {
@@ -546,13 +550,12 @@ void HomeActivity::render(RenderLock&&) {
     const std::array<const char*, 3> transferLabels = {tr(STR_JOIN_NETWORK), tr(STR_CALIBRE_WIRELESS),
                                                        tr(STR_CREATE_HOTSPOT)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
-        UIIcon::Interface, UIIcon::Power,   UIIcon::Reading, UIIcon::Controls,
+        UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,
     };
     const std::array<const char*, SettingsActivity::CATEGORY_COUNT> settingsLabels = {
-        tr(STR_SETTINGS_INTERFACE), tr(STR_SETTINGS_POWER),   tr(STR_SETTINGS_READING),
-        tr(STR_SETTINGS_CONTROLS),  tr(STR_SETTINGS_LIBRARY), tr(STR_SETTINGS_NETWORK),
-        tr(STR_SETTINGS_SYSTEM),
+        tr(STR_SETTINGS_INTERFACE), tr(STR_SETTINGS_POWER),   tr(STR_SETTINGS_READING), tr(STR_SETTINGS_CONTROLS),
+        tr(STR_SETTINGS_LIBRARY),   tr(STR_SETTINGS_NETWORK), tr(STR_SETTINGS_SYSTEM),
     };
     const int contentTop = metrics.topPadding + metrics.headerHeight + 12;
     if (pageIndex == 1) {
@@ -578,9 +581,8 @@ void HomeActivity::render(RenderLock&&) {
           [&](const int index) { return transferIcons[index]; });
     } else {
       GUI.drawButtonMenu(
-          renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96},
-          SettingsActivity::CATEGORY_COUNT, selectedIndex,
-          [&](const int index) { return std::string(settingsLabels[index]); },
+          renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96}, SettingsActivity::CATEGORY_COUNT,
+          selectedIndex, [&](const int index) { return std::string(settingsLabels[index]); },
           [&](const int index) { return settingsIcons[index]; });
     }
   }

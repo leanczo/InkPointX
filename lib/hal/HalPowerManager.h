@@ -20,14 +20,20 @@ class HalPowerManager {
   mutable int _batteryCachedPercent = 0;         // Last read battery percentage (0-100)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
 
-  enum LockMode { None, NormalSpeed };
-  LockMode currentLockMode = None;
-  SemaphoreHandle_t modeMutex = nullptr;  // Protect access to currentLockMode
+  // More than one subsystem can require normal speed at once (rendering,
+  // shutdown preparation, network work). A reference count makes those locks
+  // composable; the mutex also protects isLowPower so frequency decisions are
+  // free of cross-task data races.
+  uint16_t normalSpeedLockCount = 0;
+  SemaphoreHandle_t modeMutex = nullptr;
 
  public:
   static constexpr int LOW_POWER_FREQ = 10;                    // MHz
   static constexpr unsigned long IDLE_POWER_SAVING_MS = 3000;  // ms
-  static constexpr unsigned long BATTERY_POLL_MS = 1500;       // ms
+  // The X3 fuel gauge lives on I2C. A five-second cache keeps the status bar
+  // responsive while avoiding a constant stream of gauge wakeups when the UI
+  // is otherwise idle.
+  static constexpr unsigned long BATTERY_POLL_MS = 5000;  // ms
 
   void begin();
 

@@ -26,6 +26,13 @@ class ConfirmationActivity : public Activity {
   int headingLineHeight = 0;
   int bodyLineHeight = 0;
 
+  // A confirmation is normally opened by a Confirm press. Its physical
+  // release can arrive after this activity has already become current; do not
+  // mistake that trailing edge for a second, affirmative click.
+  bool inputArmed = false;
+  bool confirmPressSeen = false;
+  bool cancelPressSeen = false;
+
  public:
   ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& heading,
                        const std::string& body);

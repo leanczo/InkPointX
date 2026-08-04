@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -14,6 +15,7 @@ class Txt {
   std::string author;
   bool loaded = false;
   size_t fileSize = 0;
+  uint64_t sourceFingerprint = 0;
   // .txt carries no encoding label, so it is detected from the file's own bytes
   // when the book is loaded. Points at one of Fb2Encoding's canonical names.
   const char* encoding = nullptr;
@@ -30,6 +32,7 @@ class Txt {
   [[nodiscard]] std::string getTitle() const;
   [[nodiscard]] const std::string& getAuthor() const { return author; }
   [[nodiscard]] size_t getFileSize() const { return fileSize; }
+  [[nodiscard]] uint64_t getSourceFingerprint() const { return sourceFingerprint; }
   // Detected encoding, as one of Fb2Encoding's canonical names.
   [[nodiscard]] const char* getEncoding() const;
   // First byte of actual text: non-zero when the file starts with a BOM.

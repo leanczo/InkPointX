@@ -35,6 +35,30 @@ jobs:
         # locally and releases had to be cut by hand.
         run: uv pip install --system -r lib/EpdFont/scripts/requirements.txt
 
+      - name: Install host-test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Run host unit tests
+        run: |
+          cmake -S test -B build/test -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/test
+          ctest --test-dir build/test --output-on-failure -j
+
+      - name: Run static analysis
+        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+
+      - name: Verify tag matches firmware version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(awk -F= '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' platformio.ini)"
+          if [ "${GITHUB_REF_NAME}" != "${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match platformio.ini version ${version}"
+            exit 1
+          fi
+
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
@@ -44,6 +68,18 @@ jobs:
 
       - name: Build universal X3/X4 firmware
         run: pio run -e gh_release
+
+      - name: Enforce production flash budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          used="$(stat -c%s .pio/build/gh_release/firmware.bin)"
+          # app0/app1 are both 0x640000 bytes in partitions.csv. Keep the CI
+          # assertion tied to the actual OTA slot instead of an obsolete
+          # historical image-size threshold.
+          limit=$((0x640000))
+          echo "Release image: ${used} bytes (limit ${limit})"
+          test "${used}" -le "${limit}"
 
       - name: Package device-labelled release assets
         shell: bash

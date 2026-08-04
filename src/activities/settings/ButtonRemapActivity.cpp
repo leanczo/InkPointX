@@ -50,20 +50,20 @@ void ButtonRemapActivity::loop() {
     // Confirmed first: on every other list screen this same rocker press just
     // scrolls, so an unconfirmed reset was one reflex away from wiping the
     // user's layout.
-    startActivityForResult(
-        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_SETTINGS), tr(STR_REMAP_RESET_HINT)),
-        [this](const ActivityResult& result) {
-          if (result.isCancelled) {
-            requestUpdate();
-            return;
-          }
-          SETTINGS.frontButtonBack = CrossPointSettings::FRONT_HW_BACK;
-          SETTINGS.frontButtonConfirm = CrossPointSettings::FRONT_HW_CONFIRM;
-          SETTINGS.frontButtonLeft = CrossPointSettings::FRONT_HW_LEFT;
-          SETTINGS.frontButtonRight = CrossPointSettings::FRONT_HW_RIGHT;
-          SETTINGS.saveToFile();
-          finish();
-        });
+    startActivityForResult(makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_SETTINGS),
+                                                                   tr(STR_REMAP_RESET_HINT)),
+                           [this](const ActivityResult& result) {
+                             if (result.isCancelled) {
+                               requestUpdate();
+                               return;
+                             }
+                             SETTINGS.frontButtonBack = CrossPointSettings::FRONT_HW_BACK;
+                             SETTINGS.frontButtonConfirm = CrossPointSettings::FRONT_HW_CONFIRM;
+                             SETTINGS.frontButtonLeft = CrossPointSettings::FRONT_HW_LEFT;
+                             SETTINGS.frontButtonRight = CrossPointSettings::FRONT_HW_RIGHT;
+                             SETTINGS.saveToFile();
+                             finish();
+                           });
     return;
   }
 
@@ -145,8 +145,7 @@ void ButtonRemapActivity::render(RenderLock&&) {
 
   const int helpTop = topOffset + 4 * metrics.listRowHeight + 4 * metrics.verticalSpacing;
   GUI.drawHelpText(renderer, Rect{0, helpTop, pageWidth, 20}, tr(STR_REMAP_RESET_HINT));
-  GUI.drawHelpText(renderer, Rect{0, helpTop + metrics.verticalSpacing + 20, pageWidth, 20},
-                   tr(STR_REMAP_CANCEL_HINT));
+  GUI.drawHelpText(renderer, Rect{0, helpTop + metrics.verticalSpacing + 20, pageWidth, 20}, tr(STR_REMAP_CANCEL_HINT));
 
   // Live preview of logical labels under front buttons.
   // This mirrors the on-device front button order: Back, Confirm, Left, Right.

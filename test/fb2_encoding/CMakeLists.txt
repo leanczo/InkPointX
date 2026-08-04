@@ -16,6 +16,7 @@ target_link_libraries(fb2_encoding_tests PRIVATE
 target_include_directories(fb2_encoding_tests BEFORE PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/mocks
   ${REPO_ROOT}/lib/Fb2
+  ${REPO_ROOT}/lib/Serialization
 )
 
 gtest_discover_tests(fb2_encoding_tests)

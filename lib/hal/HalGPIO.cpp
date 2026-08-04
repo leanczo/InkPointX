@@ -1,52 +1,27 @@
-#include <HalGPIO.h>
-
+#include <BatteryMonitor.h>
 #include <BoardConfig.h>
+#include <HalGPIO.h>
 #include <Logging.h>
 #include <Preferences.h>
 #include <SPI.h>
-#include <Wire.h>
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
 
 HalGPIO gpio;
 
-namespace X3GPIO {
-
-bool readI2CReg16LE(uint8_t addr, uint8_t reg, uint16_t* outValue) {
-  Wire.beginTransmission(addr);
-  Wire.write(reg);
-  if (Wire.endTransmission(false) != 0) {
-    return false;
-  }
-  if (Wire.requestFrom(addr, static_cast<uint8_t>(2), static_cast<uint8_t>(true)) < 2) {
-    while (Wire.available()) {
-      Wire.read();
-    }
-    return false;
-  }
-  const uint8_t lo = Wire.read();
-  const uint8_t hi = Wire.read();
-  *outValue = (static_cast<uint16_t>(hi) << 8) | lo;
-  return true;
-}
-
-bool readBQ27220CurrentMA(int16_t* outCurrent) {
-  uint16_t raw = 0;
-  if (!readI2CReg16LE(I2C_ADDR_BQ27220, BQ27220_CUR_REG, &raw)) {
-    return false;
-  }
-  *outCurrent = static_cast<int16_t>(raw);
-  return true;
-}
-
-}  // namespace X3GPIO
-
 namespace {
 constexpr char HW_NAMESPACE[] = "cphw";
 constexpr char NVS_KEY_DEV_OVERRIDE[] = "dev_ovr";  // 0=auto, 1=x4, 2=x3
-// Bumped when switching to FreeInk's canonical fingerprint. A device that was
-// incorrectly cached as X4 by the old probe is therefore detected again once.
-constexpr char NVS_KEY_DEV_CACHED[] = "dev_det2";  // 0=unknown, 1=x4, 2=x3
+// Only a positively fingerprinted X3 is persisted. An all-zero I2C probe is
+// consistent with X4, but also with a temporarily unpowered/stuck X3 bus, so it
+// is never safe to turn that absence into a permanent X4 decision. Bump the key
+// to discard X4 assumptions written by older firmware.
+constexpr char NVS_KEY_DEV_CACHED[] = "dev_det3";  // 0=unknown, 2=x3
+
+// Charging state is only presentation data on X3; polling it more frequently
+// needlessly keeps the gauge and I2C peripheral active while reading.
+constexpr unsigned long X3_POWER_POLL_MS = 5000;
+constexpr uint8_t X3_POWER_STABLE_SAMPLES = 2;
 
 enum class NvsDeviceValue : uint8_t { Unknown = 0, X4 = 1, X3 = 2 };
 
@@ -84,27 +59,23 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
   }
 
   const NvsDeviceValue cachedValue = readNvsDeviceValue(NVS_KEY_DEV_CACHED, NvsDeviceValue::Unknown);
-  if (cachedValue == NvsDeviceValue::X3 || cachedValue == NvsDeviceValue::X4) {
-    LOG_INF("HW", "Using cached device type: %s", cachedValue == NvsDeviceValue::X3 ? "X3" : "X4");
-    return nvsToDeviceType(cachedValue);
+  if (cachedValue == NvsDeviceValue::X3) {
+    LOG_INF("HW", "Using positively fingerprinted cached device type: X3");
+    return HalGPIO::DeviceType::X3;
   }
 
   uint8_t score1 = 0;
   uint8_t score2 = 0;
   const freeink::XteinkVerdict verdict = freeink::detectXteinkVerdict(&score1, &score2);
-  LOG_INF("HW", "Xteink probe scores: pass1=%u pass2=%u verdict=%u", score1, score2,
-          static_cast<unsigned>(verdict));
+  LOG_INF("HW", "Xteink probe scores: pass1=%u pass2=%u verdict=%u", score1, score2, static_cast<unsigned>(verdict));
 
   if (verdict == freeink::XteinkVerdict::X3Confirmed) {
     writeNvsDeviceValue(NVS_KEY_DEV_CACHED, NvsDeviceValue::X3);
     return HalGPIO::DeviceType::X3;
   }
-  if (verdict == freeink::XteinkVerdict::X4Confirmed) {
-    writeNvsDeviceValue(NVS_KEY_DEV_CACHED, NvsDeviceValue::X4);
-    return HalGPIO::DeviceType::X4;
-  }
-
-  LOG_ERR("HW", "Inconclusive X3/X4 probe; using safe X4 fallback without caching");
+  // X4 is the geometry-safe fallback for a dual-device image, but absence of
+  // X3 I2C responses is not positive proof of X4. Never cache this decision.
+  LOG_INF("HW", "No positive X3 fingerprint; using X4 fallback for this boot only");
   return HalGPIO::DeviceType::X4;
 }
 
@@ -132,23 +103,146 @@ void HalGPIO::begin() {
   if (deviceIsX4()) {
     pinMode(BAT_GPIO0, INPUT);
     pinMode(UART0_RXD, INPUT);
+    const bool connected = BoardConfig::ACTIVE.usbDetect >= 0 && digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
+    lastUsbConnected.store(connected, std::memory_order_relaxed);
   }
   inputMgr.begin();
 }
 
 void HalGPIO::update() {
   inputMgr.update();
-  const bool connected = isUsbConnected();
-  usbStateChanged = (connected != lastUsbConnected);
-  lastUsbConnected = connected;
+
+  uint8_t pressed = 0;
+  uint8_t released = 0;
+  for (uint8_t button = BTN_BACK; button <= BTN_POWER; ++button) {
+    const uint8_t mask = static_cast<uint8_t>(1U << button);
+    if (inputMgr.wasPressed(button)) pressed |= mask;
+    if (inputMgr.wasReleased(button)) released |= mask;
+  }
+  enqueueInputEdges(pressed, released);
+  updatePowerState();
 }
 
-bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged; }
+HalGPIO::InputEvent* HalGPIO::newestPendingPress(const uint8_t buttonMask) {
+  // A release normally arrives while its corresponding press is still waiting
+  // behind an e-ink refresh. Fold the pair into one logical click so draining a
+  // backlog does not spend a second Activity tick on a no-op release frame.
+  for (uint8_t offset = 0; offset < inputEventCount; ++offset) {
+    const uint8_t reverse = static_cast<uint8_t>(inputEventCount - 1U - offset);
+    const uint8_t index = static_cast<uint8_t>((inputEventHead + reverse) % INPUT_EVENT_QUEUE_SIZE);
+    InputEvent& event = inputEvents[index];
+    if ((event.pressed & buttonMask) != 0 && (event.released & buttonMask) == 0) return &event;
+  }
+  return nullptr;
+}
+
+void HalGPIO::enqueueInputEdges(const uint8_t pressed, const uint8_t released) {
+  if (pressed == 0 && released == 0) return;
+
+  uint8_t unmatchedReleases = released;
+  for (uint8_t button = BTN_BACK; button <= BTN_POWER; ++button) {
+    const uint8_t mask = static_cast<uint8_t>(1U << button);
+    if ((unmatchedReleases & mask) == 0) continue;
+    if (InputEvent* event = newestPendingPress(mask)) {
+      event->released |= mask;
+      unmatchedReleases &= static_cast<uint8_t>(~mask);
+    }
+  }
+
+  if (pressed == 0 && unmatchedReleases == 0) return;
+  if (inputEventCount >= INPUT_EVENT_QUEUE_SIZE) {
+    if (!inputQueueOverflowLogged) {
+      inputQueueOverflowLogged = true;
+      LOG_ERR("INPUT", "Input queue full; dropping edge pressed=0x%02x released=0x%02x", pressed,
+              unmatchedReleases);
+    }
+    return;
+  }
+
+  const uint8_t tail = static_cast<uint8_t>((inputEventHead + inputEventCount) % INPUT_EVENT_QUEUE_SIZE);
+  inputEvents[tail] = {pressed, unmatchedReleases};
+  ++inputEventCount;
+}
+
+void HalGPIO::consumeInputEvent() {
+  if (inputEventCount == 0) return;
+  inputEvents[inputEventHead] = {};
+  inputEventHead = static_cast<uint8_t>((inputEventHead + 1U) % INPUT_EVENT_QUEUE_SIZE);
+  --inputEventCount;
+  if (inputEventCount == 0) inputQueueOverflowLogged = false;
+}
+
+void HalGPIO::clearInputEvents() {
+  while (inputEventCount != 0) consumeInputEvent();
+  inputEventHead = 0;
+  inputQueueOverflowLogged = false;
+}
+
+bool HalGPIO::pendingInputIsNavigationOnly() const {
+  if (inputEventCount == 0) return false;
+  constexpr uint8_t navigationMask = (1U << BTN_LEFT) | (1U << BTN_RIGHT) | (1U << BTN_UP) | (1U << BTN_DOWN);
+  const InputEvent& event = inputEvents[inputEventHead];
+  const uint8_t edges = event.pressed | event.released;
+  return edges != 0 && (edges & static_cast<uint8_t>(~navigationMask)) == 0;
+}
+
+#if LOG_LEVEL >= 2
+void HalGPIO::enqueueSyntheticClick(const uint8_t buttonIndex) {
+  if (buttonIndex > BTN_POWER) return;
+  const uint8_t mask = static_cast<uint8_t>(1U << buttonIndex);
+  enqueueInputEdges(mask, mask);
+}
+#endif
+
+void HalGPIO::updatePowerState() {
+  usbStateChanged.store(false, std::memory_order_relaxed);
+
+  if (deviceIsX4()) {
+    if (BoardConfig::ACTIVE.usbDetect < 0) return;
+    const bool connected = digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
+    const bool previous = lastUsbConnected.exchange(connected, std::memory_order_relaxed);
+    usbStateChanged.store(connected != previous, std::memory_order_relaxed);
+    return;
+  }
+
+  const unsigned long now = millis();
+  if (x3PowerLastPollMs != 0 && (now - x3PowerLastPollMs) < X3_POWER_POLL_MS) return;
+  x3PowerLastPollMs = now;
+
+  // The X3 exposes no dedicated charger/VBUS-present pin. Current flowing into
+  // the cell is useful for the icon only; it is explicitly not a cable-presence
+  // signal (a full battery can report zero while still plugged in).
+  static const BatteryMonitor battery;
+  bool charging = false;
+  if (!battery.readChargingChecked(charging)) {
+    x3PowerCandidateSamples = 0;
+    return;  // transient I2C failure: retain the last known indication
+  }
+
+  if (!x3PowerSampleInitialized || charging != x3PowerCandidate) {
+    x3PowerSampleInitialized = true;
+    x3PowerCandidate = charging;
+    x3PowerCandidateSamples = 1;
+    return;
+  }
+
+  if (x3PowerCandidateSamples < X3_POWER_STABLE_SAMPLES) ++x3PowerCandidateSamples;
+  if (x3PowerCandidateSamples < X3_POWER_STABLE_SAMPLES) return;
+
+  const bool previous = lastUsbConnected.exchange(x3PowerCandidate, std::memory_order_relaxed);
+  usbStateChanged.store(previous != x3PowerCandidate, std::memory_order_relaxed);
+}
+
+bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged.load(std::memory_order_relaxed); }
 bool HalGPIO::isPressed(uint8_t buttonIndex) const { return inputMgr.isPressed(buttonIndex); }
-bool HalGPIO::wasPressed(uint8_t buttonIndex) const { return inputMgr.wasPressed(buttonIndex); }
-bool HalGPIO::wasAnyPressed() const { return inputMgr.wasAnyPressed(); }
-bool HalGPIO::wasReleased(uint8_t buttonIndex) const { return inputMgr.wasReleased(buttonIndex); }
-bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
+bool HalGPIO::wasPressed(const uint8_t buttonIndex) const {
+  return inputEventCount != 0 && (inputEvents[inputEventHead].pressed & (1U << buttonIndex)) != 0;
+}
+bool HalGPIO::wasAnyPressed() const { return inputEventCount != 0 && inputEvents[inputEventHead].pressed != 0; }
+bool HalGPIO::wasReleased(const uint8_t buttonIndex) const {
+  return inputEventCount != 0 && (inputEvents[inputEventHead].released & (1U << buttonIndex)) != 0;
+}
+bool HalGPIO::wasAnyReleased() const { return inputEventCount != 0 && inputEvents[inputEventHead].released != 0; }
 unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
 unsigned long HalGPIO::getPowerButtonHeldTime() const { return inputMgr.getPowerButtonHeldTime(); }
 
@@ -182,27 +276,15 @@ bool HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
   return inputMgr.getPowerButtonHeldTime() >= calibratedDuration;
 }
 
-bool HalGPIO::isUsbConnected() const {
-  if (deviceIsX3()) {
-    for (uint8_t attempt = 0; attempt < 2; ++attempt) {
-      int16_t currentMa = 0;
-      if (X3GPIO::readBQ27220CurrentMA(&currentMa)) {
-        return currentMa > 0;
-      }
-      delay(2);
-    }
-    return false;
-  }
-  if (BoardConfig::ACTIVE.usbDetect < 0) {
-    return false;
-  }
-  return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
-}
+bool HalGPIO::isUsbConnected() const { return lastUsbConnected.load(std::memory_order_relaxed); }
 
 HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   const auto wakeupCause = esp_sleep_get_wakeup_cause();
   const auto resetReason = esp_reset_reason();
-  const bool usbConnected = isUsbConnected();
+  // Only X4 has a hardware USB-present signal. On X3 the cached value denotes
+  // active cell charging and must never decide whether a cold boot or flash was
+  // caused by USB power.
+  const bool usbConnected = deviceIsX4() && isUsbConnected();
 
   if (resetReason == ESP_RST_DEEPSLEEP &&
       (wakeupCause == ESP_SLEEP_WAKEUP_GPIO || wakeupCause == ESP_SLEEP_WAKEUP_EXT1)) {
@@ -211,7 +293,7 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && !usbConnected) {
     return WakeupReason::PowerButton;
   }
-  if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_UNKNOWN && usbConnected) {
+  if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_UNKNOWN) {
     return WakeupReason::AfterFlash;
   }
   if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && usbConnected) {

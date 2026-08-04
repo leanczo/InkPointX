@@ -5,10 +5,10 @@
 
 #include <optional>
 
-#include "BookmarkEntry.h"
 #include "BookReadingStats.h"
-#include "GlobalReadingStats.h"
+#include "BookmarkEntry.h"
 #include "EpubReaderMenuActivity.h"
+#include "GlobalReadingStats.h"
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
 
@@ -61,6 +61,12 @@ class EpubReaderActivity final : public Activity {
   // Set when the reader is left at end-of-book and SETTINGS.moveFinishedToReadFolder is on.
   // Consumed in onExit() to relocate the finished book into /Read/.
   bool pendingReadFolderMove = false;
+  // A corrupt section page gets one automatic rebuild. Persistent parser/SD
+  // failures must stop with an error instead of scheduling an endless render →
+  // delete → rebuild loop that drains the battery and wears the card.
+  int cacheRecoverySpine = -1;
+  int cacheRecoveryPage = -1;
+  uint8_t cacheRecoveryAttempts = 0;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;

@@ -5,6 +5,22 @@
 #define MAX_ENTRY_LEN 256
 #define MAX_LOG_LINES 16
 
+MySerialImpl MySerialImpl::instance;
+
+size_t MySerialImpl::printf(const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+  const size_t written = logSerial.vprintf(format, args);
+  va_end(args);
+  return written;
+}
+
+size_t MySerialImpl::write(uint8_t b) { return logSerial.write(b); }
+
+size_t MySerialImpl::write(const uint8_t* buffer, size_t size) { return logSerial.write(buffer, size); }
+
+void MySerialImpl::flush() { logSerial.flush(); }
+
 // Simple ring buffer log, useful for error reporting when we encounter a crash
 RTC_NOINIT_ATTR char logMessages[MAX_LOG_LINES][MAX_ENTRY_LEN];
 RTC_NOINIT_ATTR size_t logHead = 0;

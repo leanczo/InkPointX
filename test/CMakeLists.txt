@@ -46,3 +46,8 @@ add_subdirectory(utf8_compose)
 add_subdirectory(fb2_encoding)
 add_subdirectory(arabic_text)
 add_subdirectory(eink_refresh_policy)
+add_subdirectory(stardict)
+# Compile the native PDF adapter in the regular host test build. The harness
+# takes a corpus file at runtime, so it is a build/ABI gate rather than a
+# zero-argument CTest case.
+add_subdirectory(pdf_native)

@@ -76,30 +76,32 @@ bool WifiCredentialStore::loadFromBinaryFile() {
     return false;
   }
 
-  uint8_t version;
-  serialization::readPod(file, version);
-  if (version > WIFI_FILE_VERSION) {
+  uint8_t version = 0;
+  if (!serialization::readPod(file, version) || version == 0 || version > WIFI_FILE_VERSION) {
     LOG_DBG("WCS", "Unknown file version: %u", version);
     return false;
   }
 
   if (version >= 2) {
-    serialization::readString(file, lastConnectedSsid);
+    if (!serialization::readString(file, lastConnectedSsid)) return false;
   } else {
     lastConnectedSsid.clear();
   }
 
-  uint8_t count;
-  serialization::readPod(file, count);
+  uint8_t count = 0;
+  if (!serialization::readPod(file, count) || count > MAX_NETWORKS) return false;
 
-  credentials.clear();
-  for (uint8_t i = 0; i < count && i < MAX_NETWORKS; i++) {
+  std::vector<WifiCredential> loadedCredentials;
+  loadedCredentials.reserve(count);
+  for (uint8_t i = 0; i < count; i++) {
     WifiCredential cred;
-    serialization::readString(file, cred.ssid);
-    serialization::readString(file, cred.password);
+    if (!serialization::readString(file, cred.ssid) || !serialization::readString(file, cred.password)) return false;
+    if (cred.ssid.empty()) return false;
     legacyDeobfuscate(cred.password);
-    credentials.push_back(cred);
+    loadedCredentials.push_back(std::move(cred));
   }
+
+  credentials = std::move(loadedCredentials);
 
   // LOG_DBG("WCS", "Loaded %zu WiFi credentials from binary file", credentials.size());
   return true;

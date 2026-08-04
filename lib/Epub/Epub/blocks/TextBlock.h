@@ -2,6 +2,7 @@
 #include <EpdFontFamily.h>
 #include <HalStorage.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -44,6 +45,11 @@ class TextBlock final : public Block {
   const std::vector<std::string>& getWords() const { return words; }
   bool isEmpty() override { return words.empty(); }
   size_t wordCount() const { return words.size(); }
+  template <typename Fn>
+  void forEachWord(Fn&& fn) const {
+    const size_t count = std::min(words.size(), std::min(wordXpos.size(), wordStyles.size()));
+    for (size_t i = 0; i < count; ++i) fn(i, words[i], wordXpos[i], wordStyles[i]);
+  }
   // given a renderer works out where to break the words into lines
   void render(const GfxRenderer& renderer, int fontId, int x, int y) const;
   BlockType getType() override { return TEXT_BLOCK; }

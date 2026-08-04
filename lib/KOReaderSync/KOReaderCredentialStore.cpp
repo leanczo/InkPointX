@@ -41,6 +41,7 @@ bool KOReaderCredentialStore::saveToFile() const {
 
 bool KOReaderCredentialStore::loadFromFile() {
   // Try JSON first
+  Storage.recoverInterruptedWrite(KOREADER_FILE_JSON);
   if (Storage.exists(KOREADER_FILE_JSON)) {
     String json = Storage.readFile(KOREADER_FILE_JSON);
     if (!json.isEmpty()) {
@@ -78,39 +79,29 @@ bool KOReaderCredentialStore::loadFromBinaryFile() {
     return false;
   }
 
-  uint8_t version;
-  serialization::readPod(file, version);
-  if (version != KOREADER_FILE_VERSION) {
+  uint8_t version = 0;
+  if (!serialization::readPod(file, version) || version != KOREADER_FILE_VERSION) {
     LOG_DBG("KRS", "Unknown file version: %u", version);
     return false;
   }
 
-  if (file.available()) {
-    serialization::readString(file, username);
-  } else {
-    username.clear();
+  std::string stagedUsername;
+  std::string stagedPassword;
+  std::string stagedServerUrl;
+  uint8_t method = static_cast<uint8_t>(DocumentMatchMethod::FILENAME);
+  if ((file.available() && !serialization::readString(file, stagedUsername)) ||
+      (file.available() && !serialization::readString(file, stagedPassword)) ||
+      (file.available() && !serialization::readString(file, stagedServerUrl)) ||
+      (file.available() && !serialization::readPod(file, method)) ||
+      method > static_cast<uint8_t>(DocumentMatchMethod::BINARY)) {
+    LOG_ERR("KRS", "Truncated or invalid legacy credentials");
+    return false;
   }
-
-  if (file.available()) {
-    serialization::readString(file, password);
-    legacyDeobfuscate(password);
-  } else {
-    password.clear();
-  }
-
-  if (file.available()) {
-    serialization::readString(file, serverUrl);
-  } else {
-    serverUrl.clear();
-  }
-
-  if (file.available()) {
-    uint8_t method;
-    serialization::readPod(file, method);
-    matchMethod = static_cast<DocumentMatchMethod>(method);
-  } else {
-    matchMethod = DocumentMatchMethod::FILENAME;
-  }
+  legacyDeobfuscate(stagedPassword);
+  username = std::move(stagedUsername);
+  password = std::move(stagedPassword);
+  serverUrl = std::move(stagedServerUrl);
+  matchMethod = static_cast<DocumentMatchMethod>(method);
 
   LOG_DBG("KRS", "Loaded KOReader credentials from binary for user: %s", username.c_str());
   return true;

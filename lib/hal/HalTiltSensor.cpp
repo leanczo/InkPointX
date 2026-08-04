@@ -18,7 +18,9 @@ void HalTiltSensor::begin() {
   if (_available) {
     _initMs = millis();
     _lastPollMs = millis();
-    if (!_sdkImu.sleep()) {
+    const bool sleeping = _sdkImu.sleep();
+    _isAwake = !sleeping;
+    if (!sleeping) {
       LOG_ERR("GYR", "IMU standby failed");
     }
     LOG_INF("GYR", "SDK IMU initialized");
@@ -65,17 +67,22 @@ void HalTiltSensor::update(const uint8_t mode, const uint8_t orientation, const 
     return;
   }
 
-  // State machine: wake up or sleep based on the enabled flag
-  if ((mode != CrossPointTiltPageTurn::TILT_OFF) && !_isAwake) {
+  // The gesture is meaningful only in a reader. Keeping the QMI8658 awake in
+  // menus used power and generated needless I2C traffic merely because the
+  // preference was enabled. Treat reader membership as part of the desired
+  // power state, and put the sensor back into standby as soon as either input
+  // disables it.
+  const bool shouldBeAwake = mode != CrossPointTiltPageTurn::TILT_OFF && inReader;
+  if (shouldBeAwake && !_isAwake) {
     _isAwake = wake();
     return;
-  } else if ((mode == CrossPointTiltPageTurn::TILT_OFF) && _isAwake) {
+  } else if (!shouldBeAwake && _isAwake) {
     _isAwake = !deepSleep();
     return;
   }
 
-  // If disabled, skip the rest of the polling logic and avoid unnecessary I2C traffic in non-reader activities
-  if ((mode == CrossPointTiltPageTurn::TILT_OFF) || !inReader) {
+  if (!shouldBeAwake) {
+    clearPendingEvents();
     return;
   }
 

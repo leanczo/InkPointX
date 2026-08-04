@@ -46,12 +46,9 @@ struct Matrix {
 };
 
 Matrix multiply(const Matrix& left, const Matrix& right) {
-  return {left.a * right.a + left.c * right.b,
-          left.b * right.a + left.d * right.b,
-          left.a * right.c + left.c * right.d,
-          left.b * right.c + left.d * right.d,
-          left.a * right.e + left.c * right.f + left.e,
-          left.b * right.e + left.d * right.f + left.f};
+  return {left.a * right.a + left.c * right.b,          left.b * right.a + left.d * right.b,
+          left.a * right.c + left.c * right.d,          left.b * right.c + left.d * right.d,
+          left.a * right.e + left.c * right.f + left.e, left.b * right.e + left.d * right.f + left.f};
 }
 
 Matrix translation(const double x, const double y) { return {1, 0, 0, 1, x, y}; }
@@ -133,6 +130,7 @@ class Path {
   size_t pointCount = 0;
   std::array<Contour, 32> contours{};
   size_t contourCount = 0;
+  bool* limitExceeded = nullptr;
 
   struct ContourRange {
     const Contour* data = nullptr;
@@ -147,30 +145,35 @@ class Path {
   }
 
  public:
-  Path(Point* points, const size_t pointCapacity) : points(points), pointCapacity(pointCapacity) {}
+  Path(Point* points, const size_t pointCapacity, bool* limitExceeded = nullptr)
+      : points(points), pointCapacity(pointCapacity), limitExceeded(limitExceeded) {}
   void clear() {
     pointCount = 0;
     contourCount = 0;
   }
   bool empty() const { return pointCount < 2; }
   ContourRange getContours() const { return {contours.data(), contourCount}; }
-  Point current() const {
-    return pointCount ? points[pointCount - 1] : Point{};
-  }
+  Point current() const { return pointCount ? points[pointCount - 1] : Point{}; }
   void moveTo(const Point point) {
-    if (!points || pointCount >= pointCapacity || contourCount >= contours.size()) return;
+    if (!points || pointCount >= pointCapacity || contourCount >= contours.size()) {
+      if (limitExceeded) *limitExceeded = true;
+      return;
+    }
     points[pointCount] = point;
     contours[contourCount++] = {points + pointCount, 1, false};
     ++pointCount;
   }
   void lineTo(const Point point) {
     if (contourCount == 0) return moveTo(point);
-    if (!points || pointCount >= pointCapacity) return;
+    if (!points || pointCount >= pointCapacity) {
+      if (limitExceeded) *limitExceeded = true;
+      return;
+    }
     points[pointCount++] = point;
     ++contours[contourCount - 1].count;
   }
   void quadraticTo(const Point control, const Point end) {
-    if (contours.empty()) return moveTo(end);
+    if (contourCount == 0) return moveTo(end);
     const Point start = current();
     const int steps = curveSteps(start, control, end);
     for (int index = 1; index <= steps; ++index) {
@@ -181,7 +184,7 @@ class Path {
     }
   }
   void cubicTo(const Point c1, const Point c2, const Point end) {
-    if (contours.empty()) return moveTo(end);
+    if (contourCount == 0) return moveTo(end);
     const Point start = current();
     const double length = std::hypot(c1.x - start.x, c1.y - start.y) + std::hypot(c2.x - c1.x, c2.y - c1.y) +
                           std::hypot(end.x - c2.x, end.y - c2.y);
@@ -414,13 +417,15 @@ class TrueTypeFace {
   bool appendGlyphInternal(const uint16_t glyph, const Matrix& transform, Path& path, const int depth) const {
     if (depth > MAX_GLYPH_DEPTH || glyph >= numGlyphs) return false;
     const uint32_t begin = glyphOffset(glyph);
-    const uint32_t end = glyph == numGlyphs - 1
-                             ? (locaFormat ? be32(data, loca.offset + static_cast<size_t>(numGlyphs) * 4)
-                                           : static_cast<uint32_t>(be16(data, loca.offset + static_cast<size_t>(numGlyphs) * 2)) * 2)
-                             : glyphOffset(glyph + 1);
+    const uint32_t end =
+        glyph == numGlyphs - 1
+            ? (locaFormat ? be32(data, loca.offset + static_cast<size_t>(numGlyphs) * 4)
+                          : static_cast<uint32_t>(be16(data, loca.offset + static_cast<size_t>(numGlyphs) * 2)) * 2)
+            : glyphOffset(glyph + 1);
     if (begin == end) return true;
     const size_t offset = static_cast<size_t>(glyf.offset) + begin;
-    if (end < begin || offset + 10 > data.size() || static_cast<uint64_t>(glyf.offset) + end > data.size()) return false;
+    if (end < begin || offset + 10 > data.size() || static_cast<uint64_t>(glyf.offset) + end > data.size())
+      return false;
     const int16_t contourCount = beS16(data, offset);
     if (contourCount >= 0) return appendSimpleGlyph(offset, contourCount, transform, path);
 
@@ -515,7 +520,8 @@ pdfio_obj_t* embeddedTrueTypeObject(pdfio_obj_t* fontObject) {
   pdfio_obj_t* descriptorObject = pdfioDictGetObj(font, "FontDescriptor");
   if (!descriptorObject) {
     pdfio_array_t* descendants = pdfioDictGetArray(font, "DescendantFonts");
-    pdfio_obj_t* descendant = descendants && pdfioArrayGetSize(descendants) > 0 ? pdfioArrayGetObj(descendants, 0) : nullptr;
+    pdfio_obj_t* descendant =
+        descendants && pdfioArrayGetSize(descendants) > 0 ? pdfioArrayGetObj(descendants, 0) : nullptr;
     pdfio_dict_t* descendantDict = descendant ? pdfioObjGetDict(descendant) : nullptr;
     descriptorObject = descendantDict ? pdfioDictGetObj(descendantDict, "FontDescriptor") : nullptr;
   }
@@ -602,6 +608,12 @@ class ContentRenderer {
   const std::string& fontScratchPath;
   TrueTypeFace* activeFace = nullptr;
   bool paintGraphics = true;
+  bool pathLimitExceeded = false;
+  const char* failureReason = nullptr;
+
+  void fail(const char* reason) {
+    if (!failureReason) failureReason = reason;
+  }
 
   struct PendingForm {
     pdfio_obj_t* object = nullptr;
@@ -716,6 +728,8 @@ class ContentRenderer {
           const double x = p1.x + (scanY - p1.y) * (p2.x - p1.x) / (p2.y - p1.y);
           if (intersectionCount < intersections.size())
             intersections[intersectionCount++] = {x, p2.y > p1.y ? 1 : -1};
+          else
+            fail("too many path intersections");
         }
       }
       std::sort(intersections.begin(), intersections.begin() + intersectionCount,
@@ -749,9 +763,13 @@ class ContentRenderer {
     const double scale = state.fontSize / face.unitsPerEm;
     Matrix glyphMatrix{scale * state.horizontalScale, 0, 0, scale, 0, state.textRise};
     glyphMatrix = multiply(state.ctm, multiply(state.textMatrix, glyphMatrix));
-    Path outline(pathPoints, pathCapacity);
-    if (face.appendGlyph(glyph, glyphMatrix, outline)) fillPath(outline, false, state.fillBlack);
-    const double advance = static_cast<double>(face.advance(glyph)) / face.unitsPerEm * state.fontSize + state.charSpacing;
+    Path outline(pathPoints, pathCapacity, &pathLimitExceeded);
+    if (face.appendGlyph(glyph, glyphMatrix, outline))
+      fillPath(outline, false, state.fillBlack);
+    else
+      fail("unsupported or over-complex embedded glyph");
+    const double advance =
+        static_cast<double>(face.advance(glyph)) / face.unitsPerEm * state.fontSize + state.charSpacing;
     state.textMatrix = multiply(state.textMatrix, translation(advance * state.horizontalScale, 0));
   }
 
@@ -815,7 +833,10 @@ class ContentRenderer {
                       GraphicsStateStack& stack, Path& path, pdfio_dict_t* resources, const int depth) {
     const size_t n = args.size();
     if (op == "q") {
-      if (stack.size() < MAX_GRAPHICS_STATE_DEPTH) stack.push_back(state);
+      if (stack.size() < MAX_GRAPHICS_STATE_DEPTH)
+        stack.push_back(state);
+      else
+        fail("graphics-state nesting is too deep");
     } else if (op == "Q") {
       if (!stack.empty()) {
         state = stack.back();
@@ -876,19 +897,27 @@ class ContentRenderer {
       path.clear();
     } else if ((op == "g" || op == "G") && n >= 1) {
       const bool black = operandNumber(args, n - 1) < 0.65;
-      if (op == "g") state.fillBlack = black;
-      else state.strokeBlack = black;
+      if (op == "g")
+        state.fillBlack = black;
+      else
+        state.strokeBlack = black;
     } else if ((op == "rg" || op == "RG") && n >= 3) {
-      const double luminance = 0.299 * operandNumber(args, n - 3) + 0.587 * operandNumber(args, n - 2) +
-                               0.114 * operandNumber(args, n - 1);
-      if (op == "rg") state.fillBlack = luminance < 0.65;
-      else state.strokeBlack = luminance < 0.65;
+      const double luminance =
+          0.299 * operandNumber(args, n - 3) + 0.587 * operandNumber(args, n - 2) + 0.114 * operandNumber(args, n - 1);
+      if (op == "rg")
+        state.fillBlack = luminance < 0.65;
+      else
+        state.strokeBlack = luminance < 0.65;
     } else if (op == "scn" || op == "SCN") {
       bool black = true;
-      if (n == 1) black = operandNumber(args, 0) < 0.65;
-      else if (n >= 3) black = (operandNumber(args, n - 3) + operandNumber(args, n - 2) + operandNumber(args, n - 1)) / 3 < 0.65;
-      if (op == "scn") state.fillBlack = black;
-      else state.strokeBlack = black;
+      if (n == 1)
+        black = operandNumber(args, 0) < 0.65;
+      else if (n >= 3)
+        black = (operandNumber(args, n - 3) + operandNumber(args, n - 2) + operandNumber(args, n - 1)) / 3 < 0.65;
+      if (op == "scn")
+        state.fillBlack = black;
+      else
+        state.strokeBlack = black;
     } else if (op == "BT") {
       state.textMatrix = {};
       state.lineMatrix = {};
@@ -931,10 +960,14 @@ class ContentRenderer {
                                         translation(-adjustment / 1000.0 * state.fontSize * state.horizontalScale, 0));
         }
       }
-    } else if (paintGraphics && op == "Do" && n >= 1 && depth < MAX_FORM_DEPTH) {
+    } else if (paintGraphics && op == "Do" && n >= 1) {
       pdfio_obj_t* xobject = resourceObject(resources, "XObject", operandName(args, n - 1));
       const char* subtype = xobject ? pdfioObjGetSubtype(xobject) : nullptr;
       if (subtype && strcmp(subtype, "Form") == 0) {
+        if (depth >= MAX_FORM_DEPTH) {
+          fail("Form XObject nesting is too deep");
+          return;
+        }
         GraphicsState child = state;
         pdfio_dict_t* objectDict = pdfioObjGetDict(xobject);
         if (pdfio_array_t* matrix = objectDict ? pdfioDictGetArray(objectDict, "Matrix") : nullptr;
@@ -947,6 +980,13 @@ class ContentRenderer {
         pdfio_dict_t* childResources = objectDict ? resolveDict(objectDict, "Resources") : nullptr;
         if (pendingFormCount < pendingForms.size())
           pendingForms[pendingFormCount++] = {xobject, child, childResources ? childResources : resources, depth + 1};
+        else
+          fail("too many Form XObjects");
+      } else if (subtype && strcmp(subtype, "Image") == 0) {
+        // Fixed-layout raster pages must preserve image placement. The compact
+        // vector renderer does not decode image XObjects, so reject this path
+        // explicitly instead of caching a page with silently missing artwork.
+        fail("fixed-layout image XObject is not supported by the vector rasterizer");
       }
     }
   }
@@ -960,7 +1000,10 @@ class ContentRenderer {
     char token[PDF_TOKEN_SIZE];
     while (pdfioStreamGetToken(stream, token, sizeof(token))) {
       if (isOperandToken(token)) {
-        if (operands.size() < 128) operands.emplace_back(token);
+        if (operands.size() < 128)
+          operands.emplace_back(token);
+        else
+          fail("too many PDF operator operands");
         continue;
       }
       handleOperator(token, operands, state, stack, path, resources, depth);
@@ -973,7 +1016,7 @@ class ContentRenderer {
   void renderPagePass(pdfio_obj_t* page, GraphicsState state, pdfio_dict_t* resources, TrueTypeFace* face,
                       const bool graphics) {
     GraphicsStateStack stack;
-    Path path(pathPoints, pathCapacity);
+    Path path(pathPoints, pathCapacity, &pathLimitExceeded);
     const size_t count = pdfioPageGetNumStreams(page);
     for (size_t index = 0; index < count; ++index) {
       pdfio_stream_t* stream = pdfioPageOpenStream(page, index, true);
@@ -1000,7 +1043,7 @@ class ContentRenderer {
     if (!stream) return;
     GraphicsState state = form.state;
     GraphicsStateStack stack;
-    Path path(pathPoints, pathCapacity);
+    Path path(pathPoints, pathCapacity, &pathLimitExceeded);
     renderStream(stream, state, stack, path, form.resources, form.depth, face, graphics);
     pdfioStreamClose(stream);
   }
@@ -1039,6 +1082,11 @@ class ContentRenderer {
       const PendingForm form = pendingForms[index];
       renderForm(form);
     }
+  }
+
+  bool succeeded() const { return !pathLimitExceeded && failureReason == nullptr; }
+  const char* getFailureReason() const {
+    return failureReason ? failureReason : (pathLimitExceeded ? "path point/contour capacity exceeded" : "");
   }
 };
 
@@ -1146,9 +1194,9 @@ bool streamNeedsRasterization(pdfio_stream_t* stream, pdfio_dict_t* resources) {
       if (operands.size() < 128) operands.emplace_back(token);
       continue;
     }
-    const bool paintsPath = !strcmp(token, "S") || !strcmp(token, "s") || !strcmp(token, "f") ||
-                            !strcmp(token, "F") || !strcmp(token, "f*") || !strcmp(token, "B") ||
-                            !strcmp(token, "B*") || !strcmp(token, "b") || !strcmp(token, "b*");
+    const bool paintsPath = !strcmp(token, "S") || !strcmp(token, "s") || !strcmp(token, "f") || !strcmp(token, "F") ||
+                            !strcmp(token, "f*") || !strcmp(token, "B") || !strcmp(token, "B*") ||
+                            !strcmp(token, "b") || !strcmp(token, "b*");
     if (paintsPath) return true;
     if (!strcmp(token, "Do") && !operands.empty()) {
       pdfio_obj_t* object = resourceObject(resources, "XObject", operandName(operands, operands.size() - 1));
@@ -1226,6 +1274,11 @@ bool PdfRasterizer::renderPage(pdfio_obj_t* page, const std::string& outputPath,
   ContentRenderer renderer(buffer, width, height, pageMatrix, pathPoints, pathCapacity, fontScratchPath);
   renderer.render(page);
   Storage.remove(fontScratchPath.c_str());
+  if (!renderer.succeeded()) {
+    Storage.remove(outputPath.c_str());
+    error = std::string("PDF page is outside the device rasterizer capability: ") + renderer.getFailureReason();
+    return false;
+  }
   if (!writeMonochromePng(outputPath, buffer, width, height)) {
     error = "Unable to write rasterized PDF page";
     return false;

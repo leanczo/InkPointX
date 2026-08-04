@@ -1,5 +1,6 @@
 #include "Txt.h"
 
+#include <CacheIntegrity.h>
 #include <Fb2Encoding.h>
 #include <FsHelpers.h>
 #include <JpegToBmpConverter.h>
@@ -19,8 +20,7 @@ Txt::Txt(std::string path, std::string cacheBasePath)
   cachePath = this->cacheBasePath + "/txt_" + std::to_string(hash);
 }
 
-Txt::Txt(std::string sourcePath, std::string contentPath, std::string cachePath, std::string title,
-         std::string author)
+Txt::Txt(std::string sourcePath, std::string contentPath, std::string cachePath, std::string title, std::string author)
     : filepath(std::move(sourcePath)),
       contentPath(std::move(contentPath)),
       cachePath(std::move(cachePath)),
@@ -54,6 +54,13 @@ bool Txt::load() {
   encoding = Fb2Encoding::detect(sample, sampleLength);
   contentStart = Fb2Encoding::bomLength(sample, sampleLength);
   file.close();
+
+  cache_integrity::SourceFingerprint fingerprint;
+  if (!cache_integrity::fingerprintFile(contentPath, fingerprint) || fingerprint.size != fileSize) {
+    LOG_ERR("TXT", "Failed to fingerprint source file: %s", contentPath.c_str());
+    return false;
+  }
+  sourceFingerprint = fingerprint.sampleHash;
 
   loaded = true;
   LOG_DBG("TXT", "Loaded TXT file: %s (%zu bytes, encoding %s%s)", filepath.c_str(), fileSize, encoding,

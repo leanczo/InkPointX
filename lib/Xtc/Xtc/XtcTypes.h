@@ -12,7 +12,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace xtc {
@@ -30,6 +32,21 @@ constexpr uint32_t XTH_MAGIC = 0x00485458;  // "XTH\0" for 2-bit page data
 // XTeink X4 display resolution
 constexpr uint16_t DISPLAY_WIDTH = 480;
 constexpr uint16_t DISPLAY_HEIGHT = 800;
+constexpr uint16_t MAX_PAGE_DIMENSION = 1024;
+
+inline bool calculateBitmapSize(const uint16_t width, const uint16_t height, const uint8_t bitDepth,
+                                size_t& bitmapSize) {
+  if (width == 0 || height == 0 || width > MAX_PAGE_DIMENSION || height > MAX_PAGE_DIMENSION ||
+      (bitDepth != 1 && bitDepth != 2))
+    return false;
+  if (bitDepth == 2) {
+    // XTH is column-major and each column is byte-aligned independently.
+    bitmapSize = static_cast<size_t>(width) * ((static_cast<size_t>(height) + 7) / 8) * 2;
+  } else {
+    bitmapSize = ((static_cast<size_t>(width) + 7) / 8) * height;
+  }
+  return bitmapSize <= std::numeric_limits<uint32_t>::max();
+}
 
 constexpr uint64_t XTC_LEGACY_HEADER_SIZE = 0x30;  // Original header before chapterOffset was added.
 
@@ -81,7 +98,7 @@ struct XtgPageHeader {
   //   dataSize = ((width + 7) / 8) * height
   //
   // XTH (2-bit): Two bit planes, column-major (right-to-left), 8 vertical pixels/byte
-  //   dataSize = ((width * height + 7) / 8) * 2
+  //   dataSize = width * ceil(height / 8) * 2 (each column is byte-aligned)
   //   First plane: Bit1 for all pixels
   //   Second plane: Bit2 for all pixels
   //   pixelValue = (bit1 << 1) | bit2

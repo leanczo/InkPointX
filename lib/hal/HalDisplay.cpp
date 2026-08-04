@@ -10,13 +10,13 @@ HalDisplay::HalDisplay() : einkDisplay(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_R
 
 HalDisplay::~HalDisplay() {}
 
-void HalDisplay::begin(bool seamless) {
+bool HalDisplay::begin(bool seamless) {
   // Set X3-specific panel mode before initializing.
   if (gpio.deviceIsX3()) {
     einkDisplay.setDisplayX3();
   }
 
-  einkDisplay.begin();
+  if (!einkDisplay.begin()) return false;
   refreshPolicy.reset();
 
   if (seamless) {
@@ -24,7 +24,7 @@ void HalDisplay::begin(bool seamless) {
     // so the first paint isn't promoted to FULL (~770ms). Skips the wakeup-
     // gated requestResync() below for the same reason.
     einkDisplay.skipInitialResync();
-    return;
+    return true;
   }
   // Request resync after specific wakeup events to ensure clean display state.
   const auto wakeupReason = gpio.getWakeupReason();
@@ -38,6 +38,7 @@ void HalDisplay::begin(bool seamless) {
       einkDisplay.requestResync();
     }
   }
+  return true;
 }
 
 void HalDisplay::clearScreen(uint8_t color) const { einkDisplay.clearScreen(color); }
@@ -107,10 +108,9 @@ void HalDisplay::displayGrayscaleBase(RefreshMode fallback, bool turnOffScreen) 
 }
 
 HalDisplay::RefreshMode HalDisplay::applyRefreshPolicy(const RefreshMode requested) {
-  const auto policyMode = requested == FULL_REFRESH
-                              ? EInkRefreshPolicy::Mode::Full
-                              : requested == HALF_REFRESH ? EInkRefreshPolicy::Mode::Clean
-                                                          : EInkRefreshPolicy::Mode::Fast;
+  const auto policyMode = requested == FULL_REFRESH   ? EInkRefreshPolicy::Mode::Full
+                          : requested == HALF_REFRESH ? EInkRefreshPolicy::Mode::Clean
+                                                      : EInkRefreshPolicy::Mode::Fast;
   switch (refreshPolicy.consume(policyMode)) {
     case EInkRefreshPolicy::Mode::Full:
       return FULL_REFRESH;
@@ -129,9 +129,7 @@ void HalDisplay::requestFullRefresh() {
   einkDisplay.requestResync();
 }
 
-void HalDisplay::setAutomaticCleanupEnabled(const bool enabled) {
-  refreshPolicy.setAutomaticCleanupEnabled(enabled);
-}
+void HalDisplay::setAutomaticCleanupEnabled(const bool enabled) { refreshPolicy.setAutomaticCleanupEnabled(enabled); }
 
 void HalDisplay::preconditionGrayscale() { einkDisplay.preconditionGrayscale(); }
 

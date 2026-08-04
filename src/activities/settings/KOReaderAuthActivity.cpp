@@ -7,11 +7,11 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncClient.h"
 #include "MappedInputManager.h"
-#include "util/SyncErrorStrings.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/SyncErrorStrings.h"
 
 void KOReaderAuthActivity::onWifiSelectionComplete(const bool success) {
   if (!success) {
@@ -60,7 +60,7 @@ void KOReaderAuthActivity::onEnter() {
   }
 
   // Launch WiFi selection
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+  startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
 }
 
@@ -126,7 +126,7 @@ void KOReaderAuthActivity::loop() {
         requestUpdate();
         performAuthentication();
       } else {
-        startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+        startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
                                [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
       }
     }

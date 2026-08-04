@@ -39,4 +39,5 @@ target_include_directories(pdf_native_harness BEFORE PRIVATE
   ${REPO_ROOT}/test/fb2_encoding/mocks
   ${REPO_ROOT}/lib/Pdf
   ${REPO_ROOT}/lib/Pdfio/src
+  ${REPO_ROOT}/lib/Serialization
 )

@@ -1,11 +1,10 @@
 #include "OpdsSettingsActivity.h"
 
 #include <GfxRenderer.h>
-
-#include <algorithm>
 #include <I18n.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "MappedInputManager.h"
@@ -131,8 +130,8 @@ void OpdsSettingsActivity::handleSelection() {
         requestUpdate();
       }
     };
-    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SERVER_NAME),
-                                                                   editServer.name, 63, InputType::Text),
+    startActivityForResult(makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SERVER_NAME),
+                                                                    editServer.name, 63, InputType::Text),
                            handler);
   } else if (selectedIndex == 1) {
     // Server URL
@@ -145,8 +144,8 @@ void OpdsSettingsActivity::handleSelection() {
         requestUpdate();
       }
     };
-    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_OPDS_SERVER_URL),
-                                                                   prefillUrl, 127, InputType::Url),
+    startActivityForResult(makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_OPDS_SERVER_URL),
+                                                                    prefillUrl, 127, InputType::Url),
                            handler);
   } else if (selectedIndex == 2) {
     // Username
@@ -158,8 +157,8 @@ void OpdsSettingsActivity::handleSelection() {
         requestUpdate();
       }
     };
-    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_USERNAME),
-                                                                   editServer.username, 63, InputType::Text),
+    startActivityForResult(makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_USERNAME),
+                                                                    editServer.username, 63, InputType::Text),
                            handler);
   } else if (selectedIndex == 3) {
     // Password
@@ -171,14 +170,14 @@ void OpdsSettingsActivity::handleSelection() {
         requestUpdate();
       }
     };
-    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_PASSWORD),
-                                                                   editServer.password, 63, InputType::Password),
+    startActivityForResult(makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_PASSWORD),
+                                                                    editServer.password, 63, InputType::Password),
                            handler);
   } else if (selectedIndex == 4 && !isNewServer) {
     // Delete flow is only available for existing servers. Confirmed first:
     // it is irreversible and sits in the same list as the editable fields.
     startActivityForResult(
-        std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_SERVER), editServer.name),
+        makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_DELETE_SERVER), editServer.name),
         [this](const ActivityResult& result) {
           if (result.isCancelled) {
             requestUpdate();
@@ -202,7 +201,7 @@ void OpdsSettingsActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   // New server creation uses STR_ADD_SERVER; editing shows the server's own
   // name (the old title borrowed "OPDS Browser" from a different feature).
-  const char* header = isNewServer ? tr(STR_ADD_SERVER)
+  const char* header = isNewServer               ? tr(STR_ADD_SERVER)
                        : editServer.name.empty() ? tr(STR_EDIT)
                                                  : editServer.name.c_str();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, header);

@@ -1,11 +1,13 @@
 #include "LibraryActivity.h"
 
+#include <Arduino.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <esp_task_wdt.h>
 
 #include <algorithm>
 #include <cctype>
@@ -59,8 +61,11 @@ void LibraryActivity::onEnter() {
     requestUpdate();
     return;
   }
+  loading = true;
+  requestUpdateAndWait();
   FAVORITE_BOOKS.pruneMissing();
   loadBooks();
+  loading = false;
   selectedIndex = 0;
   requestUpdate();
 }
@@ -97,21 +102,34 @@ void LibraryActivity::scanAllBooks() {
   if (!fileNameBuffer) return;
 
   std::vector<std::string> directories;
-  directories.reserve(16);
+  directories.reserve(64);
   directories.emplace_back("/");
+  constexpr size_t MAX_SCANNED_DIRECTORIES = 128;
+  constexpr size_t MAX_SCANNED_ENTRIES = 4096;
+  size_t scannedDirectories = 0;
+  size_t scannedEntries = 0;
 
   const auto& recents = RECENT_BOOKS.getBooks();
   const auto& favorites = FAVORITE_BOOKS.getBooks();
 
-  while (!directories.empty() && books.size() < MAX_LIBRARY_BOOKS) {
+  while (!directories.empty() && books.size() < MAX_LIBRARY_BOOKS && scannedDirectories < MAX_SCANNED_DIRECTORIES &&
+         scannedEntries < MAX_SCANNED_ENTRIES) {
     std::string directory = std::move(directories.back());
     directories.pop_back();
+    ++scannedDirectories;
 
     auto root = Storage.open(directory.c_str());
     if (!root || !root.isDirectory()) continue;
     root.rewindDirectory();
 
     for (auto entry = root.openNextFile(); entry && books.size() < MAX_LIBRARY_BOOKS; entry = root.openNextFile()) {
+      if (++scannedEntries > MAX_SCANNED_ENTRIES) break;
+      if ((scannedEntries & 0x0F) == 0) {
+        // Slow or fragmented SD cards can make a bounded 4096-entry scan take
+        // longer than the main-loop watchdog window.
+        esp_task_wdt_reset();
+        yield();
+      }
       entry.getName(fileNameBuffer.get(), NAME_BUFFER_SIZE);
       const char* name = fileNameBuffer.get();
       if (name[0] == '\0' || strcmp(name, "System Volume Information") == 0) continue;
@@ -122,7 +140,7 @@ void LibraryActivity::scanAllBooks() {
       fullPath += name;
 
       if (entry.isDirectory()) {
-        directories.push_back(std::move(fullPath));
+        if (directories.size() < MAX_SCANNED_DIRECTORIES) directories.push_back(std::move(fullPath));
         continue;
       }
       if (!isSupportedBook(name)) continue;
@@ -262,9 +280,10 @@ void LibraryActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = std::max(0, UITheme::getListContentBottom(renderer, !books.empty()) - contentTop);
   if (books.empty()) {
-    GUI.drawEmptyState(renderer, Rect{0, contentTop, pageWidth, contentHeight},
-                       mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND), nullptr,
-                       /*script=*/true);
+    GUI.drawEmptyState(
+        renderer, Rect{0, contentTop, pageWidth, contentHeight},
+        loading ? tr(STR_SCANNING) : (mode == Mode::Favorites ? tr(STR_NO_FAVORITES) : tr(STR_NO_FILES_FOUND)), nullptr,
+        /*script=*/true);
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(books.size()),
@@ -285,9 +304,8 @@ void LibraryActivity::render(RenderLock&&) {
     GUI.drawFooterCounter(renderer, static_cast<int>(selectedIndex), static_cast<int>(books.size()));
   }
 
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_HOME), books.empty() ? "" : tr(STR_OPEN),
-                            mode == Mode::AllBooks ? "<" : "", mode == Mode::AllBooks ? ">" : "");
+  const auto labels = mappedInput.mapLabels(tr(STR_HOME), books.empty() ? "" : tr(STR_OPEN),
+                                            mode == Mode::AllBooks ? "<" : "", mode == Mode::AllBooks ? ">" : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

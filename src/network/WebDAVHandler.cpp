@@ -5,6 +5,10 @@
 #include <Logging.h>
 #include <esp_task_wdt.h>
 
+#include <algorithm>
+#include <cstring>
+
+#include "HttpDownloader.h"
 #include "util/BookCacheUtils.h"
 
 namespace {
@@ -14,7 +18,43 @@ constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 // ESP32 doesn't have real-time clock set by default, so we use a fixed epoch date
 // as a fallback. The date is not critical for WebDAV Class 1 operations.
 const char* FIXED_DATE = "Thu, 01 Jan 2024 00:00:00 GMT";
+
 }  // namespace
+
+WebDAVHandler::WebDAVHandler(const char* pairingToken) {
+  if (!pairingToken) return;
+  strncpy(_pairingToken, pairingToken, sizeof(_pairingToken) - 1);
+  _pairingToken[sizeof(_pairingToken) - 1] = '\0';
+}
+
+bool WebDAVHandler::isAuthorized(WebServer& s) const {
+  const auto tokenMatches = [this](const String& supplied) {
+    if (supplied.length() != 32) return false;
+    uint8_t difference = 0;
+    for (size_t i = 0; i < 32; ++i) {
+      difference |= static_cast<uint8_t>(supplied.charAt(i)) ^ static_cast<uint8_t>(_pairingToken[i]);
+    }
+    return difference == 0;
+  };
+
+  if (s.hasArg("pair") && tokenMatches(s.arg("pair"))) return true;
+  if (tokenMatches(s.header("X-InkPoint-Token"))) return true;
+
+  const String cookie = s.header("Cookie");
+  const char* current = cookie.c_str();
+  static constexpr char cookieName[] = "InkPointPair";
+  while (*current) {
+    while (*current == ' ' || *current == ';') ++current;
+    const char* end = strchr(current, ';');
+    if (!end) end = current + strlen(current);
+    if (static_cast<size_t>(end - current) == sizeof(cookieName) - 1 + 1 + 32 &&
+        strncmp(current, cookieName, sizeof(cookieName) - 1) == 0 && current[sizeof(cookieName) - 1] == '=') {
+      return tokenMatches(String(current + sizeof(cookieName), 32));
+    }
+    current = *end ? end + 1 : end;
+  }
+  return s.authenticate("inkpoint", _pairingToken);
+}
 
 // ── RequestHandler interface ─────────────────────────────────────────────────
 
@@ -47,9 +87,14 @@ bool WebDAVHandler::canRaw(WebServer& server, const String& uri) {
 void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   (void)uri;
   if (raw.status == RAW_START) {
+    if (_putFile) _putFile.close();
     _putPath = getRequestPath(server);
+    _putTempPath = "";
+    _putOk = false;
+    _putExisted = false;
+    _putBytesWritten = 0;
+    if (!isAuthorized(server)) return;
     if (isProtectedPath(_putPath)) {
-      _putOk = false;
       return;
     }
 
@@ -76,10 +121,10 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
       if (existing) existing.close();
     }
 
-    // Write to a temp file to avoid destroying the original on failed upload
-    String tempPath = _putPath + ".davtmp";
-    Storage.remove(tempPath.c_str());
-    _putOk = Storage.openFileForWrite("DAV", tempPath, _putFile);
+    // Write to a hidden sibling and keep the old destination intact until the
+    // complete request body has been flushed and size-checked.
+    if (!NetworkFileTransaction::prepare(_putPath, ".dav-put-tmp", "DAV", _putTempPath)) return;
+    _putOk = Storage.openFileForWrite("DAV", _putTempPath, _putFile);
     LOG_DBG("DAV", "PUT START: %s", _putPath.c_str());
 
   } else if (raw.status == RAW_WRITE) {
@@ -89,34 +134,44 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
       if (written != raw.currentSize) {
         _putOk = false;
       }
+      _putBytesWritten += written;
     }
 
   } else if (raw.status == RAW_END) {
-    if (_putFile) _putFile.close();
-    if (_putOk) {
-      String tempPath = _putPath + ".davtmp";
-      if (_putExisted) Storage.remove(_putPath.c_str());
-      HalFile tmp = Storage.open(tempPath.c_str());
-      if (tmp) {
-        _putOk = tmp.rename(_putPath.c_str());
-        tmp.close();
-      } else {
-        _putOk = false;
-      }
-      if (!_putOk) Storage.remove(tempPath.c_str());
+    if (_putFile) {
+      _putFile.flush();
+      _putFile.close();
     }
+    if (_putBytesWritten != raw.totalSize) {
+      LOG_ERR("DAV", "PUT size mismatch: wrote=%u received=%u", static_cast<unsigned>(_putBytesWritten),
+              static_cast<unsigned>(raw.totalSize));
+      _putOk = false;
+    }
+    if (_putOk && !NetworkFileTransaction::commit(_putPath, _putTempPath, "DAV")) {
+      _putOk = false;
+    }
+    if (!_putOk && !_putTempPath.isEmpty()) Storage.remove(_putTempPath.c_str());
     LOG_DBG("DAV", "PUT END: %u bytes, ok=%d", raw.totalSize, _putOk);
 
   } else if (raw.status == RAW_ABORTED) {
     if (_putFile) _putFile.close();
-    String tempPath = _putPath + ".davtmp";
-    Storage.remove(tempPath.c_str());
+    if (!_putTempPath.isEmpty()) Storage.remove(_putTempPath.c_str());
     _putOk = false;
   }
 }
 
 bool WebDAVHandler::handle(WebServer& server, HTTPMethod method, const String& uri) {
   (void)uri;
+  // RequestHandler instances may be selected before server middleware in some
+  // Arduino-ESP32 releases. Enforce authentication here as well so WebDAV
+  // never depends on framework dispatch ordering.
+  if (!isAuthorized(server)) {
+    if (!_putTempPath.isEmpty()) Storage.remove(_putTempPath.c_str());
+    server.sendHeader("Cache-Control", "no-store");
+    server.sendHeader("WWW-Authenticate", "Basic realm=\"InkPointX\", charset=\"UTF-8\"");
+    server.send(401, "text/plain", "Pairing required");
+    return true;
+  }
   switch (method) {
     case HTTP_OPTIONS:
       handleOptions(server);
@@ -406,9 +461,8 @@ void WebDAVHandler::handlePut(WebServer& s) {
     return;
   }
 
-  if (!_putOk) {
-    String tempPath = path + ".davtmp";
-    Storage.remove(tempPath.c_str());
+  if (!_putOk || _putPath != path) {
+    if (!_putTempPath.isEmpty()) Storage.remove(_putTempPath.c_str());
     s.send(500, "text/plain", "Write failed - incomplete upload or disk full");
     return;
   }
@@ -555,6 +609,12 @@ void WebDAVHandler::handleMove(WebServer& s) {
     }
   }
 
+  String unusedTempPath;
+  if (!NetworkFileTransaction::prepare(dstPath, ".dav-move-tmp", "DAV", unusedTempPath)) {
+    s.send(500, "text/plain", "Could not recover previous destination");
+    return;
+  }
+
   bool dstExists = Storage.exists(dstPath.c_str());
   if (dstExists && !overwrite) {
     s.send(412, "text/plain", "Destination exists and Overwrite is F");
@@ -562,7 +622,17 @@ void WebDAVHandler::handleMove(WebServer& s) {
   }
 
   if (dstExists) {
-    Storage.remove(dstPath.c_str());
+    HalFile destination = Storage.open(dstPath.c_str());
+    if (!destination) {
+      s.send(500, "text/plain", "Failed to open destination");
+      return;
+    }
+    if (destination.isDirectory()) {
+      destination.close();
+      s.send(409, "text/plain", "Cannot overwrite a directory");
+      return;
+    }
+    destination.close();
   }
 
   HalFile file = Storage.open(srcPath.c_str());
@@ -571,11 +641,21 @@ void WebDAVHandler::handleMove(WebServer& s) {
     return;
   }
 
-  clearBookCache(srcPath.c_str());
+  String backupPath;
+  bool parkedExisting = false;
+  if (!NetworkFileTransaction::parkDestination(dstPath, "DAV", backupPath, parkedExisting)) {
+    file.close();
+    s.send(500, "text/plain", "Could not preserve destination");
+    return;
+  }
+
   bool success = file.rename(dstPath.c_str());
   file.close();
+  NetworkFileTransaction::finishParkedDestination(dstPath, backupPath, parkedExisting, success, "DAV");
 
   if (success) {
+    clearBookCache(srcPath.c_str());
+    clearBookCache(dstPath.c_str());
     s.send(dstExists ? 204 : 201);
   } else {
     s.send(500, "text/plain", "Move failed");
@@ -634,6 +714,13 @@ void WebDAVHandler::handleCopy(WebServer& s) {
     }
   }
 
+  String tempPath;
+  if (!NetworkFileTransaction::prepare(dstPath, ".dav-copy-tmp", "DAV", tempPath)) {
+    srcFile.close();
+    s.send(500, "text/plain", "Failed to prepare safe copy");
+    return;
+  }
+
   bool dstExists = Storage.exists(dstPath.c_str());
   if (dstExists && !overwrite) {
     srcFile.close();
@@ -642,37 +729,59 @@ void WebDAVHandler::handleCopy(WebServer& s) {
   }
 
   if (dstExists) {
-    Storage.remove(dstPath.c_str());
+    HalFile destination = Storage.open(dstPath.c_str());
+    if (!destination) {
+      srcFile.close();
+      s.send(500, "text/plain", "Failed to open destination");
+      return;
+    }
+    if (destination.isDirectory()) {
+      destination.close();
+      srcFile.close();
+      s.send(409, "text/plain", "Cannot overwrite a directory");
+      return;
+    }
+    destination.close();
   }
 
   HalFile dstFile;
-  if (!Storage.openFileForWrite("DAV", dstPath, dstFile)) {
+  if (!Storage.openFileForWrite("DAV", tempPath, dstFile)) {
     srcFile.close();
-    s.send(500, "text/plain", "Failed to create destination");
+    Storage.remove(tempPath.c_str());
+    s.send(500, "text/plain", "Failed to create staged destination");
     return;
   }
 
   // Streaming copy with 4KB buffer on stack
   uint8_t buf[4096];
   bool copyOk = true;
-  while (srcFile.available()) {
+  const size_t sourceSize = srcFile.size();
+  size_t copied = 0;
+  while (copied < sourceSize) {
     esp_task_wdt_reset();
-    int bytesRead = srcFile.read(buf, sizeof(buf));
-    if (bytesRead <= 0) break;
+    const size_t wanted = std::min(sizeof(buf), sourceSize - copied);
+    int bytesRead = srcFile.read(buf, wanted);
+    if (bytesRead <= 0) {
+      copyOk = false;
+      break;
+    }
     size_t written = dstFile.write(buf, bytesRead);
     if (written != (size_t)bytesRead) {
       copyOk = false;
       break;
     }
+    copied += written;
   }
 
   srcFile.close();
+  dstFile.flush();
   dstFile.close();
 
-  if (copyOk) {
+  if (copyOk && copied == sourceSize && NetworkFileTransaction::commit(dstPath, tempPath, "DAV")) {
+    clearBookCache(dstPath.c_str());
     s.send(dstExists ? 204 : 201);
   } else {
-    Storage.remove(dstPath.c_str());
+    Storage.remove(tempPath.c_str());
     s.send(500, "text/plain", "Copy failed - disk full?");
   }
 }

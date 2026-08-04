@@ -30,7 +30,8 @@ class EpubReaderMenuActivity final : public Activity {
     BOOK_INFO,
     OPEN_FROM_FILE,
     TOGGLE_FAVORITE,
-    GESTURES
+    GESTURES,
+    DICTIONARY
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,

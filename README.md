@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-000000">
+  <img alt="Version 2.2.0" src="https://img.shields.io/badge/version-2.2.0-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -22,7 +22,8 @@
 > [!IMPORTANT]
 > The `dev` branch contains the current development firmware. For a prebuilt, user-facing binary, use the
 > [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically want to test development
-> changes. Devices already running 1.x can update over the air from **Settings → System → Check for updates**.
+> changes. Devices already running InkPoint X can update over the air from
+> **Settings → System → Check for updates**.
 
 ## Overview
 
@@ -33,6 +34,24 @@ strategy adapt at boot to the X3's 528 × 792 or X4's 480 × 800 monochrome pane
 The project is based on [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) and keeps its
 open architecture while adding an independent InkPoint X product layer, expanded document support, a redesigned
 interface, and controller-specific display tuning.
+
+## What's new in 2.2
+
+- **StarDict dictionaries in EPUB.** Select a word on the page and look it up without leaving the reader. Uncompressed
+  `.ifo`, `.idx`, and `.dict` sets are discovered from `/dictionaries/<name>/`, indexed with bounded RAM, and selected
+  under **Settings → Reading → Dictionary**.
+- **On-device font catalog.** Reader and interface font families can be downloaded, updated, selected, and removed
+  directly from Settings. Downloads are transactional, CRC-verified, show real e-ink-friendly progress, and reuse the
+  GitHub TLS session; a measured four-file family now installs in about 60 seconds instead of 100 on X4.
+- **Broader fixed-layout PDF support.** Large vector scores and diagram-heavy pages use bounded rasterization and
+  geometry-aware caches on both X3 and X4 instead of aborting under ESP32-C3 memory pressure.
+- **Faster interaction.** Navigation edges are queued and coalesced while the panel is busy, automatic menu CLEAN
+  flashes are removed, and the normal UI stays on the controller's fast differential path.
+- **Production hardening.** Network downloads and OTA writes are staged atomically, retries always restart from a
+  clean file, caches carry source fingerprints and integrity records, and destructive dialogs require a distinct
+  confirmation click.
+- **Lower idle and reading cost.** Indexing, metadata caching, page layout, SD access, glyph reuse, battery polling,
+  and power-state transitions were audited together so background work no longer competes with input or reading.
 
 ## What's new in 2.1
 
@@ -143,6 +162,7 @@ The detailed interface specification is available in [docs/inkpoint-x-ui.md](doc
 - reading progress, bookmarks, table of contents, book information, and statistics;
 - configurable font, size, line spacing, margins, alignment, hyphenation, orientation, and inversion;
 - automatic page turning, screenshots, QR display, OPDS, and KOReader Sync;
+- low-memory **StarDict** lookup for EPUB, with dictionary selection in Reading settings;
 - an on-device gesture reference, so the reader's hold gestures are discoverable;
 - support for **XTC**, **TXT**, and **Markdown** when opened from Files, with CP1251/KOI8-R/CP1252/ISO-8859-5/CP866
   detection for legacy single-byte text.
@@ -229,8 +249,9 @@ keeps its proportions; slots the family cannot cover stay on the built-in face. 
 12 pt, which covers everything except the smallest captions.
 
 Reader fonts are independent from the UI font. Optimized `.cpfont` families can be installed in `/.fonts/` or
-`/fonts/` on microSD or uploaded from the web font manager. The reader font pipeline includes a Noto Serif family
-for Latin/Cyrillic/Vietnamese with Noto Naskh Arabic fallback. See
+`/fonts/` on microSD, downloaded through **Settings → System → Manage Fonts**, or uploaded from the web font manager.
+The device catalog supports install, update, progress, checksum validation, and confirmed removal. The reader font
+pipeline includes a Noto Serif family for Latin/Cyrillic/Vietnamese with Noto Naskh Arabic fallback. See
 [docs/sd-card-fonts.md](docs/sd-card-fonts.md).
 
 ## E-ink behavior
@@ -387,8 +408,9 @@ partitions.csv               16 MB flash partition layout
 ```
 
 The `freeink-sdk` submodule points to
-[`Free-Ink/freeink-sdk`](https://github.com/Free-Ink/freeink-sdk), which provides the runtime X3/X4 board profiles,
-panel drivers, input, sensors, storage and power management used by this firmware.
+[`yokki-vans/community-sdk`](https://github.com/yokki-vans/community-sdk/tree/inkpointx-v2.2), the InkPoint X hardware
+branch based on FreeInk SDK. It provides the runtime X3/X4 board profiles, panel drivers, input, sensors, storage,
+TLS transport, and power management used by this firmware.
 
 ## Data and storage
 

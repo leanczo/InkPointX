@@ -5,6 +5,8 @@
 
 class WebDAVHandler : public RequestHandler {
  public:
+  explicit WebDAVHandler(const char* pairingToken);
+
   // RequestHandler interface
   bool canHandle(WebServer& server, HTTPMethod method, const String& uri) override;
   bool canRaw(WebServer& server, const String& uri) override;
@@ -15,8 +17,11 @@ class WebDAVHandler : public RequestHandler {
   // PUT streaming state (raw() is called in chunks)
   HalFile _putFile;
   String _putPath;
+  String _putTempPath;
   bool _putOk = false;
   bool _putExisted = false;
+  size_t _putBytesWritten = 0;
+  char _pairingToken[33] = {};
 
   // WebDAV method handlers
   void handleOptions(WebServer& s);
@@ -38,6 +43,7 @@ class WebDAVHandler : public RequestHandler {
   bool isProtectedPath(const String& path) const;
   int getDepth(WebServer& s) const;
   bool getOverwrite(WebServer& s) const;
+  bool isAuthorized(WebServer& s) const;
   void sendPropEntry(WebServer& s, const String& href, bool isDir, size_t size, const String& lastModified) const;
   String getMimeType(const String& path) const;
 };

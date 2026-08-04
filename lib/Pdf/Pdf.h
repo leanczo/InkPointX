@@ -54,6 +54,7 @@ class Pdf {
   std::string language = "und";
   std::string lastError;
   uint64_t sourceSize = 0;
+  uint64_t sourceFingerprint = 0;
   size_t pageCount = 0;
   bool loaded = false;
   bool packageBuiltDuringLoad = false;

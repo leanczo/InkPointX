@@ -35,10 +35,14 @@ class HalStorage {
   bool exists(const char* path);
   bool remove(const char* path);
   bool rename(const char* oldPath, const char* newPath);
+  // Atomically replace `path` with a fully-written sibling temp file. Keeps
+  // the prior generation until the final rename succeeds and rolls it back on
+  // failure. The temp file must be closed before calling this method.
+  bool replaceFileFromTemp(const char* path, const char* tempPath);
   bool rmdir(const char* path);
 
-  // Renames "<path>.tmp" into place when an atomic write was interrupted
-  // between its remove and its rename. Returns true if it recovered something.
+  // Recovers "<path>.tmp" or the preserved "<path>.swap.bak" generation
+  // after an interrupted atomic replacement. Returns true on recovery.
   // Read paths call this for themselves; callers rarely need it directly.
   bool recoverInterruptedWrite(const char* path);
 

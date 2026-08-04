@@ -25,9 +25,10 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
                                                                                      bool hasBookmarks,
                                                                                      bool isFavorite) {
   std::vector<MenuItem> items;
-  items.reserve(18);
+  items.reserve(20);
   items.push_back({MenuAction::GO_TO_PAGE, StrId::STR_GO_TO_PAGE});
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
+  items.push_back({MenuAction::DICTIONARY, StrId::STR_DICTIONARY});
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }

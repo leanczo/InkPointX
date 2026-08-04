@@ -42,6 +42,7 @@ class LibraryActivity final : public Activity {
   size_t selectedIndex = 0;
   SortMode sortMode = SortMode::Title;
   bool longPressFired = false;
+  bool loading = false;
 
   void loadBooks();
   void scanAllBooks();
