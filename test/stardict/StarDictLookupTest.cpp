@@ -25,7 +25,9 @@ class StarDictLookupTest : public testing::Test {
  protected:
   std::filesystem::path root;
   void SetUp() override {
-    root = std::filesystem::temp_directory_path() / "inkpoint-stardict-test";
+    const auto* testInfo = testing::UnitTest::GetInstance()->current_test_info();
+    const char* testName = testInfo == nullptr ? "unknown" : testInfo->name();
+    root = std::filesystem::temp_directory_path() / (std::string("inkpoint-stardict-test-") + testName);
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "dictionaries" / "test");
     Storage.setRoot(root);
