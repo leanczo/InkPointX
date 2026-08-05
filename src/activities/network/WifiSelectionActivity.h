@@ -79,7 +79,14 @@ class WifiSelectionActivity final : public Activity {
   int forgetPromptSelection = 0;
 
   // Connection timeout
-  static constexpr unsigned long CONNECTION_TIMEOUT_MS = 15000;
+  // A full-channel scan plus WPA association and DHCP can legitimately take
+  // longer on the X3.  Keep the UI responsive, but do not reject a usable AP
+  // merely because the first fast-scan match or DHCP lease was slow.
+  static constexpr unsigned long CONNECTION_TIMEOUT_MS = 25000;
+  // WiFi.status() may briefly retain the previous attempt's terminal result
+  // after WiFi.begin().  Treating that stale value as final made X3 retries
+  // fail immediately even while a new association was in progress.
+  static constexpr unsigned long CONNECTION_FAILURE_GRACE_MS = 1500;
   // The driver gives an async scan no deadline of its own; without one a
   // wedged scan hangs this screen until the power button.
   static constexpr unsigned long SCAN_TIMEOUT_MS = 15000;

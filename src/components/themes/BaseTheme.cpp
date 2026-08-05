@@ -574,6 +574,15 @@ void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
 }
 
 void BaseTheme::drawSelection(const GfxRenderer& renderer, const Rect rect) const {
+  if (gpio.deviceIsX3()) {
+    // The X3's fast differential waveform does not reliably preserve the
+    // X4-oriented 1/16 dither below.  A standard light-gray surface plus a
+    // two-pixel edge remains visible while navigating quickly without forcing
+    // a slower full/half refresh for every button press.
+    renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, selectionCornerRadius, Color::LightGray);
+    renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 2, selectionCornerRadius, true);
+    return;
+  }
   fillSparseRoundedRect(renderer, rect, selectionCornerRadius);
   renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, selectionCornerRadius, true);
 }

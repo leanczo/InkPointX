@@ -227,15 +227,25 @@ void WifiSelectionActivity::selectNetwork(const int index) {
 
 void WifiSelectionActivity::attemptConnection() {
   state = autoConnecting ? WifiSelectionState::AUTO_CONNECTING : WifiSelectionState::CONNECTING;
-  connectionStartTime = millis();
   connectedIP.clear();
   connectionError.clear();
   requestUpdate();
 
   WiFi.persistent(false);  // Credentials are managed by WifiCredentialStore; suppress SDK NVS auto-connect
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true, true);  // Abort any in-progress SDK auto-connect and clear NVS-saved SSID
+  // Keep the station radio enabled while aborting an SDK auto-connect.  Passing
+  // wifioff=true here forced an avoidable OFF -> STA transition immediately
+  // before WiFi.begin(), which is particularly unreliable on the X3.
+  WiFi.disconnect(false, true);
   delay(100);
+  WiFi.setAutoReconnect(false);
+  WiFi.setSleep(false);
+
+  // Arduino's default fast scan stops at the first AP whose SSID matches.  On
+  // mesh and combined 2.4/5 GHz networks that can be a weak or unusable BSSID.
+  // Scan every channel and let the ESP32-C3 associate with the strongest match.
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
   // Set hostname so routers show "InkPointX-AABBCCDDEEFF" instead of "esp32-XXXXXXXXXXXX"
   String mac = WiFi.macAddress();
@@ -243,6 +253,7 @@ void WifiSelectionActivity::attemptConnection() {
   String hostname = "InkPointX-" + mac;
   WiFi.setHostname(hostname.c_str());
 
+  connectionStartTime = millis();
   if (selectedRequiresPassword && !enteredPassword.empty()) {
     WiFi.begin(selectedSSID.c_str(), enteredPassword.c_str());
   } else {
@@ -256,48 +267,55 @@ void WifiSelectionActivity::checkConnectionStatus() {
   }
 
   const wl_status_t status = WiFi.status();
+  const unsigned long elapsed = millis() - connectionStartTime;
 
   if (status == WL_CONNECTED) {
-    // Successfully connected
+    // Association can complete before DHCP has assigned an address.  Starting
+    // the web server at 0.0.0.0 made a valid connection look broken, so wait
+    // for the lease within the same bounded connection deadline.
     IPAddress ip = WiFi.localIP();
-    char ipStr[16];
-    snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-    connectedIP = ipStr;
-    autoConnecting = false;
-
-    // X3's DS3231 only needs its initial sync. X4 has no always-powered RTC, so
-    // its software clock must be refreshed after every cold boot.
-    if ((halClock.isAvailable() && !SETTINGS.clockHasBeenSynced) || halClock.needsNetworkSync()) {
-      if (halClock.syncFromNTP()) {
-        SETTINGS.clockHasBeenSynced = 1;
-        SETTINGS.saveToFile();
-      }
-    }
-
-    // Save this as the last connected network - SD card operations need lock as
-    // we use SPI for both
-    {
-      RenderLock lock(*this);
-      WIFI_STORE.setLastConnectedSsid(selectedSSID);
-    }
-
-    // If we entered a new password, ask if user wants to save it
-    // Otherwise, immediately complete so parent can start web server
-    if (!usedSavedPassword && !enteredPassword.empty()) {
-      state = WifiSelectionState::SAVE_PROMPT;
-      savePromptSelection = 0;  // Default to "Yes"
-      requestUpdate();
+    if (ip == IPAddress(0, 0, 0, 0)) {
+      if (elapsed <= CONNECTION_TIMEOUT_MS) return;
     } else {
-      // Using saved password or open network - complete immediately
-      LOG_DBG("WIFI",
-              "Connected with saved/open credentials, "
-              "completing immediately");
-      onComplete(true);
+      char ipStr[16];
+      snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+      connectedIP = ipStr;
+      autoConnecting = false;
+
+      // X3's DS3231 only needs its initial sync. X4 has no always-powered RTC, so
+      // its software clock must be refreshed after every cold boot.
+      if ((halClock.isAvailable() && !SETTINGS.clockHasBeenSynced) || halClock.needsNetworkSync()) {
+        if (halClock.syncFromNTP()) {
+          SETTINGS.clockHasBeenSynced = 1;
+          SETTINGS.saveToFile();
+        }
+      }
+
+      // Save this as the last connected network - SD card operations need lock as
+      // we use SPI for both
+      {
+        RenderLock lock(*this);
+        WIFI_STORE.setLastConnectedSsid(selectedSSID);
+      }
+
+      // If we entered a new password, ask if user wants to save it
+      // Otherwise, immediately complete so parent can start web server
+      if (!usedSavedPassword && !enteredPassword.empty()) {
+        state = WifiSelectionState::SAVE_PROMPT;
+        savePromptSelection = 0;  // Default to "Yes"
+        requestUpdate();
+      } else {
+        // Using saved password or open network - complete immediately
+        LOG_DBG("WIFI",
+                "Connected with saved/open credentials, "
+                "completing immediately");
+        onComplete(true);
+      }
+      return;
     }
-    return;
   }
 
-  if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+  if (elapsed >= CONNECTION_FAILURE_GRACE_MS && (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL)) {
     connectionError = tr(STR_ERROR_GENERAL_FAILURE);
     if (status == WL_NO_SSID_AVAIL) {
       connectionError = tr(STR_ERROR_NETWORK_NOT_FOUND);
@@ -308,8 +326,8 @@ void WifiSelectionActivity::checkConnectionStatus() {
   }
 
   // Check for timeout
-  if (millis() - connectionStartTime > CONNECTION_TIMEOUT_MS) {
-    WiFi.disconnect();
+  if (elapsed > CONNECTION_TIMEOUT_MS) {
+    WiFi.disconnect(false, false);
     connectionError = tr(STR_ERROR_CONNECTION_TIMEOUT);
     state = WifiSelectionState::CONNECTION_FAILED;
     requestUpdate();
