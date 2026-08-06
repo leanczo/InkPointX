@@ -8,6 +8,7 @@
 
 #include "CrossPointSettings.h"
 #include "I18nKeys.h"
+#include "InterfaceFont.h"
 #include "MappedInputManager.h"
 #include "fontIds.h"
 
@@ -72,6 +73,7 @@ void LanguageSelectActivity::handleSelection() {
 
   SETTINGS.language = langIndex;
   SETTINGS.saveToFile();
+  applyInterfaceFont();
 
   // Return to previous page
   onBack();

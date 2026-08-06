@@ -69,6 +69,9 @@ jobs:
       - name: Build universal X3/X4 firmware
         run: pio run -e gh_release
 
+      - name: Validate localization and generated UI fonts
+        run: python scripts/validate_i18n.py
+
       - name: Enforce production flash budget
         shell: bash
         run: |

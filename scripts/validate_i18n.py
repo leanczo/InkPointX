@@ -63,6 +63,16 @@ def is_rtl_script_codepoint(codepoint: int) -> bool:
     )
 
 
+def is_korean_codepoint(codepoint: int) -> bool:
+    return (
+        0x1100 <= codepoint <= 0x11FF
+        or 0x3130 <= codepoint <= 0x318F
+        or 0xA960 <= codepoint <= 0xA97F
+        or 0xAC00 <= codepoint <= 0xD7AF
+        or 0xD7B0 <= codepoint <= 0xD7FF
+    )
+
+
 def display_codepoints(codepoints: Iterable[int]) -> str:
     values = []
     for codepoint in sorted(codepoints):
@@ -190,11 +200,22 @@ def main() -> int:
         # face, so Home deliberately routes Hebrew/Arabic authors through the
         # existing UI_12 font instead of embedding a second ~0.5 MB Noto copy.
         # Its remaining locale coverage must still be complete.
-        font_required_codepoints = (
-            {codepoint for codepoint in required_codepoints if not is_rtl_script_codepoint(codepoint)}
-            if path.name == "ui_script_16.h"
-            else required_codepoints
-        )
+        font_required_codepoints = required_codepoints
+        # Korean uses the Medium face for both regular and emphasized text and
+        # routes the two accent slots to the 16 px Medium family at runtime.
+        # Keeping a second identical Hangul raster in every SemiBold/Caveat
+        # face would exceed the ESP32-C3 OTA partition without changing the
+        # visible Korean typography.
+        if "semibold" in path.name or "script" in path.name:
+            font_required_codepoints = {
+                codepoint for codepoint in font_required_codepoints
+                if not is_korean_codepoint(codepoint)
+            }
+        if path.name == "ui_script_16.h":
+            font_required_codepoints = {
+                codepoint for codepoint in font_required_codepoints
+                if not is_rtl_script_codepoint(codepoint)
+            }
         missing_codepoints = {
             codepoint
             for codepoint in font_required_codepoints

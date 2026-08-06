@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.3" src="https://img.shields.io/badge/version-2.2.3-000000">
+  <img alt="Version 2.2.4" src="https://img.shields.io/badge/version-2.2.4-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,10 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Korean system language in 2.2.4.** All 533 interface strings are available in Korean, and every UI size embeds
+  an exact, 1-bit **Noto Sans KR** subset for crisp Hangul on both X3 and X4. Korean automatically uses this complete
+  built-in family instead of a potentially incompatible custom interface or accent font; the custom selection is
+  preserved and returns when another language is selected.
 - **Reliable X3 navigation and Wi-Fi in 2.2.3.** X3 focus surfaces now use a panel-appropriate, higher-contrast
   treatment that stays visible during fast side-button navigation. Wi-Fi association scans all channels, chooses
   the strongest matching access point, keeps the station radio active between scan and connect, ignores stale
@@ -236,18 +240,18 @@ Resetting settings preserves books, reading progress, bookmarks, statistics, rec
 
 The system interface uses **Inter Medium** for normal text and **Inter SemiBold** for headings, selection, and
 emphasis, instanced from Inter's variable `wght` and `opsz` axes so each size gets its own optical treatment.
-**Caveat** supplies the handwritten accent voice. Inter carries no Hebrew or Arabic, so **Noto Sans Hebrew** and
-**Noto Naskh Arabic** supply exactly the code points it is missing. Full font files are not embedded. During the
+**Caveat** supplies the handwritten accent voice. Inter carries no Hebrew, Arabic, or Korean, so **Noto Sans Hebrew**,
+**Noto Naskh Arabic**, and **Noto Sans KR** supply exactly the code points it is missing. Full font files are not embedded. During the
 build, `scripts/build_ui_fonts.py` scans every string in `lib/I18n/translations/*.yaml` and generates compact native
 subsets containing only the glyphs the firmware needs.
 
-The firmware currently provides complete UI resources for 27 languages:
+The firmware currently provides complete UI resources for 28 languages:
 
 <details>
 <summary>Show language list</summary>
 
 Arabic, Belarusian, Catalan, Czech, Danish, Dutch, English, Finnish, French, German, Hebrew, Hungarian, Italian,
-Kazakh, Lithuanian, Polish, Portuguese (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish,
+Kazakh, Korean, Lithuanian, Polish, Portuguese (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish,
 Ukrainian, Valencian, and Vietnamese.
 
 </details>
@@ -262,6 +266,7 @@ The text pipeline supports:
 - Vietnamese diacritics and NFC composition;
 - bidirectional Hebrew and Arabic text;
 - contextual Arabic shaping for both translated UI strings and dynamic book, author, and file names;
+- complete Hangul coverage for the Korean system interface through Noto Sans KR subsets;
 - mirrored accessories and layout behavior for RTL content.
 
 The interface font and the handwritten accent face can also come from the card:
@@ -402,7 +407,7 @@ Run static analysis:
 pio check -e default --fail-on-defect=medium
 ```
 
-Release validation includes the host suite, localization coverage across 27 languages, development and release
+Release validation includes the host suite, localization coverage across 28 languages, development and release
 compilation, static analysis, PDF conversion checks, and a hard flash budget so the image cannot silently grow into
 the OTA slot's limit.
 

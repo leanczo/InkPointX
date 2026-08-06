@@ -7,10 +7,10 @@ first with fontTools: the wght axis gives Medium and SemiBold, and the opsz axis
 set to the raster size so every size gets Inter's own optical adjustments rather
 than one outline scaled up and down.
 
-Inter has no Hebrew or Arabic, which the firmware needs for four locales and for
-dynamic book and author names. fontconvert.py accepts a font stack ordered by
-descending priority, so Noto Sans Hebrew and Noto Naskh Arabic fill exactly the
-code points Inter is missing and nothing else.
+Inter has no Hebrew, Arabic, or Korean, which the firmware needs for its system
+locales. fontconvert.py accepts a font stack ordered by descending priority, so
+the matching Noto faces fill exactly the code points Inter is missing and
+nothing else.
 
 The firmware never embeds the upstream TTF files.  This pre-build step extracts
 only glyphs reachable from lib/I18n/translations/*.yaml, plus the bounded Arabic
@@ -42,6 +42,7 @@ HEBREW_SOURCE_DIR = ROOT / "lib/EpdFont/builtinFonts/source/NotoSansHebrew"
 BUILD_DIR = ROOT / "build/ui-fonts"
 CODEPOINTS_PATH = BUILD_DIR / "ui-codepoints.txt"
 SCRIPT_SMALL_CODEPOINTS_PATH = BUILD_DIR / "ui-script-small-codepoints.txt"
+NON_KOREAN_CODEPOINTS_PATH = BUILD_DIR / "ui-non-korean-codepoints.txt"
 STAMP_PATH = BUILD_DIR / "ui-subset.sha256"
 FONT_IDS_PATH = ROOT / "src/fontIds.h"
 
@@ -78,6 +79,15 @@ ARABIC_FALLBACK_SOURCE = {
     ),
     "sha256": "67b5a525a661b607971fbd3f96a81b89d3a768e74534fca84f18ac97e6fab72f",
     "filename": "NotoNaskhArabic[wght].ttf",
+}
+
+KOREAN_FALLBACK_SOURCE = {
+    "url": (
+        "https://raw.githubusercontent.com/google/fonts/"
+        f"{GOOGLE_FONTS_REVISION}/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf"
+    ),
+    "sha256": "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252",
+    "filename": "NotoSansKR[wght].ttf",
 }
 
 # Interface weights, as Inter wght axis values. Medium carries body text; SemiBold
@@ -197,6 +207,16 @@ def is_rtl_script_codepoint(codepoint: int) -> bool:
     )
 
 
+def is_korean_codepoint(codepoint: int) -> bool:
+    return (
+        0x1100 <= codepoint <= 0x11FF
+        or 0x3130 <= codepoint <= 0x318F
+        or 0xA960 <= codepoint <= 0xA97F
+        or 0xAC00 <= codepoint <= 0xD7AF
+        or 0xD7B0 <= codepoint <= 0xD7FF
+    )
+
+
 def select_converter_python() -> str:
     candidates = [
         ROOT / ".venv/bin/python",
@@ -226,9 +246,10 @@ def select_converter_python() -> str:
 
 def build_signature(codepoints: set[int], font_paths: dict[str, Path]) -> str:
     digest = hashlib.sha256()
-    digest.update(b"inter-ui-subsets-v2\0")
-    digest.update(b"sizes=8,10,12,14,16;script=16ltr,20full-w600;wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
-                b"wght=500/600;opsz=size;fallback=hebrew+arabic\0")
+    digest.update(b"inter-ui-subsets-v3\0")
+    digest.update(b"sizes=8,10,12,14,16;script=16ltr-no-ko,20full-no-ko-w600;semibold=no-ko;"
+                b"wordmark=none;mono=1;threshold=6;autohint=1;compressed=0;"
+                b"wght=500/600;opsz=size;fallback=hebrew+arabic+korean\0")
     for codepoint in sorted(codepoints):
         digest.update(codepoint.to_bytes(4, "little"))
     for path in (SCRIPT_PATH, FONT_SCRIPT, FONT_ID_SCRIPT, ARABIC_SHAPER_SOURCE):
@@ -249,14 +270,14 @@ def write_if_changed(path: Path, content: bytes) -> None:
     temporary_path.replace(path)
 
 
-def instance_inter(source_path: Path, weight_value: int, size: int, destination: Path) -> None:
-    """Freeze Inter's variable axes into a static face for one weight and size.
+def instance_variable_font(source_path: Path, weight_value: int, size: int, destination: Path) -> None:
+    """Freeze a variable font into a static face for one weight and size.
 
     fontconvert.py hands the file straight to FreeType, which renders a variable
-    font's default instance -- wght 400 for Inter. Without this both weights would
-    come out Regular and the Medium/SemiBold distinction the interface relies on
-    would silently disappear. opsz is set to the raster size (clamped to the axis
-    range) so each size gets Inter's intended optical treatment.
+    font's default instance. Without this both weights would come out Regular and
+    the Medium/SemiBold distinction the interface relies on would silently
+    disappear. When available, opsz is set to the raster size (clamped to the
+    axis range) so each size gets the font's intended optical treatment.
     """
     from fontTools.ttLib import TTFont
     from fontTools.varLib import instancer
@@ -334,6 +355,8 @@ def main() -> None:
     download_verified(INTER_SOURCE["url"], inter_source, INTER_SOURCE["sha256"])
     arabic_source = FONT_CACHE_DIR / ARABIC_FALLBACK_SOURCE["filename"]
     download_verified(ARABIC_FALLBACK_SOURCE["url"], arabic_source, ARABIC_FALLBACK_SOURCE["sha256"])
+    korean_source = FONT_CACHE_DIR / KOREAN_FALLBACK_SOURCE["filename"]
+    download_verified(KOREAN_FALLBACK_SOURCE["url"], korean_source, KOREAN_FALLBACK_SOURCE["sha256"])
     caveat_source = FONT_CACHE_DIR / CAVEAT_SOURCE["filename"]
     download_verified(CAVEAT_SOURCE["url"], caveat_source, CAVEAT_SOURCE["sha256"])
 
@@ -343,13 +366,26 @@ def main() -> None:
             raise RuntimeError(f"Missing in-tree Hebrew fallback: {path}")
 
     # Every input participates in the stamp so a changed source or axis rebuilds.
-    font_paths = {"inter": inter_source, "caveat": caveat_source, "arabic": arabic_source, **hebrew_sources}
+    font_paths = {
+        "inter": inter_source,
+        "caveat": caveat_source,
+        "arabic": arabic_source,
+        "korean": korean_source,
+        **hebrew_sources,
+    }
 
     codepoints = collect_codepoints()
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     manifest = "".join(f"U+{codepoint:04X}\n" for codepoint in sorted(codepoints))
     write_if_changed(CODEPOINTS_PATH, manifest.encode("utf-8"))
-    script_small_codepoints = {codepoint for codepoint in codepoints if not is_rtl_script_codepoint(codepoint)}
+    non_korean_codepoints = {codepoint for codepoint in codepoints if not is_korean_codepoint(codepoint)}
+    non_korean_manifest = "".join(f"U+{codepoint:04X}\n" for codepoint in sorted(non_korean_codepoints))
+    write_if_changed(NON_KOREAN_CODEPOINTS_PATH, non_korean_manifest.encode("utf-8"))
+    script_small_codepoints = {
+        codepoint
+        for codepoint in non_korean_codepoints
+        if not is_rtl_script_codepoint(codepoint)
+    }
     script_small_manifest = "".join(f"U+{codepoint:04X}\n" for codepoint in sorted(script_small_codepoints))
     write_if_changed(SCRIPT_SMALL_CODEPOINTS_PATH, script_small_manifest.encode("utf-8"))
 
@@ -370,37 +406,60 @@ def main() -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
 
+            stacks: dict[tuple[str, int], list[Path]] = {}
+
             def stack_for(weight: str, size: int) -> list[Path]:
+                key = (weight, size)
+                if key in stacks:
+                    return stacks[key]
                 instanced = temporary / f"Inter-{weight}-{size}.ttf"
-                instance_inter(inter_source, WEIGHTS[weight], size, instanced)
-                return [instanced, hebrew_sources[weight], arabic_source]
+                instance_variable_font(inter_source, WEIGHTS[weight], size, instanced)
+                korean = temporary / f"NotoSansKR-{weight}-{size}.ttf"
+                instance_variable_font(korean_source, WEIGHTS[weight], size, korean)
+                stacks[key] = [instanced, hebrew_sources[weight], arabic_source, korean]
+                return stacks[key]
 
             for size in SIZES:
                 for weight in WEIGHTS:
-                    generate_font(python, weight, size, stack_for(weight, size))
+                    generate_font(
+                        python,
+                        weight,
+                        size,
+                        stack_for(weight, size),
+                        codepoints_path=(CODEPOINTS_PATH if weight == "medium" else NON_KOREAN_CODEPOINTS_PATH),
+                    )
 
-            # The normal accent voice is 20 pt and carries the full UI fallback
-            # stack. The author-only 16 pt cut keeps Caveat's Latin/Cyrillic
-            # coverage compact; Home uses the existing UI_12 face for RTL text.
+            # The normal accent voice is 20 pt and carries the Hebrew/Arabic
+            # fallback stack. The author-only 16 pt cut keeps Caveat's
+            # Latin/Cyrillic coverage compact. Korean routes both accent slots
+            # to Noto Sans KR Medium at runtime, so neither cut duplicates Hangul.
             caveat_small = temporary / "Caveat-600-16.ttf"
-            instance_inter(caveat_source, 600, 16, caveat_small)
+            instance_variable_font(caveat_source, 600, 16, caveat_small)
+            accent_stack = stack_for("medium", 16)
             generate_font(
                 python,
                 "script",
                 16,
-                [caveat_small, stack_for("medium", 16)[0]],
+                [caveat_small, accent_stack[0], accent_stack[-1]],
                 font_name="ui_script_16",
                 codepoints_path=SCRIPT_SMALL_CODEPOINTS_PATH,
             )
 
             caveat_normal = temporary / "Caveat-600-20.ttf"
-            instance_inter(caveat_source, 600, 20, caveat_normal)
+            instance_variable_font(caveat_source, 600, 20, caveat_normal)
             generate_font(
                 python,
                 "script",
                 20,
-                [caveat_normal, stack_for("medium", 16)[0], hebrew_sources["medium"], arabic_source],
+                [
+                    caveat_normal,
+                    accent_stack[0],
+                    hebrew_sources["medium"],
+                    arabic_source,
+                    accent_stack[-1],
+                ],
                 font_name="ui_script_20",
+                codepoints_path=NON_KOREAN_CODEPOINTS_PATH,
             )
         write_if_changed(STAMP_PATH, (signature + "\n").encode("ascii"))
     else:
