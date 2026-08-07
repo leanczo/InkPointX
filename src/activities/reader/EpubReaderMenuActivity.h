@@ -32,13 +32,15 @@ class EpubReaderMenuActivity final : public Activity {
     OPEN_FROM_FILE,
     TOGGLE_FAVORITE,
     GESTURES,
-    DICTIONARY
+    DICTIONARY,
+    PDF_ZOOM
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
                                   const uint8_t currentOrientation, const uint8_t currentPageTurnOption,
-                                  const bool hasFootnotes, bool hasBookmarks, bool isFavorite);
+                                  const bool hasFootnotes, bool hasBookmarks, bool isFavorite, bool isPdf,
+                                  uint8_t currentPdfZoomOption);
 
   void onEnter() override;
   void onExit() override;
@@ -61,7 +63,7 @@ class EpubReaderMenuActivity final : public Activity {
     int itemIndex;
   };
 
-  static std::vector<MenuItem> buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool isFavorite);
+  static std::vector<MenuItem> buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool isFavorite, bool isPdf);
   static std::vector<MenuRow> buildMenuRows(const std::vector<MenuItem>& items);
   static StrId groupLabelId(MenuGroup group);
 
@@ -75,12 +77,14 @@ class EpubReaderMenuActivity final : public Activity {
   std::string title = "Reader Menu";
   uint8_t pendingOrientation = 0;
   uint8_t selectedPageTurnOption = 0;
+  uint8_t selectedPdfZoomOption = 0;
   const std::vector<StrId> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                 StrId::STR_LANDSCAPE_CCW};
   // The unit lives in the value ("3/min"), not the row title: the old
   // "(Pages Per Minute)" parenthetical pushed the title past the value lane
   // and it ellipsized in most locales.
   const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1/min", "3/min", "6/min", "12/min"};
+  static constexpr const char* pdfZoomLabels[] = {"100%", "125%", "150%", "200%"};
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;

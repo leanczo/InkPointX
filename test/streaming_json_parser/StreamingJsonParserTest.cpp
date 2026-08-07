@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -28,6 +29,8 @@ struct Event {
 
 struct TestContext {
   std::vector<Event> events;
+  std::string streamedValue;
+  int streamedFinalCount = 0;
 };
 
 void onKey(void* ctx, const char* key, size_t len) {
@@ -47,9 +50,15 @@ void onObjectStart(void* ctx) { static_cast<TestContext*>(ctx)->events.push_back
 void onObjectEnd(void* ctx) { static_cast<TestContext*>(ctx)->events.push_back({EventType::OBJECT_END, {}}); }
 void onArrayStart(void* ctx) { static_cast<TestContext*>(ctx)->events.push_back({EventType::ARRAY_START, {}}); }
 void onArrayEnd(void* ctx) { static_cast<TestContext*>(ctx)->events.push_back({EventType::ARRAY_END, {}}); }
+void onStringChunk(void* ctx, const char* value, size_t len, bool final) {
+  auto* test = static_cast<TestContext*>(ctx);
+  test->streamedValue.append(value, len);
+  if (final) ++test->streamedFinalCount;
+}
 
 JsonCallbacks makeCallbacks(TestContext* ctx) {
-  return {ctx, onKey, onString, onNumber, onBool, onNull, onObjectStart, onObjectEnd, onArrayStart, onArrayEnd};
+  return {ctx,           onKey,       onString,     onNumber,   onBool, onNull,
+          onObjectStart, onObjectEnd, onArrayStart, onArrayEnd, nullptr};
 }
 
 std::vector<Event> parse(const char* json) {
@@ -253,6 +262,24 @@ TEST(StreamingJsonParser, LargeTokenTruncation) {
   }
   EXPECT_TRUE(foundLongKey);
   EXPECT_FALSE(foundLongValue);
+}
+
+TEST(StreamingJsonParser, OptionalChunkCallbackStreamsLargeString) {
+  TestContext ctx;
+  JsonCallbacks callbacks = makeCallbacks(&ctx);
+  callbacks.onStringChunk = onStringChunk;
+  StreamingJsonParser parser(callbacks);
+  const std::string value(StreamingJsonParser::TOKEN_BUF_SIZE * 3 + 17, 'x');
+  const std::string json = std::string(R"({"body":")") + value + R"("})";
+
+  for (size_t i = 0; i < json.size(); i += 7) parser.feed(json.data() + i, std::min<size_t>(7, json.size() - i));
+
+  EXPECT_EQ(ctx.streamedValue, value);
+  EXPECT_EQ(ctx.streamedFinalCount, 1);
+  EXPECT_FALSE(parser.hasError());
+  const bool emittedWholeString = std::any_of(ctx.events.begin(), ctx.events.end(),
+                                              [](const Event& event) { return event.type == EventType::STRING; });
+  EXPECT_FALSE(emittedWholeString);
 }
 
 TEST(StreamingJsonParser, EmptyObject) {

@@ -5,6 +5,10 @@
 #include <I18n.h>
 #include <WiFi.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <iterator>
+
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -12,6 +16,42 @@
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
 #include "util/BootDiag.h"
+
+namespace {
+constexpr int UPDATE_CARD_RADIUS = 14;
+constexpr int UPDATE_CARD_ACCENT_WIDTH = 5;
+constexpr int UPDATE_CARD_SIDE_PADDING = 18;
+}  // namespace
+
+void OtaUpdateActivity::prepareReleaseNoteLines(const int wrapWidth) {
+  if (releaseNotesWrapWidth == wrapWidth && !releaseNoteLines.empty()) return;
+  releaseNotesWrapWidth = wrapWidth;
+  releaseNoteLines.clear();
+  releaseNotesPage = 0;
+
+  const std::string& notes = updater.getReleaseNotes();
+  if (notes.empty()) {
+    releaseNoteLines.emplace_back(tr(STR_NO_ENTRIES));
+    return;
+  }
+
+  size_t position = 0;
+  while (position <= notes.size()) {
+    const size_t end = notes.find('\n', position);
+    const std::string paragraph = notes.substr(position, end == std::string::npos ? std::string::npos : end - position);
+    if (paragraph.empty()) {
+      if (!releaseNoteLines.empty() && !releaseNoteLines.back().empty()) releaseNoteLines.emplace_back();
+    } else {
+      auto wrapped = renderer.wrappedText(UI_10_FONT_ID, paragraph.c_str(), wrapWidth, 96);
+      releaseNoteLines.insert(releaseNoteLines.end(), std::make_move_iterator(wrapped.begin()),
+                              std::make_move_iterator(wrapped.end()));
+    }
+    if (end == std::string::npos) break;
+    position = end + 1;
+  }
+  while (!releaseNoteLines.empty() && releaseNoteLines.back().empty()) releaseNoteLines.pop_back();
+  if (releaseNoteLines.empty()) releaseNoteLines.emplace_back(tr(STR_NO_ENTRIES));
+}
 
 const char* OtaUpdateActivity::failureText(const int result) {
   // The user could not previously tell "no network" from "bad image" — the
@@ -80,6 +120,9 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
 
   {
     RenderLock lock(*this);
+    releaseNoteLines.clear();
+    releaseNotesPage = 0;
+    releaseNotesWrapWidth = 0;
     state = WAITING_CONFIRMATION;
   }
 }
@@ -146,13 +189,77 @@ void OtaUpdateActivity::render(RenderLock&&) {
   if (state == CHECKING_FOR_UPDATE) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_CHECKING_UPDATE));
   } else if (state == WAITING_CONFIRMATION) {
-    renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_NEW_UPDATE), true, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height + metrics.verticalSpacing,
-                      (std::string(tr(STR_CURRENT_VERSION)) + CROSSPOINT_VERSION).c_str());
-    renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, top + height * 2 + metrics.verticalSpacing * 2,
-                      (std::string(tr(STR_NEW_VERSION)) + updater.getLatestVersion()).c_str());
+    const bool compact = pageHeight < 600;
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int cardX = metrics.contentSidePadding;
+    const int cardWidth = pageWidth - metrics.contentSidePadding * 2;
+    const int versionCardHeight = compact ? 72 : 92;
+    renderer.drawRoundedRect(cardX, contentTop, cardWidth, versionCardHeight, 1, UPDATE_CARD_RADIUS, true);
+    renderer.fillRoundedRect(cardX + 10, contentTop + 12, UPDATE_CARD_ACCENT_WIDTH, versionCardHeight - 24, 2,
+                             Color::Black);
 
-    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_UPDATE), "", "");
+    const int titleLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    const std::string availableTitle =
+        renderer.truncatedText(UI_10_FONT_ID, tr(STR_NEW_UPDATE), cardWidth - 52, EpdFontFamily::BOLD);
+    renderer.drawText(UI_10_FONT_ID, cardX + 28, contentTop + (compact ? 8 : 12), availableTitle.c_str(), true,
+                      EpdFontFamily::BOLD);
+
+    const std::string currentVersion = CROSSPOINT_VERSION;
+    const std::string latestVersion = updater.getLatestVersion();
+    const int currentWidth = renderer.getTextWidth(UI_10_FONT_ID, currentVersion.c_str());
+    const int latestWidth = renderer.getTextWidth(UI_10_FONT_ID, latestVersion.c_str(), EpdFontFamily::BOLD);
+    constexpr int arrowWidth = 34;
+    const int transitionWidth = currentWidth + arrowWidth + latestWidth;
+    const int transitionX = cardX + std::max(28, (cardWidth - transitionWidth) / 2);
+    const int transitionY = contentTop + (compact ? 39 : 53);
+    renderer.drawText(UI_10_FONT_ID, transitionX, transitionY, currentVersion.c_str());
+    const int arrowX = transitionX + currentWidth + 9;
+    const int arrowY = transitionY + titleLineHeight / 2;
+    renderer.drawLine(arrowX, arrowY, arrowX + 16, arrowY, true);
+    renderer.drawLine(arrowX + 12, arrowY - 4, arrowX + 16, arrowY, true);
+    renderer.drawLine(arrowX + 12, arrowY + 4, arrowX + 16, arrowY, true);
+    renderer.drawText(UI_10_FONT_ID, transitionX + currentWidth + arrowWidth, transitionY, latestVersion.c_str(), true,
+                      EpdFontFamily::BOLD);
+
+    const int sectionY = contentTop + versionCardHeight + (compact ? 8 : 14);
+    // The built-in handwritten face intentionally omits Arabic and Hebrew to
+    // save flash; use the complete structural face for those locales. A user-
+    // supplied accent font still remains available on all other scripts.
+    const int sectionFont = I18N.isRtl() ? UI_12_FONT_ID : (compact ? SCRIPT_SMALL_FONT_ID : SCRIPT_FONT_ID);
+    const int sectionLineHeight = renderer.getLineHeight(sectionFont);
+    renderer.drawText(sectionFont, cardX, sectionY, tr(STR_WHATS_NEW));
+
+    const int notesTop = sectionY + sectionLineHeight + (compact ? 3 : 6);
+    const int notesBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+    const int notesHeight = std::max(70, notesBottom - notesTop);
+    renderer.drawRoundedRect(cardX, notesTop, cardWidth, notesHeight, 1, UPDATE_CARD_RADIUS, true);
+    renderer.fillRoundedRect(cardX + 10, notesTop + 12, 3, notesHeight - 24, 1, Color::Black);
+
+    const int notesX = cardX + UPDATE_CARD_SIDE_PADDING + 8;
+    const int notesWidth = cardWidth - (UPDATE_CARD_SIDE_PADDING + 8) * 2;
+    prepareReleaseNoteLines(notesWidth);
+    const int noteLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+    releaseNotesLinesPerPage = std::max(1, (notesHeight - 24) / noteLineHeight);
+    const int pageCount = std::max(
+        1, (static_cast<int>(releaseNoteLines.size()) + releaseNotesLinesPerPage - 1) / releaseNotesLinesPerPage);
+    releaseNotesPage = std::clamp(releaseNotesPage, 0, pageCount - 1);
+    const int firstLine = releaseNotesPage * releaseNotesLinesPerPage;
+    const int lastLine = std::min(static_cast<int>(releaseNoteLines.size()), firstLine + releaseNotesLinesPerPage);
+    int lineY = notesTop + 12;
+    for (int i = firstLine; i < lastLine; ++i) {
+      if (!releaseNoteLines[i].empty()) renderer.drawText(UI_10_FONT_ID, notesX, lineY, releaseNoteLines[i].c_str());
+      lineY += noteLineHeight;
+    }
+
+    if (pageCount > 1) {
+      char counter[32];
+      snprintf(counter, sizeof(counter), "%d / %d", releaseNotesPage + 1, pageCount);
+      const int counterWidth = renderer.getTextWidth(SMALL_FONT_ID, counter);
+      renderer.drawText(SMALL_FONT_ID, cardX + cardWidth - counterWidth, sectionY + 3, counter);
+    }
+
+    const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_UPDATE), pageCount > 1 ? tr(STR_DIR_UP) : "",
+                                              pageCount > 1 ? tr(STR_DIR_DOWN) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == UPDATE_IN_PROGRESS) {
     const char* phaseText = tr(STR_UPDATING);
@@ -203,6 +310,22 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
 void OtaUpdateActivity::loop() {
   if (state == WAITING_CONFIRMATION) {
+    const int pageCount = std::max(
+        1, (static_cast<int>(releaseNoteLines.size()) + releaseNotesLinesPerPage - 1) / releaseNotesLinesPerPage);
+    if ((mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+         mappedInput.wasPressed(MappedInputManager::Button::Left)) &&
+        releaseNotesPage > 0) {
+      --releaseNotesPage;
+      requestUpdate();
+      return;
+    }
+    if ((mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+         mappedInput.wasPressed(MappedInputManager::Button::Right)) &&
+        releaseNotesPage + 1 < pageCount) {
+      ++releaseNotesPage;
+      requestUpdate();
+      return;
+    }
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       LOG_DBG("OTA", "New update available, starting download...");
       {
@@ -212,9 +335,13 @@ void OtaUpdateActivity::loop() {
       requestUpdateAndWait();
 
       // Keep the already-rendered update screen on the panel while freeing
-      // font caches that would otherwise compete with TLS for contiguous heap.
+      // font caches and changelog layout that would otherwise compete with
+      // TLS for contiguous heap. E-ink retains the progress frame without any
+      // of these display-only allocations remaining alive.
       {
         RenderLock lock(*this);
+        std::vector<std::string>().swap(releaseNoteLines);
+        updater.discardReleaseNotes();
         if (auto* cache = renderer.getFontCacheManager()) cache->clearCache();
       }
       OtaUpdater::OtaUpdaterError res;

@@ -1,5 +1,6 @@
 #include "ReleaseJsonParser.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -15,7 +16,7 @@ void safeCopy(char* dst, size_t dstSize, const char* src, size_t srcLen) {
 
 ReleaseJsonParser::ReleaseJsonParser()
     : parser(JsonCallbacks{this, sOnKey, sOnString, sOnNumber, sOnBool, sOnNull, sOnObjectStart, sOnObjectEnd,
-                           sOnArrayStart, sOnArrayEnd}) {
+                           sOnArrayStart, sOnArrayEnd, sOnStringChunk}) {
   reset();
 }
 
@@ -31,6 +32,7 @@ void ReleaseJsonParser::reset() {
   firmwareSize = 0;
   tagFound = false;
   firmwareFound = false;
+  releaseNotes.clear();
   currentAssetName[0] = '\0';
   currentAssetUrl[0] = '\0';
   currentAssetDigest[0] = '\0';
@@ -45,6 +47,7 @@ const char* ReleaseJsonParser::getTagName() const { return tagName; }
 const char* ReleaseJsonParser::getFirmwareUrl() const { return firmwareUrl; }
 const char* ReleaseJsonParser::getFirmwareDigest() const { return firmwareDigest; }
 size_t ReleaseJsonParser::getFirmwareSize() const { return firmwareSize; }
+const std::string& ReleaseJsonParser::getReleaseNotes() const { return releaseNotes; }
 
 void ReleaseJsonParser::commitAsset() {
   if (strcmp(currentAssetName, "firmware.bin") == 0) {
@@ -69,6 +72,8 @@ void ReleaseJsonParser::sOnKey(void* ctx, const char* key, size_t len) {
       if (self->depth == 1) {
         if (len == 8 && memcmp(key, "tag_name", 8) == 0)
           self->lastKey = LastKey::TAG_NAME;
+        else if (len == 4 && memcmp(key, "body", 4) == 0)
+          self->lastKey = LastKey::RELEASE_NOTES;
         else if (len == 6 && memcmp(key, "assets", 6) == 0)
           self->lastKey = LastKey::ASSETS;
         else
@@ -104,6 +109,11 @@ void ReleaseJsonParser::sOnString(void* ctx, const char* value, size_t len) {
         self->tagFound = true;
       }
       break;
+    case LastKey::RELEASE_NOTES:
+      if (self->position == Position::TOP_LEVEL && self->depth == 1) {
+        self->releaseNotes.assign(value, std::min(len, MAX_RELEASE_NOTES_SIZE));
+      }
+      break;
     case LastKey::ASSET_NAME:
       if (self->position == Position::IN_ASSET_OBJECT && self->assetDepth == 1)
         safeCopy(self->currentAssetName, sizeof(self->currentAssetName), value, len);
@@ -120,6 +130,16 @@ void ReleaseJsonParser::sOnString(void* ctx, const char* value, size_t len) {
       break;
   }
   self->lastKey = LastKey::NONE;
+}
+
+void ReleaseJsonParser::sOnStringChunk(void* ctx, const char* value, const size_t len, const bool final) {
+  auto* self = static_cast<ReleaseJsonParser*>(ctx);
+  if (self->lastKey == LastKey::RELEASE_NOTES && self->position == Position::TOP_LEVEL && self->depth == 1 &&
+      self->releaseNotes.size() < MAX_RELEASE_NOTES_SIZE) {
+    const size_t available = MAX_RELEASE_NOTES_SIZE - self->releaseNotes.size();
+    self->releaseNotes.append(value, std::min(len, available));
+  }
+  if (final) self->lastKey = LastKey::NONE;
 }
 
 void ReleaseJsonParser::sOnNumber(void* ctx, const char* value, size_t /*len*/) {

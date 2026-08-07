@@ -43,7 +43,6 @@ class Pdf {
     HalFile xref;
     uint64_t size = 0;
     uint64_t xrefSize = 0;
-    std::string xrefPath;
   };
 
   std::string filepath;
@@ -58,6 +57,7 @@ class Pdf {
   size_t pageCount = 0;
   bool loaded = false;
   bool packageBuiltDuringLoad = false;
+  bool xrefCacheReady = false;
   pdfio_file_t* document = nullptr;
   HalFile imageRecords;
   size_t imageCount = 0;
@@ -76,6 +76,7 @@ class Pdf {
 
   bool openDocument();
   void closeDocument();
+  void removeTemporaryXref();
   bool convertToPackage();
   bool cacheIsCurrent();
   bool loadMetadataCache();

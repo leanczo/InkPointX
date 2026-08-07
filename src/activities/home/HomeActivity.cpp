@@ -43,6 +43,9 @@ constexpr int HOME_PROGRESS_BAR_THICKNESS = 6;
 constexpr int HOME_ACTION_SIDE_MARGIN = 20;
 constexpr int HOME_DOTS_TOP_OFFSET = 50;
 constexpr int HOME_DOTS_CLEARANCE = 22;
+constexpr int HOME_PLACEHOLDER_TEXT_MARGIN = 22;
+constexpr int HOME_PLACEHOLDER_TITLE_PADDING = 28;
+constexpr int HOME_PLACEHOLDER_AUTHOR_PADDING = 28;
 
 struct CachedHomeDetails {
   bool valid = false;
@@ -506,14 +509,17 @@ void HomeActivity::render(RenderLock&&) {
     // One step down from the old 18 pt: the title stays the anchor of the
     // screen, but no longer competes with the header.
     const bool hasCover = !homeCoverPath.empty();
-    const bool showTitle = resolveHomeMetadataVisibility(SETTINGS.homeBookTitleMode, hasCover);
+    const bool titleVisible = resolveHomeMetadataVisibility(SETTINGS.homeBookTitleMode, hasCover);
+    const bool metadataInsidePlaceholder = hasRecentBook && !hasCover;
+    const bool showTitle = titleVisible && !metadataInsidePlaceholder;
     const auto titleLines =
         showTitle ? renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(), textWidth, 2, EpdFontFamily::BOLD)
                   : std::vector<std::string>{};
-    const bool showAuthor = resolveHomeMetadataVisibility(SETTINGS.homeBookAuthorMode, hasCover) &&
-                            (hasRecentBook ? !recentBook->author.empty() : true);
+    const bool authorVisible = resolveHomeMetadataVisibility(SETTINGS.homeBookAuthorMode, hasCover) &&
+                               (hasRecentBook ? !recentBook->author.empty() : true);
+    const bool showAuthor = authorVisible && !metadataInsidePlaceholder;
     const char* authorLabel = hasRecentBook ? recentBook->author.c_str() : tr(STR_OPEN_LIBRARY_HINT);
-    const int authorFontId = showAuthor ? homeAuthorFontId(renderer, authorLabel) : SCRIPT_SMALL_FONT_ID;
+    const int authorFontId = authorVisible ? homeAuthorFontId(renderer, authorLabel) : SCRIPT_SMALL_FONT_ID;
     const int authorLineHeight = showAuthor ? renderer.getLineHeight(authorFontId) : 0;
     const int titleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
     const HomeBookLayout layout =
@@ -604,11 +610,11 @@ void HomeActivity::render(RenderLock&&) {
     }
 
     if (!coverDrawn) {
-      // Ghost cover for books without one: the same footprint, corner radius
-      // and outline as a real thumbnail, so the page keeps its structure
-      // instead of showing a screen-sized void. The old fallback drew the
-      // 32 px icon scaled to 24 px, which misaligns the bitmap's rows and
-      // rendered as noise.
+      // A missing-cover book still owns the full artwork slot. Its metadata is
+      // placed inside this deliberately quiet typographic cover instead of in
+      // external rows that would make the placeholder visibly smaller than a
+      // real cover. Explicit title/author visibility settings remain the final
+      // authority; AUTO simply enables both fields when they exist.
       const int ghostHeight = std::min(layout.coverSlotHeight, layout.coverMaxWidth * 3 / 2);
       const int ghostWidth = ghostHeight * 2 / 3;
       const int ghostX = (pageWidth - ghostWidth) / 2;
@@ -616,6 +622,29 @@ void HomeActivity::render(RenderLock&&) {
       coverVisualWidth = ghostWidth;
       renderer.drawRoundedRect(ghostX, ghostY, ghostWidth, ghostHeight, 1, HOME_COVER_RADIUS, true);
       renderer.drawIcon(LucideBookOpen32, pageWidth / 2 - 16, ghostY + ghostHeight / 2 - 16, 32, 32);
+
+      if (metadataInsidePlaceholder) {
+        const int placeholderTextWidth = std::max(1, ghostWidth - HOME_PLACEHOLDER_TEXT_MARGIN * 2);
+        if (titleVisible) {
+          const auto placeholderTitleLines = renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(),
+                                                                  placeholderTextWidth, 4,
+                                                                  EpdFontFamily::BOLD);
+          const int placeholderTitleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
+          for (size_t line = 0; line < placeholderTitleLines.size(); ++line) {
+            renderer.drawCenteredText(
+                UI_14_FONT_ID,
+                ghostY + HOME_PLACEHOLDER_TITLE_PADDING + static_cast<int>(line) * placeholderTitleLineHeight,
+                placeholderTitleLines[line].c_str(), true, EpdFontFamily::BOLD);
+          }
+        }
+        if (authorVisible) {
+          const std::string placeholderAuthor =
+              renderer.truncatedText(authorFontId, authorLabel, placeholderTextWidth);
+          const int placeholderAuthorY = ghostY + ghostHeight - HOME_PLACEHOLDER_AUTHOR_PADDING -
+                                         renderer.getLineHeight(authorFontId);
+          renderer.drawCenteredText(authorFontId, placeholderAuthorY, placeholderAuthor.c_str());
+        }
+      }
     }
 
     if (showAuthor) {

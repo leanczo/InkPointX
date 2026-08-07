@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.5" src="https://img.shields.io/badge/version-2.2.5-000000">
+  <img alt="Version 2.2.6" src="https://img.shields.io/badge/version-2.2.6-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,12 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **PDF zoom and safer PDF opening in 2.2.6.** Fixed-layout PDFs such as music scores open through a bounded-memory
+  conversion path again. The reader menu now offers 100%, 125%, 150%, and 200% PDF zoom; zoomed pages are explored as
+  four overlapping viewports with the normal page buttons, and the selected zoom is remembered per document. The
+  update screen also downloads and presents the release's **What's new** notes before installation. On the home screen,
+  a book without embedded artwork now receives a full-size typographic cover with its title at the top and author at
+  the bottom; explicit metadata visibility settings still take priority.
 - **A faster, adaptive Now Reading screen in 2.2.5.** Book title and author each support **Default**, **Show**, and
   **Hide** under Interface settings. The default keeps cover-backed books visually clean, while books without artwork
   retain their title; explicit user choices always win. The cover expands into every released row without cropping,
@@ -44,7 +50,7 @@ interface, and controller-specific display tuning.
   arrive in one complete frame from lightweight geometry-aware caches instead of appearing after the screen is shown.
   Physical-button legends no longer animate a pressed state, eliminating the second e-ink refresh formerly needed on
   release and making horizontal navigation materially faster.
-- **Korean system language in 2.2.4.** All 533 interface strings are available in Korean, and every UI size embeds
+- **Korean system language in 2.2.4.** All 537 interface strings are available in Korean, and every UI size embeds
   an exact, 1-bit **Noto Sans KR** subset for crisp Hangul on both X3 and X4. Korean automatically uses this complete
   built-in family instead of a potentially incompatible custom interface or accent font; the custom selection is
   preserved and returns when another language is selected.

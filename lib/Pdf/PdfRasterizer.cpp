@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+#include "PdfRuntime.h"
+
 namespace {
 constexpr int MAX_SUPPORTED_RASTER_WIDTH = 528;
 constexpr size_t MAX_FONT_BYTES = 256 * 1024;
@@ -23,6 +25,7 @@ constexpr size_t PDF_TOKEN_SIZE = 1024;
 constexpr int MAX_FORM_DEPTH = 6;
 constexpr int MAX_GLYPH_DEPTH = 8;
 constexpr size_t MIN_PATH_POINTS = 128;
+constexpr size_t RECOMMENDED_PATH_POINTS = 384;
 constexpr size_t OWNED_PATH_POINTS = 512;
 constexpr size_t MAX_GLYPH_POINTS = 256;
 constexpr size_t MAX_GLYPH_CONTOURS = 32;
@@ -609,6 +612,8 @@ class ContentRenderer {
   TrueTypeFace* activeFace = nullptr;
   bool paintGraphics = true;
   bool pathLimitExceeded = false;
+  bool ignoredImageXObject = false;
+  bool paintedBlackPixel = false;
   const char* failureReason = nullptr;
 
   void fail(const char* reason) {
@@ -628,6 +633,7 @@ class ContentRenderer {
     if (static_cast<unsigned>(x) >= static_cast<unsigned>(width) ||
         static_cast<unsigned>(y) >= static_cast<unsigned>(height))
       return;
+    if (black) paintedBlackPixel = true;
     uint8_t& byte = pixels[static_cast<size_t>(y) * rowBytes + (x >> 3)];
     const uint8_t mask = static_cast<uint8_t>(0x80u >> (x & 7));
     if (black)
@@ -713,6 +719,7 @@ class ContentRenderer {
     const int lastRow = std::min(height - 1, static_cast<int>(std::ceil(maxY)));
     std::array<Intersection, 128> intersections{};
     for (int y = firstRow; y <= lastRow; ++y) {
+      pdf_runtime::serviceWatchdog();
       size_t intersectionCount = 0;
       const double scanY = y + 0.5;
       for (const auto& contour : path.getContours()) {
@@ -760,6 +767,7 @@ class ContentRenderer {
   }
 
   void drawGlyph(GraphicsState& state, TrueTypeFace& face, const uint16_t glyph) {
+    pdf_runtime::serviceWatchdog();
     const double scale = state.fontSize / face.unitsPerEm;
     Matrix glyphMatrix{scale * state.horizontalScale, 0, 0, scale, 0, state.textRise};
     glyphMatrix = multiply(state.ctm, multiply(state.textMatrix, glyphMatrix));
@@ -983,10 +991,14 @@ class ContentRenderer {
         else
           fail("too many Form XObjects");
       } else if (subtype && strcmp(subtype, "Image") == 0) {
-        // Fixed-layout raster pages must preserve image placement. The compact
-        // vector renderer does not decode image XObjects, so reject this path
-        // explicitly instead of caching a page with silently missing artwork.
-        fail("fixed-layout image XObject is not supported by the vector rasterizer");
+        // Bitmap-only pages are handled by Pdf::extractPageImages.  A mixed
+        // vector page, however, may contain a tiny logo or decoration alongside
+        // all of its meaningful paths.  Rejecting the whole raster pass here
+        // regressed music scores and many office-generated PDFs to an
+        // "unsupported content" notice.  Keep the vector result, but only if
+        // the pass actually painted something; this still prevents an
+        // image-only Form XObject from being cached as a blank page.
+        ignoredImageXObject = true;
       }
     }
   }
@@ -999,6 +1011,7 @@ class ContentRenderer {
     operands.reserve(16);
     char token[PDF_TOKEN_SIZE];
     while (pdfioStreamGetToken(stream, token, sizeof(token))) {
+      pdf_runtime::serviceWatchdog();
       if (isOperandToken(token)) {
         if (operands.size() < 128)
           operands.emplace_back(token);
@@ -1084,9 +1097,14 @@ class ContentRenderer {
     }
   }
 
-  bool succeeded() const { return !pathLimitExceeded && failureReason == nullptr; }
+  bool succeeded() const {
+    return !pathLimitExceeded && failureReason == nullptr && (!ignoredImageXObject || paintedBlackPixel);
+  }
   const char* getFailureReason() const {
-    return failureReason ? failureReason : (pathLimitExceeded ? "path point/contour capacity exceeded" : "");
+    if (failureReason) return failureReason;
+    if (pathLimitExceeded) return "path point/contour capacity exceeded";
+    if (ignoredImageXObject && !paintedBlackPixel) return "image-only Form XObject requires extraction fallback";
+    return "";
   }
 };
 
@@ -1151,6 +1169,7 @@ bool writeMonochromePng(const std::string& path, const uint8_t* pixels, const in
   uint32_t adler = 1;
   const uint8_t filter = 0;
   for (int row = 0; success && row < height; ++row) {
+    pdf_runtime::serviceWatchdog();
     size_t cursor = 0;
     if (row == 0) {
       block[cursor++] = 0x78;
@@ -1190,6 +1209,7 @@ bool streamNeedsRasterization(pdfio_stream_t* stream, pdfio_dict_t* resources) {
   std::vector<std::string> operands;
   char token[PDF_TOKEN_SIZE];
   while (pdfioStreamGetToken(stream, token, sizeof(token))) {
+    pdf_runtime::serviceWatchdog();
     if (isOperandToken(token)) {
       if (operands.size() < 128) operands.emplace_back(token);
       continue;
@@ -1250,8 +1270,7 @@ bool PdfRasterizer::renderPage(pdfio_obj_t* page, const std::string& outputPath,
   std::unique_ptr<uint8_t[]> owned;
   uint8_t* buffer = scratch;
   size_t bufferSize = scratchSize;
-  const size_t minimumSize = required + MIN_PATH_POINTS * sizeof(Point) + alignof(Point) - 1;
-  if (!buffer || bufferSize < minimumSize) {
+  if (!buffer || bufferSize < required) {
     bufferSize = required + OWNED_PATH_POINTS * sizeof(Point) + alignof(Point) - 1;
     owned.reset(new (std::nothrow) uint8_t[bufferSize]);
     buffer = owned.get();
@@ -1264,14 +1283,33 @@ bool PdfRasterizer::renderPage(pdfio_obj_t* page, const std::string& outputPath,
   const uintptr_t alignedPath = (rawPath + alignof(Point) - 1) & ~(static_cast<uintptr_t>(alignof(Point)) - 1);
   const size_t alignmentBytes = static_cast<size_t>(alignedPath - rawPath);
   Point* pathPoints = reinterpret_cast<Point*>(alignedPath);
-  const size_t pathCapacity = (bufferSize - required - alignmentBytes) / sizeof(Point);
+  const size_t tailBytes = bufferSize - required;
+  const size_t pathCapacity = tailBytes > alignmentBytes ? (tailBytes - alignmentBytes) / sizeof(Point) : 0;
+  std::unique_ptr<Point[]> ownedPathPoints;
+  size_t effectivePathCapacity = pathCapacity;
+  // The X3 framebuffer is wider, so an A4 page leaves fewer than 200 Point
+  // slots in its unused tail.  That is enough for trivial diagrams but not a
+  // real music system.  Keep using the framebuffer for the 49 KiB pixel plane
+  // and borrow only a small 8 KiB heap block for paths instead of allocating a
+  // second full raster buffer.
+  if (effectivePathCapacity < RECOMMENDED_PATH_POINTS) {
+    ownedPathPoints.reset(new (std::nothrow) Point[OWNED_PATH_POINTS]);
+    if (ownedPathPoints) {
+      pathPoints = ownedPathPoints.get();
+      effectivePathCapacity = OWNED_PATH_POINTS;
+    }
+  }
+  if (effectivePathCapacity < MIN_PATH_POINTS) {
+    error = "Not enough memory for PDF vector paths";
+    return false;
+  }
   memset(buffer, 0xff, required);
   const double scale = std::min(static_cast<double>(width) / sourceWidth, static_cast<double>(height) / sourceHeight);
   const double offsetX = (width - sourceWidth * scale) * 0.5;
   const double offsetY = (height - sourceHeight * scale) * 0.5;
   const Matrix pageMatrix{scale, 0, 0, -scale, offsetX - box.x1 * scale, offsetY + box.y2 * scale};
   const std::string fontScratchPath = outputPath + ".font.tmp";
-  ContentRenderer renderer(buffer, width, height, pageMatrix, pathPoints, pathCapacity, fontScratchPath);
+  ContentRenderer renderer(buffer, width, height, pageMatrix, pathPoints, effectivePathCapacity, fontScratchPath);
   renderer.render(page);
   Storage.remove(fontScratchPath.c_str());
   if (!renderer.succeeded()) {

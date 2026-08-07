@@ -47,6 +47,13 @@ void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffse
   imageBlock->render(renderer, xPos + xOffset, yPos + yOffset);
 }
 
+bool PageImage::renderViewport(GfxRenderer& renderer, const int xOffset, const int yOffset, const int sourceX,
+                               const int sourceY, const int sourceWidth, const int sourceHeight,
+                               const int destinationWidth, const int destinationHeight) {
+  return imageBlock->renderViewport(renderer, xPos + xOffset, yPos + yOffset, sourceX, sourceY, sourceWidth,
+                                    sourceHeight, destinationWidth, destinationHeight);
+}
+
 bool PageImage::serialize(HalFile& file) {
   serialization::writePod(file, xPos);
   serialization::writePod(file, yPos);
@@ -112,6 +119,25 @@ void Page::render(GfxRenderer& renderer, const int fontId, const int xOffset, co
 void Page::renderImages(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset) const {
   renderFilteredPageElements(elements, renderer, fontId, xOffset, yOffset,
                              [](const PageElement& element) { return element.getTag() == TAG_PageImage; });
+}
+
+bool Page::getSingleImageGeometry(int16_t& x, int16_t& y, int16_t& width, int16_t& height) const {
+  if (elements.size() != 1 || elements.front()->getTag() != TAG_PageImage) return false;
+  const auto& image = static_cast<const PageImage&>(*elements.front());
+  x = image.xPos;
+  y = image.yPos;
+  width = image.getImageBlock().getWidth();
+  height = image.getImageBlock().getHeight();
+  return width > 0 && height > 0;
+}
+
+bool Page::renderSingleImageViewport(GfxRenderer& renderer, const int xOffset, const int yOffset, const int sourceX,
+                                     const int sourceY, const int sourceWidth, const int sourceHeight,
+                                     const int destinationWidth, const int destinationHeight) const {
+  if (elements.size() != 1 || elements.front()->getTag() != TAG_PageImage) return false;
+  auto& image = static_cast<PageImage&>(*elements.front());
+  return image.renderViewport(renderer, xOffset, yOffset, sourceX, sourceY, sourceWidth, sourceHeight, destinationWidth,
+                              destinationHeight);
 }
 
 bool Page::serialize(HalFile& file) const {

@@ -15,6 +15,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "FirmwareFlasher.h"
 #include "HttpDownloader.h"
@@ -28,6 +29,102 @@ constexpr size_t HASH_CHUNK_SIZE = 4096;
 constexpr size_t MIN_TLS_FREE_HEAP = 64 * 1024;
 constexpr size_t MIN_TLS_LARGEST_BLOCK = 32 * 1024;
 constexpr int PROGRESS_STEP_PERCENT = 5;
+
+void trimAscii(std::string& value) {
+  const auto whitespace = [](const unsigned char c) { return c == ' ' || c == '\t' || c == '\r'; };
+  size_t first = 0;
+  while (first < value.size() && whitespace(static_cast<unsigned char>(value[first]))) ++first;
+  size_t last = value.size();
+  while (last > first && whitespace(static_cast<unsigned char>(value[last - 1]))) --last;
+  value = value.substr(first, last - first);
+}
+
+void removeIncompleteUtf8Tail(std::string& value) {
+  if (value.empty()) return;
+  size_t start = value.size() - 1;
+  while (start > 0 && (static_cast<unsigned char>(value[start]) & 0xC0) == 0x80) --start;
+  const unsigned char lead = static_cast<unsigned char>(value[start]);
+  size_t expected = 1;
+  if ((lead & 0xE0) == 0xC0)
+    expected = 2;
+  else if ((lead & 0xF0) == 0xE0)
+    expected = 3;
+  else if ((lead & 0xF8) == 0xF0)
+    expected = 4;
+  if (value.size() - start < expected) value.resize(start);
+}
+
+std::string plainMarkdownLine(std::string line) {
+  trimAscii(line);
+  while (!line.empty() && line.front() == '#') line.erase(line.begin());
+  trimAscii(line);
+
+  bool bullet = false;
+  if (line.size() > 1 && (line[0] == '*' || line[0] == '-' || line[0] == '+') && line[1] == ' ') {
+    bullet = true;
+    line.erase(0, 2);
+  } else {
+    size_t numberEnd = 0;
+    while (numberEnd < line.size() && std::isdigit(static_cast<unsigned char>(line[numberEnd]))) ++numberEnd;
+    if (numberEnd > 0 && numberEnd + 1 < line.size() && line[numberEnd] == '.' && line[numberEnd + 1] == ' ') {
+      bullet = true;
+      line.erase(0, numberEnd + 2);
+    }
+  }
+
+  // Keep the readable label of Markdown links but omit their usually very
+  // long URL. Release links remain available on GitHub itself.
+  for (size_t open = line.find('['); open != std::string::npos;) {
+    const size_t close = line.find("](", open + 1);
+    const size_t end = close == std::string::npos ? std::string::npos : line.find(')', close + 2);
+    if (close == std::string::npos || end == std::string::npos) break;
+    line.replace(open, end - open + 1, line.substr(open + 1, close - open - 1));
+    open = line.find('[', open + 1);
+  }
+
+  bool inTag = false;
+  std::string clean;
+  clean.reserve(line.size() + 2);
+  for (const char c : line) {
+    if (c == '<') {
+      inTag = true;
+      continue;
+    }
+    if (c == '>' && inTag) {
+      inTag = false;
+      continue;
+    }
+    if (!inTag && c != '*' && c != '`') clean.push_back(c);
+  }
+  trimAscii(clean);
+  return bullet && !clean.empty() ? std::string("- ") + clean : clean;
+}
+
+std::string sanitizeReleaseNotes(std::string notes) {
+  removeIncompleteUtf8Tail(notes);
+  std::string result;
+  result.reserve(notes.size());
+  size_t position = 0;
+  bool previousBlank = true;
+  while (position <= notes.size()) {
+    const size_t end = notes.find('\n', position);
+    std::string line = notes.substr(position, end == std::string::npos ? std::string::npos : end - position);
+    line = plainMarkdownLine(std::move(line));
+
+    // GitHub's generated footer is a raw comparison URL and adds no useful
+    // information on the reader's compact screen.
+    const bool generatedFooter = line.rfind("Full Changelog", 0) == 0 || line.rfind("https://", 0) == 0;
+    if (!generatedFooter && (!line.empty() || !previousBlank)) {
+      if (!result.empty()) result.push_back('\n');
+      result += line;
+      previousBlank = line.empty();
+    }
+    if (end == std::string::npos) break;
+    position = end + 1;
+  }
+  while (!result.empty() && result.back() == '\n') result.pop_back();
+  return result;
+}
 
 class WifiPowerSaveGuard {
  public:
@@ -319,6 +416,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
 
   updateAvailable = false;
   latestVersion.clear();
+  std::string().swap(releaseNotes);
   otaUrl.clear();
   otaDigest.clear();
   otaSize = 0;
@@ -368,6 +466,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
         lastError = JSON_PARSE_ERROR;
       } else {
         latestVersion = releaseParser.getTagName();
+        releaseNotes = sanitizeReleaseNotes(releaseParser.getReleaseNotes());
         otaUrl = firmwareUrl;
         otaDigest = firmwareDigest;
         otaSize = firmwareSize;
@@ -404,6 +503,8 @@ bool OtaUpdater::isUpdateNewer() const {
 }
 
 const std::string& OtaUpdater::getLatestVersion() const { return latestVersion; }
+const std::string& OtaUpdater::getReleaseNotes() const { return releaseNotes; }
+void OtaUpdater::discardReleaseNotes() { std::string().swap(releaseNotes); }
 
 OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgress, void* ctx) {
   if (!isUpdateNewer()) {

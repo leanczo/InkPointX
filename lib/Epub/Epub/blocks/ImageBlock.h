@@ -21,6 +21,11 @@ class ImageBlock final : public Block {
   bool isEmpty() override { return false; }
 
   void render(GfxRenderer& renderer, const int x, const int y);
+  // Render a source rectangle from the decoded pixel cache into arbitrary
+  // destination bounds. Used by fixed-layout PDF zoom without decoding the PNG
+  // again for every pan step.
+  bool renderViewport(GfxRenderer& renderer, int x, int y, int sourceX, int sourceY, int sourceWidth, int sourceHeight,
+                      int destinationWidth, int destinationHeight);
   bool serialize(HalFile& file);
   static std::unique_ptr<ImageBlock> deserialize(HalFile& file);
 

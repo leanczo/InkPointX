@@ -134,6 +134,8 @@ TEST(ReleaseJsonParser, RealisticPrettyPrinted) {
                "https://github.com/crosspoint-reader/crosspoint-reader/releases/download/v2.4.1/firmware.bin");
   EXPECT_EQ(p.getFirmwareSize(), 1572864u);
   EXPECT_STREQ(p.getFirmwareDigest(), "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  EXPECT_NE(p.getReleaseNotes().find("Fixed orientation crash"), std::string::npos);
+  EXPECT_NE(p.getReleaseNotes().find("Full Changelog"), std::string::npos);
 }
 
 TEST(ReleaseJsonParser, RealisticMinified) {
@@ -146,6 +148,33 @@ TEST(ReleaseJsonParser, RealisticMinified) {
   EXPECT_STREQ(p.getFirmwareUrl(),
                "https://github.com/crosspoint-reader/crosspoint-reader/releases/download/v2.4.1/firmware.bin");
   EXPECT_EQ(p.getFirmwareSize(), 1572864u);
+  EXPECT_EQ(p.getReleaseNotes(), "## What's Changed\n\n* Fixed orientation crash");
+}
+
+TEST(ReleaseJsonParser, StreamsAndBoundsLongReleaseNotes) {
+  const std::string notes(ReleaseJsonParser::MAX_RELEASE_NOTES_SIZE + 800, 'n');
+  const std::string json = std::string(R"({"tag_name":"v2.5.0","body":")") + notes +
+                           R"(","assets":[{"name":"firmware.bin","browser_download_url":"https://fw","size":1}]})";
+  ReleaseJsonParser p;
+  feedChunked(p, json.c_str(), 13);
+
+  EXPECT_TRUE(p.foundTag());
+  EXPECT_TRUE(p.foundFirmware());
+  EXPECT_EQ(p.getReleaseNotes().size(), ReleaseJsonParser::MAX_RELEASE_NOTES_SIZE);
+  EXPECT_EQ(p.getReleaseNotes(), notes.substr(0, ReleaseJsonParser::MAX_RELEASE_NOTES_SIZE));
+}
+
+TEST(ReleaseJsonParser, IgnoresNestedBodyFields) {
+  const char* json = R"({
+    "author":{"body":"not release notes"},
+    "tag_name":"v2.5.0",
+    "body":"Actual release notes",
+    "assets":[{"name":"firmware.bin","browser_download_url":"https://fw","size":1}]
+  })";
+  ReleaseJsonParser p;
+  p.feed(json, strlen(json));
+
+  EXPECT_EQ(p.getReleaseNotes(), "Actual release notes");
 }
 
 TEST(ReleaseJsonParser, PrettyAndMinifiedAgree) {
@@ -353,6 +382,7 @@ TEST(ReleaseJsonParser, MissingFirmwareBinAsset) {
   EXPECT_STREQ(p.getTagName(), "v1.0.0");
   EXPECT_STREQ(p.getFirmwareUrl(), "");
   EXPECT_EQ(p.getFirmwareSize(), 0u);
+  EXPECT_TRUE(p.getReleaseNotes().empty());
 }
 
 TEST(ReleaseJsonParser, EmptyAssetsArray) {
