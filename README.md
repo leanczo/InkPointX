@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.6" src="https://img.shields.io/badge/version-2.2.6-000000">
+  <img alt="Version 2.2.7" src="https://img.shields.io/badge/version-2.2.7-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,10 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Correct EPUB cover scaling in 2.2.7.** Low-resolution 1-bit thumbnails produced by progressive JPEG covers now
+  expand to the full aspect-preserving artwork area on the Now Reading screen instead of remaining in its top-left
+  corner. Existing malformed thumbnail caches are supported immediately, and stale prepared Home tiles are invalidated
+  automatically. Covers remain uncropped and the fix is limited to the Home artwork path.
 - **PDF zoom and safer PDF opening in 2.2.6.** Fixed-layout PDFs such as music scores open through a bounded-memory
   conversion path again. The reader menu now offers 100%, 125%, 150%, and 200% PDF zoom; zoomed pages are explored as
   four overlapping viewports with the normal page buttons, and the selected zoom is remembered per document. The

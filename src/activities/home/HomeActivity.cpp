@@ -552,9 +552,9 @@ void HomeActivity::render(RenderLock&&) {
             coverVisualWidth = coverWidth;
             const size_t regionSize = renderer.getRegionByteSize(coverX, coverY, coverWidth, coverHeight);
             char tileName[112];
-            snprintf(tileName, sizeof(tileName), "%s/home_tile_v1_%d_%d_%d_%d_%d_%d_%lu.bin",
+            snprintf(tileName, sizeof(tileName), "%s/home_tile_v2_%d_%d_%d_%d_%d_%d_%d_%lu.bin",
                      homeCachePath.c_str(), static_cast<int>(renderer.getOrientation()), coverX, coverY, coverWidth,
-                     coverHeight, bitmap.getWidth(), static_cast<unsigned long>(coverFile.size()));
+                     coverHeight, bitmap.getWidth(), bitmap.getHeight(), static_cast<unsigned long>(coverFile.size()));
 
             // Across HomeActivity instances, restore the same prepared tile
             // from the book cache. A sequential ~10-20 KB read is far cheaper
@@ -573,7 +573,17 @@ void HomeActivity::render(RenderLock&&) {
             }
 
             if (!coverDrawn) {
-              renderer.drawBitmap(bitmap, coverX, coverY, coverWidth, coverHeight);
+              // Old EPUB caches can contain a decoder-native progressive JPEG
+              // thumbnail (for example 141x225) even though its filename says
+              // thumb_540.bmp. The generic bitmap path intentionally treats its
+              // dimensions as maxima and never enlarges. Home has already
+              // calculated the exact aspect-preserving destination, so opt in
+              // to nearest-neighbour enlargement for 1-bit thumbnails here.
+              if (bitmap.is1Bit()) {
+                renderer.drawBitmap1Bit(bitmap, coverX, coverY, coverWidth, coverHeight, true);
+              } else {
+                renderer.drawBitmap(bitmap, coverX, coverY, coverWidth, coverHeight);
+              }
               renderer.maskRoundedRectOutsideCorners(coverX, coverY, coverWidth, coverHeight, HOME_COVER_RADIUS,
                                                      Color::White);
               renderer.drawRoundedRect(coverX, coverY, coverWidth, coverHeight, 1, HOME_COVER_RADIUS, true);

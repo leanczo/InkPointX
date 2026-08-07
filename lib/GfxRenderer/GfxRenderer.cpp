@@ -1292,15 +1292,22 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
 }
 
 void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y, const int maxWidth,
-                                 const int maxHeight) const {
+                                 const int maxHeight, const bool allowUpscale) const {
   float scale = 1.0f;
   bool isScaled = false;
-  if (maxWidth > 0 && bitmap.getWidth() > maxWidth) {
-    scale = static_cast<float>(maxWidth) / static_cast<float>(bitmap.getWidth());
-    isScaled = true;
+  bool hasTargetBounds = false;
+  float fitScale = 1.0f;
+  if (maxWidth > 0) {
+    fitScale = static_cast<float>(maxWidth) / static_cast<float>(bitmap.getWidth());
+    hasTargetBounds = true;
   }
-  if (maxHeight > 0 && bitmap.getHeight() > maxHeight) {
-    scale = std::min(scale, static_cast<float>(maxHeight) / static_cast<float>(bitmap.getHeight()));
+  if (maxHeight > 0) {
+    const float heightScale = static_cast<float>(maxHeight) / static_cast<float>(bitmap.getHeight());
+    fitScale = hasTargetBounds ? std::min(fitScale, heightScale) : heightScale;
+    hasTargetBounds = true;
+  }
+  if (hasTargetBounds && (fitScale < 1.0f || (allowUpscale && fitScale > 1.0f))) {
+    scale = fitScale;
     isScaled = true;
   }
 
@@ -1338,40 +1345,39 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
     // Calculate screen Y based on whether BMP is top-down or bottom-up
     const int sourceY = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
     int outputY = sourceY;
+    int outputYEnd = sourceY + 1;
     if (isScaled) {
-      const int outputYEnd = static_cast<int>(std::ceil(static_cast<float>(sourceY + 1) * scale));
+      outputYEnd = static_cast<int>(std::ceil(static_cast<float>(sourceY + 1) * scale));
       outputY = static_cast<int>(std::ceil(static_cast<float>(sourceY) * scale));
       if (outputY >= outputYEnd) continue;  // This source row is skipped by the inverse mapping.
     }
-    const int screenY = y + outputY;
-    if (screenY >= getScreenHeight()) {
-      continue;  // Continue reading to keep row counter in sync
-    }
-    if (screenY < 0) {
-      continue;
-    }
 
-    for (int outputX = 0; outputX < outputWidth; outputX++) {
-      const int sourceX =
-          isScaled ? std::min(bitmap.getWidth() - 1, static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
-                   : outputX;
-      const int screenX = x + outputX;
-      if (screenX >= getScreenWidth()) {
-        break;
-      }
-      if (screenX < 0) {
-        continue;
-      }
+    // Downscaling produces at most one output row here; upscaling deliberately
+    // repeats the decoded row. This keeps BMP access sequential (important on
+    // the SD card) while filling every destination pixel in the requested Home
+    // cover rectangle.
+    for (; outputY < outputYEnd; ++outputY) {
+      const int screenY = y + outputY;
+      if (screenY >= getScreenHeight()) break;
+      if (screenY < 0) continue;
 
-      // Get 2-bit value (result of readNextRow quantization)
-      const uint8_t val = outputRow[sourceX / 4] >> (6 - ((sourceX * 2) % 8)) & 0x3;
+      for (int outputX = 0; outputX < outputWidth; outputX++) {
+        const int sourceX =
+            isScaled
+                ? std::min(bitmap.getWidth() - 1,
+                           static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
+                : outputX;
+        const int screenX = x + outputX;
+        if (screenX >= getScreenWidth()) break;
+        if (screenX < 0) continue;
 
-      // For 1-bit source: 0 or 1 -> map to black (0,1,2) or white (3)
-      // val < 3 means black pixel (draw it)
-      if (val < 3) {
-        drawPixel(screenX, screenY, true);
+        // Get 2-bit value (result of readNextRow quantization)
+        const uint8_t val = outputRow[sourceX / 4] >> (6 - ((sourceX * 2) % 8)) & 0x3;
+
+        // For 1-bit source: 0 or 1 -> map to black (0,1,2) or white (3)
+        // val < 3 means black pixel (draw it)
+        if (val < 3) drawPixel(screenX, screenY, true);
       }
-      // White pixels (val == 3) are not drawn (leave background)
     }
   }
 
