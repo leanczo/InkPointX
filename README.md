@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.4" src="https://img.shields.io/badge/version-2.2.4-000000">
+  <img alt="Version 2.2.5" src="https://img.shields.io/badge/version-2.2.5-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,13 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **A faster, adaptive Now Reading screen in 2.2.5.** Book title and author each support **Default**, **Show**, and
+  **Hide** under Interface settings. The default keeps cover-backed books visually clean, while books without artwork
+  retain their title; explicit user choices always win. The cover expands into every released row without cropping,
+  and its progress bar follows the exact rendered cover width. Cover, percentage, page estimate, and reading time now
+  arrive in one complete frame from lightweight geometry-aware caches instead of appearing after the screen is shown.
+  Physical-button legends no longer animate a pressed state, eliminating the second e-ink refresh formerly needed on
+  release and making horizontal navigation materially faster.
 - **Korean system language in 2.2.4.** All 533 interface strings are available in Korean, and every UI size embeds
   an exact, 1-bit **Noto Sans KR** subset for crisp Hangul on both X3 and X4. Korean automatically uses this complete
   built-in family instead of a potentially incompatible custom interface or accent font; the custom selection is
@@ -68,7 +75,8 @@ interface, and controller-specific display tuning.
 - **Broader fixed-layout PDF support.** Large vector scores and diagram-heavy pages use bounded rasterization and
   geometry-aware caches on both X3 and X4 instead of aborting under ESP32-C3 memory pressure.
 - **Faster interaction.** Navigation edges are queued and coalesced while the panel is busy, automatic menu CLEAN
-  flashes are removed, and the normal UI stays on the controller's fast differential path.
+  flashes and release-time button-animation redraws are removed, and the normal UI stays on the controller's fast
+  differential path.
 - **Production hardening.** Network downloads and OTA writes are staged atomically, retries always restart from a
   clean file, caches carry source fingerprints and integrity records, and destructive dialogs require a distinct
   confirmation click.
@@ -290,8 +298,8 @@ InkPoint X contains a panel-aware refresh policy built around the active control
 - explicit clean and full refresh paths are retained for recovery from accumulated ghosting;
 - the first update after controller initialization uses a stronger waveform;
 - grayscale and 1-bit image paths use panel-aware conversion;
-- home-cover thumbnails are generated at their final layout size, avoiding a second rescale of an already-dithered
-  image;
+- home covers use geometry-keyed prepared tiles, so repeated carousel visits restore the exact final region instead
+  of decoding and rescaling the source bitmap again;
 - button debounce is tuned for the shared X3/X4 ADC ladder so one physical press produces one action.
 
 E-ink cannot behave exactly like an emissive phone display, but normal navigation is designed to feel immediate

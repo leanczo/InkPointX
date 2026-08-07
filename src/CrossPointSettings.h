@@ -163,6 +163,12 @@ class CrossPointSettings {
   // UI Theme
   enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3 };
   enum UI_FONT_FAMILY { UI_INTER = 0, UI_FONT_FAMILY_COUNT };
+  enum HOME_METADATA_MODE {
+    HOME_METADATA_AUTO = 0,
+    HOME_METADATA_SHOW = 1,
+    HOME_METADATA_HIDE = 2,
+    HOME_METADATA_MODE_COUNT
+  };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -263,6 +269,11 @@ class CrossPointSettings {
   uint8_t uiFontFamily = UI_INTER;
   // Compact physical-button hints at the edge of UI screens (1 = shown, 0 = hidden).
   uint8_t showButtonHints = 1;
+  // Optional metadata on the Now Reading home page. AUTO hides metadata when
+  // a real cover exists and shows it when the cover is missing. Explicit SHOW
+  // and HIDE always win over that default.
+  uint8_t homeBookTitleMode = HOME_METADATA_AUTO;
+  uint8_t homeBookAuthorMode = HOME_METADATA_AUTO;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)

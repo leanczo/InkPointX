@@ -229,7 +229,6 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
 void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                 const char* btn4) const {
   if (!SETTINGS.showButtonHints) return;
-  UITheme::getInstance().markButtonHintsVisible();
 
   const GfxRenderer::Orientation orig_orientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -257,7 +256,6 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
     return (label && label[0] != '\0') ? renderer.getTextWidth(hintFontId, label, EpdFontFamily::REGULAR) + 6 : 0;
   };
 
-  bool anyPressed = false;
   for (int groupIndex = 0; groupIndex < 2; ++groupIndex) {
     const Rect group = buttonHintGroupRect(renderer, groupIndex);
     renderer.fillRect(group.x, group.y, group.width, group.height, false);
@@ -273,15 +271,6 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       const int physicalButtonIndex = groupIndex * 2 + sectionIndex;
       const Rect section = sectionIndex == 0 ? Rect{group.x, group.y, seam, group.height}
                                              : Rect{group.x + seam, group.y, group.width - seam, group.height};
-      const bool pressed = gpio.isPressed(static_cast<uint8_t>(physicalButtonIndex));
-      anyPressed = anyPressed || pressed;
-
-      // Visual-only pressed state: sample the hardware while composing the
-      // activity frame without scheduling a second action or touching events.
-      if (pressed) {
-        fillSparseRoundedRect(renderer, Rect{section.x + 1, section.y + 1, section.width - 2, section.height - 2},
-                              buttonHintCornerRadius - 1);
-      }
 
       if (labels[physicalButtonIndex] && labels[physicalButtonIndex][0] != '\0') {
         const auto label =
@@ -300,7 +289,6 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
     renderer.drawLine(dividerX, group.y + 3, dividerX, group.y + group.height - 4, true);
   }
 
-  UITheme::getInstance().markButtonHintsPressed(anyPressed);
   renderer.setOrientation(orig_orientation);
 }
 

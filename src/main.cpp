@@ -963,23 +963,6 @@ void loop() {
     activityManager.requestUpdate();
   }
 
-  // A button can still be physically held while the action-triggered frame is
-  // painted, so its on-screen section is rendered black. The release edge does
-  // not always change activity state and therefore used to leave that frame
-  // latched on e-ink indefinitely. Queue one visual-only redraw after release.
-  // It is deliberately deferred and coalesced with the activity's own update:
-  // no extra gpio.update(), no replayed input event, and no duplicate action.
-  const bool frontButtonReleased = gpio.wasReleased(HalGPIO::BTN_BACK) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
-                                   gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_RIGHT);
-  // Only when the last rendered frame actually shows a pressed pill: the
-  // unconditional version queued a second full-panel refresh on every list
-  // step (action paints on the press edge, this fired on the release edge),
-  // doubling both the visible flashing and the panel energy per keypress.
-  if (frontButtonReleased && SETTINGS.showButtonHints && UITheme::getInstance().hasVisibleButtonHints() &&
-      UITheme::getInstance().hasPressedButtonHints()) {
-    activityManager.requestUpdate();
-  }
-
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   [[maybe_unused]] const unsigned long activityDuration = millis() - activityStartTime;

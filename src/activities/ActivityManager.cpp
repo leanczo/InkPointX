@@ -255,7 +255,6 @@ void ActivityManager::prepareDisplayForActivity(const Activity& activity) {
   // flushes the marker later from the main loop, outside this transition.
   BootDiag::noteScreen(activity.name.c_str());
   const bool reader = activity.isReaderActivity();
-  UITheme::getInstance().resetButtonHintsVisible();
   renderer.beginFrame();
   renderer.setFrameOverlayEnabled(!reader);
   // Keep ordinary navigation on the panel's fast partial waveform. Automatic
@@ -342,6 +341,7 @@ void ActivityManager::goToBrowser() {
 }
 
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
+  HomeActivity::invalidateDetailsCache();
   replaceActivity(makeUniqueNoThrow<ReaderActivity>(renderer, mappedInput, std::move(path), allowFastInitialRefresh));
 }
 
