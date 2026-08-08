@@ -7,6 +7,7 @@
 #include <esp_task_wdt.h>
 
 #include "MappedInputManager.h"
+#include "activities/home/HomeActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -134,6 +135,8 @@ void ClearCacheActivity::clearCache() {
   root.close();
 
   LOG_DBG("CLEAR_CACHE", "Cache cleared: %d removed, %d failed", clearedCount, failedCount);
+
+  HomeActivity::invalidateDetailsCache();
 
   state = SUCCESS;
   requestUpdate();

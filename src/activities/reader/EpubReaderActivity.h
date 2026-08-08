@@ -44,6 +44,10 @@ class EpubReaderActivity final : public Activity {
   bool pendingSyncSaveError = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+  bool isPdfDocument = false;
+  uint8_t pdfZoomOption = 0;
+  int pdfViewportIndex = 0;
+  int pdfViewportCount = 1;
   // Retained so the reader menu can open showing the rate that is actually
   // running. The menu returns its picker value on cancel too, so without this
   // every visit to the menu handed back a fresh 0 and silently stopped
@@ -93,6 +97,10 @@ class EpubReaderActivity final : public Activity {
   // because no KOReader credentials are stored.
   bool launchKOReaderSync();
   void applyOrientation(uint8_t orientation);
+  void applyPdfZoom(uint8_t option);
+  void loadPdfZoom();
+  void savePdfZoom() const;
+  bool movePdfViewport(bool forward);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   float getCurrentBookProgressPercent() const;
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;

@@ -14,6 +14,11 @@ struct JsonCallbacks {
   void (*onObjectEnd)(void* ctx);
   void (*onArrayStart)(void* ctx);
   void (*onArrayEnd)(void* ctx);
+  // Optional overflow path for string values larger than TOKEN_BUF_SIZE.
+  // Short strings continue to use onString. Long strings are delivered here
+  // in decoded chunks; the final chunk has final=true. Keys are never
+  // streamed, so field matching remains bounded and deterministic.
+  void (*onStringChunk)(void* ctx, const char* value, size_t len, bool final);
 };
 
 class StreamingJsonParser {
@@ -62,6 +67,7 @@ class StreamingJsonParser {
   bool expectingValue;
   bool escaped;
   bool tokenOverflow;
+  bool stringStreamed;
   bool error;
 
   Container nestingStack[MAX_NESTING];

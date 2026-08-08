@@ -293,7 +293,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Check for updates**: Check for Crosspoint firmware updates over Wi-Fi. Firmware can also be updated without a USB connection by placing a `firmware.bin` file on the SD card.
 
-- **Language**: Set the UI language. CrossPoint supports 24 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, and Hebrew.
+- **Language**: Set the UI language. InkPoint X provides complete interface resources for 28 languages: Arabic, Belarusian, Catalan, Czech, Danish, Dutch, English, Finnish, French, German, Hebrew, Hungarian, Italian, Kazakh, Korean, Lithuanian, Polish, Portuguese (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish, Ukrainian, Valencian, and Vietnamese.
 
 - **Manage Fonts**: Browse, download, and manage custom font families installed from the SD card. See [Custom Fonts (SD Card)](#38-custom-fonts-sd-card) for more information.
 
@@ -567,8 +567,9 @@ CrossPoint renders text using the following Unicode character blocks, enabling s
 * **Latin Script (Basic, Supplement, Extended-A/B):** Covers English, German, French, Spanish, Portuguese, Italian, Dutch, Swedish, Norwegian, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Slovak, Slovenian, Turkish, Catalan, and others.
 * **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
 * **Vietnamese:** Supported via extended Latin glyph coverage in the built-in reader fonts.
+* **Korean system interface:** Supported through embedded Noto Sans KR subsets at every UI size.
 
-What is not supported with built-in reader fonts: Chinese, Japanese, Korean, Arabic, Greek, Hebrew, and Farsi. However, **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card).
+The compact built-in *reader* fonts do not contain arbitrary Chinese, Japanese, Korean, Arabic, Greek, Hebrew, or Farsi book text. The Korean interface is fully built in; Korean books need a Hangul-capable custom SD-card reader font. **CJK, Hebrew, Greek, and other extended scripts can be enabled by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card).
 
 ---
 

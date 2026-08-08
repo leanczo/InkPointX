@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <Memory.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -18,6 +19,7 @@
 #include <utility>
 
 #include "BidiUtils.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "activities/network/NetworkModeSelectionActivity.h"
 #include "activities/reader/BookReadingStats.h"
@@ -29,25 +31,42 @@
 
 namespace {
 constexpr int HOME_CONTENT_MARGIN = 18;
-constexpr int HOME_COVER_TOP = 88;
 constexpr int HOME_COVER_SOURCE_HEIGHT = 402;
-constexpr int HOME_COVER_MAX_WIDTH = 280;
 constexpr int HOME_COVER_MIN_HEIGHT = 160;
 constexpr int HOME_COVER_RADIUS = 14;
-// The gaps grew and the data rows shrank in the calm-down pass: the old
-// layout stacked five near-equal text rows with 3-12 px between them, which
-// read as one cramped block. Freed height goes to the cover.
-constexpr int HOME_COVER_TO_TITLE_GAP = 22;
-constexpr int HOME_TITLE_TO_AUTHOR_GAP = 6;
+constexpr int HOME_HEADER_TO_CONTENT_GAP = 12;
+constexpr int HOME_TITLE_TO_COVER_GAP = 12;
+constexpr int HOME_COVER_TO_AUTHOR_GAP = 10;
 constexpr int HOME_METADATA_GAP = 18;
 constexpr int HOME_PROGRESS_BAR_GAP = 8;
 constexpr int HOME_PROGRESS_BAR_THICKNESS = 6;
 constexpr int HOME_ACTION_SIDE_MARGIN = 20;
 constexpr int HOME_DOTS_TOP_OFFSET = 50;
 constexpr int HOME_DOTS_CLEARANCE = 22;
+constexpr int HOME_PLACEHOLDER_TEXT_MARGIN = 22;
+constexpr int HOME_PLACEHOLDER_TITLE_PADDING = 28;
+constexpr int HOME_PLACEHOLDER_AUTHOR_PADDING = 28;
+
+struct CachedHomeDetails {
+  bool valid = false;
+  std::string bookPath;
+  std::string coverPath;
+  std::string cachePath;
+  uint8_t progressPercent = 0;
+  uint32_t readingSeconds = 0;
+  uint32_t currentPage = 0;
+  uint32_t totalPages = 0;
+};
+
+CachedHomeDetails cachedHomeDetails;
 
 uint16_t readLe16(const uint8_t* data) {
   return static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
+}
+
+uint32_t readLe32(const uint8_t* data) {
+  return static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
+         (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
 }
 
 uint32_t clampPageCount(const double value) {
@@ -98,20 +117,55 @@ int homeAuthorFontId(const GfxRenderer& renderer, const char* text) {
   return SCRIPT_SMALL_FONT_ID;
 }
 
-int calculateHomeCoverSlotHeight(const GfxRenderer& renderer, const int titleLineCount, const bool hasAuthor) {
+bool resolveHomeMetadataVisibility(const uint8_t mode, const bool hasCover) {
+  if (mode == CrossPointSettings::HOME_METADATA_SHOW) return true;
+  if (mode == CrossPointSettings::HOME_METADATA_HIDE) return false;
+  return !hasCover;
+}
+
+struct HomeBookLayout {
+  int titleTop = 0;
+  int coverTop = 0;
+  int coverSlotHeight = HOME_COVER_MIN_HEIGHT;
+  int coverMaxWidth = 0;
+  int authorTop = 0;
+  int detailsTop = 0;
+};
+
+HomeBookLayout calculateHomeBookLayout(const GfxRenderer& renderer, const int titleLineCount, const bool showTitle,
+                                       const bool showAuthor, const int authorLineHeight) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int titleBlockHeight = std::max(1, titleLineCount) * renderer.getLineHeight(UI_14_FONT_ID);
+  const int titleBlockHeight = showTitle ? std::max(1, titleLineCount) * renderer.getLineHeight(UI_14_FONT_ID) : 0;
   const int captionLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  const int authorBlockHeight = hasAuthor ? HOME_TITLE_TO_AUTHOR_GAP + renderer.getLineHeight(SCRIPT_SMALL_FONT_ID) : 0;
-  const int detailTailHeight = HOME_COVER_TO_TITLE_GAP + titleBlockHeight + authorBlockHeight + HOME_METADATA_GAP +
-                               HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_BAR_GAP + captionLineHeight;
+  const int progressBlockHeight = HOME_PROGRESS_BAR_THICKNESS + HOME_PROGRESS_BAR_GAP + captionLineHeight;
   const int dotsY = renderer.getScreenHeight() - metrics.buttonHintsHeight - HOME_DOTS_TOP_OFFSET;
   const int safeDetailsBottom = dotsY - HOME_DOTS_CLEARANCE;
-  return std::max(HOME_COVER_MIN_HEIGHT,
-                  std::min(HOME_COVER_SOURCE_HEIGHT, safeDetailsBottom - HOME_COVER_TOP - detailTailHeight));
+
+  HomeBookLayout layout;
+  layout.titleTop = metrics.topPadding + metrics.headerHeight + HOME_HEADER_TO_CONTENT_GAP;
+  layout.coverTop = layout.titleTop + (showTitle ? titleBlockHeight + HOME_TITLE_TO_COVER_GAP : 0);
+  layout.detailsTop = safeDetailsBottom - progressBlockHeight;
+  layout.authorTop = showAuthor ? layout.detailsTop - HOME_METADATA_GAP - authorLineHeight : 0;
+
+  // The metadata rows are fixed to stable anchors: title at the top, reading
+  // progress at the bottom and author immediately above it. The cover owns the
+  // exact remaining area. This keeps every visibility combination balanced,
+  // including wide artwork that cannot consume all available height.
+  const int coverBottom =
+      showAuthor ? layout.authorTop - HOME_COVER_TO_AUTHOR_GAP : layout.detailsTop - HOME_METADATA_GAP;
+  layout.coverSlotHeight = std::max(HOME_COVER_MIN_HEIGHT, coverBottom - layout.coverTop);
+  // Let the artwork use the whole content box. The slot height remains the
+  // primary limit for normal portrait covers, so layouts with metadata keep
+  // their previous visual scale. When title/author rows are hidden, however,
+  // the cover can now consume every newly released pixel instead of hitting
+  // the old arbitrary +30/+40 px width caps and leaving a visible gap.
+  layout.coverMaxWidth = renderer.getScreenWidth() - HOME_CONTENT_MARGIN * 2;
+  return layout;
 }
 
 }  // namespace
+
+void HomeActivity::invalidateDetailsCache() { cachedHomeDetails = {}; }
 
 void HomeActivity::onEnter() {
   Activity::onEnter();
@@ -124,9 +178,10 @@ void HomeActivity::onEnter() {
     recentBooks.push_back(*availableBook);
   }
   applyInitialSelection();
-  // Paint the interactive shell before opening/parsing the recent book or
-  // generating a cover thumbnail.  Those SD/parser operations can take
-  // seconds on a cold cache and previously made entering Home look frozen.
+  // Never expose a half-populated Home frame. The common path below only
+  // opens cached thumbnail/progress data; legacy books are migrated before
+  // this single complete frame is presented.
+  if (pageIndex == 0) loadRecentBookDetails();
   requestUpdateAndWait();
 }
 
@@ -134,6 +189,9 @@ void HomeActivity::onExit() {
   Activity::onExit();
   recentBooks.clear();
   homeCoverPath.clear();
+  homeCachePath.clear();
+  coverRegionCache.reset();
+  coverRegionCacheSize = 0;
   readingSummary = {};
   recentDetailsLoaded = false;
 }
@@ -142,37 +200,56 @@ void HomeActivity::loadRecentBookDetails() {
   recentDetailsLoaded = true;
   readingSummary = {};
   homeCoverPath.clear();
+  homeCachePath.clear();
+  coverRegionCache.reset();
+  coverRegionCacheSize = 0;
   if (recentBooks.empty()) return;
 
   const RecentBook& book = recentBooks.front();
+  if (cachedHomeDetails.valid && cachedHomeDetails.bookPath == book.path) {
+    homeCoverPath = cachedHomeDetails.coverPath;
+    homeCachePath = cachedHomeDetails.cachePath;
+    readingSummary.progressPercent = cachedHomeDetails.progressPercent;
+    readingSummary.readingSeconds = cachedHomeDetails.readingSeconds;
+    readingSummary.currentPage = cachedHomeDetails.currentPage;
+    readingSummary.totalPages = cachedHomeDetails.totalPages;
+    return;
+  }
+  ScopedCleanup persistDetails{[this, &book] {
+    cachedHomeDetails.valid = true;
+    cachedHomeDetails.bookPath = book.path;
+    cachedHomeDetails.coverPath = homeCoverPath;
+    cachedHomeDetails.cachePath = homeCachePath;
+    cachedHomeDetails.progressPercent = readingSummary.progressPercent;
+    cachedHomeDetails.readingSeconds = readingSummary.readingSeconds;
+    cachedHomeDetails.currentPage = readingSummary.currentPage;
+    cachedHomeDetails.totalPages = readingSummary.totalPages;
+  }};
   const std::string displayTitle = book.title.empty() ? filenameWithoutExtension(book.path) : book.title;
+  // Generate the largest thumbnail needed by the cover-present AUTO layout.
+  // If generation fails, render() detects the missing bitmap and switches to
+  // the no-cover layout where the title (and available author) are visible.
+  const bool showTitle = resolveHomeMetadataVisibility(SETTINGS.homeBookTitleMode, true);
+  const bool showAuthor = resolveHomeMetadataVisibility(SETTINGS.homeBookAuthorMode, true) && !book.author.empty();
   const int titleLineCount =
-      static_cast<int>(renderer
-                           .wrappedText(UI_14_FONT_ID, displayTitle.c_str(),
-                                        renderer.getScreenWidth() - HOME_CONTENT_MARGIN * 2, 2, EpdFontFamily::BOLD)
-                           .size());
-  const int coverTargetHeight = calculateHomeCoverSlotHeight(renderer, titleLineCount, !book.author.empty());
+      showTitle ? static_cast<int>(renderer
+                                       .wrappedText(UI_14_FONT_ID, displayTitle.c_str(),
+                                                    renderer.getScreenWidth() - HOME_CONTENT_MARGIN * 2, 2,
+                                                    EpdFontFamily::BOLD)
+                                       .size())
+                : 0;
+  const int authorLineHeight = showAuthor ? renderer.getLineHeight(homeAuthorFontId(renderer, book.author.c_str())) : 0;
+  const int coverTargetHeight =
+      calculateHomeBookLayout(renderer, titleLineCount, showTitle, showAuthor, authorLineHeight).coverSlotHeight;
   const bool epubCompatible = FsHelpers::hasEpubExtension(book.path) || FsHelpers::hasFb2Extension(book.path) ||
                               FsHelpers::hasPdfExtension(book.path);
 
-  std::string cachePath = getBookCachePath(book.path);
-  Epub epub(book.path, "/.crosspoint");
-  const bool metadataLoaded = epubCompatible && epub.load(false, true);
-  if (epubCompatible) cachePath = epub.getCachePath();
-
-  if (metadataLoaded) {
-    const std::string requestedThumb = epub.getThumbBmpPath(coverTargetHeight);
-    if (prepareHomeThumb(epub, requestedThumb, coverTargetHeight)) {
-      homeCoverPath = requestedThumb;
-    } else {
-      const std::array<std::string, 4> fallbackCovers = {epub.getCoverBmpPath(false),
-                                                         epub.getThumbBmpPath(HOME_COVER_SOURCE_HEIGHT),
-                                                         epub.getThumbBmpPath(300), epub.getThumbBmpPath(226)};
-      const auto fallback = std::find_if(fallbackCovers.begin(), fallbackCovers.end(),
-                                         [](const std::string& path) { return isUsableBitmap(path); });
-      if (fallback != fallbackCovers.end()) homeCoverPath = *fallback;
-    }
-  } else if (!book.coverBmpPath.empty()) {
+  const std::string cachePath = getBookCachePath(book.path);
+  homeCachePath = cachePath;
+  // RecentBooksStore already persists a height-template for the cover. Resolve
+  // an existing thumbnail directly instead of loading the EPUB just to ask it
+  // for the same path.
+  if (!book.coverBmpPath.empty()) {
     const std::array<int, 4> fallbackHeights = {coverTargetHeight, HOME_COVER_SOURCE_HEIGHT, 300, 226};
     for (const int height : fallbackHeights) {
       const std::string candidate = UITheme::getCoverThumbPath(book.coverBmpPath, height);
@@ -194,16 +271,48 @@ void HomeActivity::loadRecentBookDetails() {
 
   HalFile progressFile;
   if (!Storage.openFileForRead("HOME", cachePath + "/progress.bin", progressFile)) return;
-  uint8_t data[6] = {};
+  // Byte 6 has held a denormalized whole-book percentage since 2.2.0. New
+  // writes also include whole-book page estimates in bytes 7..14. Reading this
+  // lightweight record makes the normal Home path independent of EPUB parsing.
+  uint8_t data[15] = {};
   const int bytesRead = progressFile.read(data, sizeof(data));
   progressFile.close();
-  if (bytesRead != 4 && bytesRead != 6) return;
+  if (bytesRead >= 7 && data[6] <= 100) {
+    readingSummary.progressPercent = data[6];
+    if (bytesRead >= 15) {
+      readingSummary.currentPage = readLe32(data + 7);
+      readingSummary.totalPages = readLe32(data + 11);
+    }
+    if (!homeCoverPath.empty()) return;
+  } else if (bytesRead != 4 && bytesRead != 6) {
+    return;
+  }
+
+  // Legacy progress or a missing thumbnail needs the indexed metadata once.
+  // The next reader save writes the extended lightweight record, while an
+  // existing fallback thumbnail is reused without generating a new size.
+  Epub epub(book.path, "/.crosspoint");
+  if (!epub.load(false, true)) return;
+
+  if (homeCoverPath.empty()) {
+    const std::string requestedThumb = epub.getThumbBmpPath(coverTargetHeight);
+    if (prepareHomeThumb(epub, requestedThumb, coverTargetHeight)) {
+      homeCoverPath = requestedThumb;
+    } else {
+      const std::array<std::string, 4> fallbackCovers = {epub.getCoverBmpPath(false),
+                                                         epub.getThumbBmpPath(HOME_COVER_SOURCE_HEIGHT),
+                                                         epub.getThumbBmpPath(300), epub.getThumbBmpPath(226)};
+      const auto fallback = std::find_if(fallbackCovers.begin(), fallbackCovers.end(),
+                                         [](const std::string& path) { return isUsableBitmap(path); });
+      if (fallback != fallbackCovers.end()) homeCoverPath = *fallback;
+    }
+  }
 
   const uint16_t spineIndex = readLe16(data);
   uint16_t chapterPage = readLe16(data + 2);
   if (chapterPage == UINT16_MAX) chapterPage = 0;
-  const uint16_t chapterPageCount = bytesRead == 6 ? readLe16(data + 4) : 0;
-  if (!metadataLoaded || spineIndex >= epub.getSpineItemsCount()) return;
+  const uint16_t chapterPageCount = bytesRead >= 6 ? readLe16(data + 4) : 0;
+  if (spineIndex >= epub.getSpineItemsCount()) return;
 
   const float sectionRead =
       chapterPageCount > 0
@@ -345,16 +454,13 @@ void HomeActivity::openSelection() {
 }
 
 void HomeActivity::loop() {
-  if (pageIndex == 0 && !recentDetailsLoaded) {
-    loadRecentBookDetails();
-    requestUpdate();
-  }
-
   const auto changePage = [this](const int delta) {
     rememberedSelection[pageIndex] = selectedIndex;
     pageIndex = (pageIndex + delta + PAGE_COUNT) % PAGE_COUNT;
     // Clamp on the way in: a page's item count can change between visits.
     selectedIndex = std::min(rememberedSelection[pageIndex], std::max(0, pageItemCount() - 1));
+    // Populate the state before scheduling the frame: Now Reading must appear
+    // as one complete image, never as shell -> delayed cover/progress.
     if (pageIndex == 0 && !recentDetailsLoaded) loadRecentBookDetails();
     requestUpdate();
   };
@@ -402,63 +508,159 @@ void HomeActivity::render(RenderLock&&) {
     const int textWidth = pageWidth - HOME_CONTENT_MARGIN * 2;
     // One step down from the old 18 pt: the title stays the anchor of the
     // screen, but no longer competes with the header.
+    const bool hasCover = !homeCoverPath.empty();
+    const bool titleVisible = resolveHomeMetadataVisibility(SETTINGS.homeBookTitleMode, hasCover);
+    const bool metadataInsidePlaceholder = hasRecentBook && !hasCover;
+    const bool showTitle = titleVisible && !metadataInsidePlaceholder;
     const auto titleLines =
-        renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(), textWidth, 2, EpdFontFamily::BOLD);
-    const bool hasAuthor = hasRecentBook ? !recentBook->author.empty() : true;
+        showTitle ? renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(), textWidth, 2, EpdFontFamily::BOLD)
+                  : std::vector<std::string>{};
+    const bool authorVisible = resolveHomeMetadataVisibility(SETTINGS.homeBookAuthorMode, hasCover) &&
+                               (hasRecentBook ? !recentBook->author.empty() : true);
+    const bool showAuthor = authorVisible && !metadataInsidePlaceholder;
+    const char* authorLabel = hasRecentBook ? recentBook->author.c_str() : tr(STR_OPEN_LIBRARY_HINT);
+    const int authorFontId = authorVisible ? homeAuthorFontId(renderer, authorLabel) : SCRIPT_SMALL_FONT_ID;
+    const int authorLineHeight = showAuthor ? renderer.getLineHeight(authorFontId) : 0;
     const int titleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
-    const int titleBlockHeight = std::max(1, static_cast<int>(titleLines.size())) * titleLineHeight;
-    const int coverSlotHeight = calculateHomeCoverSlotHeight(renderer, static_cast<int>(titleLines.size()), hasAuthor);
+    const HomeBookLayout layout =
+        calculateHomeBookLayout(renderer, static_cast<int>(titleLines.size()), showTitle, showAuthor, authorLineHeight);
+
+    for (size_t line = 0; line < titleLines.size(); ++line) {
+      renderer.drawCenteredText(UI_14_FONT_ID, layout.titleTop + static_cast<int>(line) * titleLineHeight,
+                                titleLines[line].c_str(), true, EpdFontFamily::BOLD);
+    }
 
     bool coverDrawn = false;
+    int coverVisualWidth = pageWidth - HOME_ACTION_SIDE_MARGIN * 2;
     if (!recentBooks.empty() && !homeCoverPath.empty()) {
-      HalFile coverFile;
-      if (Storage.openFileForRead("HOME", homeCoverPath, coverFile)) {
-        Bitmap bitmap(coverFile);
-        if (bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.getWidth() > 0 && bitmap.getHeight() > 0) {
-          const float scale = std::min(static_cast<float>(HOME_COVER_MAX_WIDTH) / bitmap.getWidth(),
-                                       static_cast<float>(coverSlotHeight) / bitmap.getHeight());
-          const int coverWidth = std::max(1, static_cast<int>(bitmap.getWidth() * scale));
-          const int coverHeight = std::max(1, static_cast<int>(bitmap.getHeight() * scale));
-          const int coverX = (pageWidth - coverWidth) / 2;
-          const int coverY = HOME_COVER_TOP + (coverSlotHeight - coverHeight) / 2;
-          renderer.drawBitmap(bitmap, coverX, coverY, coverWidth, coverHeight);
-          renderer.maskRoundedRectOutsideCorners(coverX, coverY, coverWidth, coverHeight, HOME_COVER_RADIUS,
-                                                 Color::White);
-          renderer.drawRoundedRect(coverX, coverY, coverWidth, coverHeight, 1, HOME_COVER_RADIUS, true);
-          coverDrawn = true;
+      if (coverRegionCache && coverRegionCacheSize > 0 &&
+          renderer.copyBufferToRegion(coverRegionX, coverRegionY, coverRegionWidth, coverRegionHeight,
+                                      coverRegionCache.get(), coverRegionCacheSize)) {
+        coverDrawn = true;
+        coverVisualWidth = coverRegionWidth;
+      } else {
+        HalFile coverFile;
+        if (Storage.openFileForRead("HOME", homeCoverPath, coverFile)) {
+          Bitmap bitmap(coverFile);
+          if (bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.getWidth() > 0 && bitmap.getHeight() > 0) {
+            const float scale = std::min(static_cast<float>(layout.coverMaxWidth) / bitmap.getWidth(),
+                                         static_cast<float>(layout.coverSlotHeight) / bitmap.getHeight());
+            const int coverWidth = std::max(1, static_cast<int>(bitmap.getWidth() * scale));
+            const int coverHeight = std::max(1, static_cast<int>(bitmap.getHeight() * scale));
+            const int coverX = (pageWidth - coverWidth) / 2;
+            const int coverY = layout.coverTop + (layout.coverSlotHeight - coverHeight) / 2;
+            coverVisualWidth = coverWidth;
+            const size_t regionSize = renderer.getRegionByteSize(coverX, coverY, coverWidth, coverHeight);
+            char tileName[112];
+            snprintf(tileName, sizeof(tileName), "%s/home_tile_v2_%d_%d_%d_%d_%d_%d_%d_%lu.bin",
+                     homeCachePath.c_str(), static_cast<int>(renderer.getOrientation()), coverX, coverY, coverWidth,
+                     coverHeight, bitmap.getWidth(), bitmap.getHeight(), static_cast<unsigned long>(coverFile.size()));
+
+            // Across HomeActivity instances, restore the same prepared tile
+            // from the book cache. A sequential ~10-20 KB read is far cheaper
+            // than re-running the rotated per-pixel BMP scaler (~900 ms on X4).
+            auto region = makeUniqueNoThrow<uint8_t[]>(regionSize);
+            bool regionReady = false;
+            if (region && regionSize > 0 && !homeCachePath.empty() && Storage.exists(tileName)) {
+              HalFile tileFile;
+              if (Storage.openFileForRead("HOME", tileName, tileFile) && tileFile.size() == regionSize &&
+                  tileFile.read(region.get(), regionSize) == static_cast<int>(regionSize) &&
+                  renderer.copyBufferToRegion(coverX, coverY, coverWidth, coverHeight, region.get(), regionSize)) {
+                coverDrawn = true;
+                regionReady = true;
+              }
+              tileFile.close();
+            }
+
+            if (!coverDrawn) {
+              // Old EPUB caches can contain a decoder-native progressive JPEG
+              // thumbnail (for example 141x225) even though its filename says
+              // thumb_540.bmp. The generic bitmap path intentionally treats its
+              // dimensions as maxima and never enlarges. Home has already
+              // calculated the exact aspect-preserving destination, so opt in
+              // to nearest-neighbour enlargement for 1-bit thumbnails here.
+              if (bitmap.is1Bit()) {
+                renderer.drawBitmap1Bit(bitmap, coverX, coverY, coverWidth, coverHeight, true);
+              } else {
+                renderer.drawBitmap(bitmap, coverX, coverY, coverWidth, coverHeight);
+              }
+              renderer.maskRoundedRectOutsideCorners(coverX, coverY, coverWidth, coverHeight, HOME_COVER_RADIUS,
+                                                     Color::White);
+              renderer.drawRoundedRect(coverX, coverY, coverWidth, coverHeight, 1, HOME_COVER_RADIUS, true);
+              coverDrawn = true;
+
+              if (region &&
+                  renderer.copyRegionToBuffer(coverX, coverY, coverWidth, coverHeight, region.get(), regionSize)) {
+                regionReady = true;
+                if (!homeCachePath.empty()) {
+                  if (Storage.exists(tileName)) Storage.remove(tileName);
+                  HalFile tileFile;
+                  if (Storage.openFileForWrite("HOME", tileName, tileFile)) {
+                    tileFile.write(region.get(), regionSize);
+                    tileFile.close();
+                  }
+                }
+              }
+            }
+
+            // Keep the prepared tile in RAM while the Home carousel is alive;
+            // neighbouring-page returns then need only a row memcpy.
+            if (region && coverDrawn && regionReady) {
+              coverRegionCache = std::move(region);
+              coverRegionCacheSize = regionSize;
+              coverRegionX = coverX;
+              coverRegionY = coverY;
+              coverRegionWidth = coverWidth;
+              coverRegionHeight = coverHeight;
+            }
+          }
+          coverFile.close();
         }
-        coverFile.close();
       }
     }
 
     if (!coverDrawn) {
-      // Ghost cover for books without one: the same footprint, corner radius
-      // and outline as a real thumbnail, so the page keeps its structure
-      // instead of showing a screen-sized void. The old fallback drew the
-      // 32 px icon scaled to 24 px, which misaligns the bitmap's rows and
-      // rendered as noise.
-      const int ghostHeight = coverSlotHeight;
-      const int ghostWidth = std::min(HOME_COVER_MAX_WIDTH, ghostHeight * 2 / 3);
+      // A missing-cover book still owns the full artwork slot. Its metadata is
+      // placed inside this deliberately quiet typographic cover instead of in
+      // external rows that would make the placeholder visibly smaller than a
+      // real cover. Explicit title/author visibility settings remain the final
+      // authority; AUTO simply enables both fields when they exist.
+      const int ghostHeight = std::min(layout.coverSlotHeight, layout.coverMaxWidth * 3 / 2);
+      const int ghostWidth = ghostHeight * 2 / 3;
       const int ghostX = (pageWidth - ghostWidth) / 2;
-      renderer.drawRoundedRect(ghostX, HOME_COVER_TOP, ghostWidth, ghostHeight, 1, HOME_COVER_RADIUS, true);
-      renderer.drawIcon(LucideBookOpen32, pageWidth / 2 - 16, HOME_COVER_TOP + ghostHeight / 2 - 16, 32, 32);
+      const int ghostY = layout.coverTop + (layout.coverSlotHeight - ghostHeight) / 2;
+      coverVisualWidth = ghostWidth;
+      renderer.drawRoundedRect(ghostX, ghostY, ghostWidth, ghostHeight, 1, HOME_COVER_RADIUS, true);
+      renderer.drawIcon(LucideBookOpen32, pageWidth / 2 - 16, ghostY + ghostHeight / 2 - 16, 32, 32);
+
+      if (metadataInsidePlaceholder) {
+        const int placeholderTextWidth = std::max(1, ghostWidth - HOME_PLACEHOLDER_TEXT_MARGIN * 2);
+        if (titleVisible) {
+          const auto placeholderTitleLines = renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(),
+                                                                  placeholderTextWidth, 4,
+                                                                  EpdFontFamily::BOLD);
+          const int placeholderTitleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
+          for (size_t line = 0; line < placeholderTitleLines.size(); ++line) {
+            renderer.drawCenteredText(
+                UI_14_FONT_ID,
+                ghostY + HOME_PLACEHOLDER_TITLE_PADDING + static_cast<int>(line) * placeholderTitleLineHeight,
+                placeholderTitleLines[line].c_str(), true, EpdFontFamily::BOLD);
+          }
+        }
+        if (authorVisible) {
+          const std::string placeholderAuthor =
+              renderer.truncatedText(authorFontId, authorLabel, placeholderTextWidth);
+          const int placeholderAuthorY = ghostY + ghostHeight - HOME_PLACEHOLDER_AUTHOR_PADDING -
+                                         renderer.getLineHeight(authorFontId);
+          renderer.drawCenteredText(authorFontId, placeholderAuthorY, placeholderAuthor.c_str());
+        }
+      }
     }
 
-    const int titleTop = HOME_COVER_TOP + coverSlotHeight + HOME_COVER_TO_TITLE_GAP;
-    for (size_t line = 0; line < titleLines.size(); ++line) {
-      renderer.drawCenteredText(UI_14_FONT_ID, titleTop + static_cast<int>(line) * titleLineHeight,
-                                titleLines[line].c_str(), true, EpdFontFamily::BOLD);
-    }
-    int detailCursorY = titleTop + titleBlockHeight;
-    if (hasAuthor) {
-      detailCursorY += HOME_TITLE_TO_AUTHOR_GAP;
-      const char* authorLabel = hasRecentBook ? recentBook->author.c_str() : tr(STR_OPEN_LIBRARY_HINT);
-      const int authorFontId = homeAuthorFontId(renderer, authorLabel);
+    if (showAuthor) {
       const std::string author = renderer.truncatedText(authorFontId, authorLabel, textWidth);
-      renderer.drawCenteredText(authorFontId, detailCursorY, author.c_str());
-      detailCursorY += renderer.getLineHeight(authorFontId);
+      renderer.drawCenteredText(authorFontId, layout.authorTop, author.c_str());
     }
-    detailCursorY += HOME_METADATA_GAP;
 
     char readingTimeText[40];
     const uint32_t totalMinutes = readingSummary.readingSeconds / 60;
@@ -476,9 +678,9 @@ void HomeActivity::render(RenderLock&&) {
     // the shape, one small caption row under it carries the numbers —
     // progress on one side, invested time on the other. With no book yet the
     // band stays empty so the action button's position is unchanged.
-    const int progressX = HOME_ACTION_SIDE_MARGIN;
-    const int progressWidth = pageWidth - HOME_ACTION_SIDE_MARGIN * 2;
-    const int progressBarTop = detailCursorY;
+    const int progressWidth = coverVisualWidth;
+    const int progressX = (pageWidth - progressWidth) / 2;
+    const int progressBarTop = layout.detailsTop;
     if (hasRecentBook) {
       renderer.fillRoundedRect(progressX, progressBarTop, progressWidth, HOME_PROGRESS_BAR_THICKNESS,
                                HOME_PROGRESS_BAR_THICKNESS / 2, Color::LightGray);

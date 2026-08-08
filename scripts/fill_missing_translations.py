@@ -41,6 +41,7 @@ TRANSLATION_TARGETS = {
     "HU": "hu",
     "IT": "it",
     "KK": "kk",
+    "KO": "ko",
     "LT": "lt",
     "NL": "nl",
     "PL": "pl",

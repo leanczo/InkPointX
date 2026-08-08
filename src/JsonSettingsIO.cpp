@@ -239,6 +239,22 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
     }
   }
 
+  // The first local implementation stored simple booleans. Preserve those as
+  // explicit user choices when upgrading; only a device that never saved the
+  // old keys receives the new cover-aware AUTO default.
+  if (doc["homeBookTitleMode"].isNull() && !doc["showHomeBookTitle"].isNull()) {
+    const bool legacyShowTitle = doc["showHomeBookTitle"] | true;
+    s.homeBookTitleMode =
+        legacyShowTitle ? CrossPointSettings::HOME_METADATA_SHOW : CrossPointSettings::HOME_METADATA_HIDE;
+    if (needsResave) *needsResave = true;
+  }
+  if (doc["homeBookAuthorMode"].isNull() && !doc["showHomeBookAuthor"].isNull()) {
+    const bool legacyShowAuthor = doc["showHomeBookAuthor"] | true;
+    s.homeBookAuthorMode =
+        legacyShowAuthor ? CrossPointSettings::HOME_METADATA_SHOW : CrossPointSettings::HOME_METADATA_HIDE;
+    if (needsResave) *needsResave = true;
+  }
+
   // Dynamic sleep-screen mapping is persisted manually. Migrate the removed
   // iPhone-style DARK clock mode to the clean light brand screen.
   const uint8_t storedSleepScreen = clamp(

@@ -52,6 +52,7 @@ enum class HomeMenuItem {
  */
 class ActivityManager {
   friend class RenderLock;
+  friend class ScopedRenderUnlock;
 
  protected:
   GfxRenderer& renderer;

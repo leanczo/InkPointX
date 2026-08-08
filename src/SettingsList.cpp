@@ -26,6 +26,12 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
                           StrId::STR_CAT_DISPLAY),
         SettingInfo::Toggle(StrId::STR_BUTTON_HINTS, &CrossPointSettings::showButtonHints, "showButtonHints",
                             StrId::STR_CAT_DISPLAY),
+        SettingInfo::Enum(StrId::STR_HOME_SHOW_BOOK_TITLE, &CrossPointSettings::homeBookTitleMode,
+                          {StrId::STR_DEFAULT_VALUE, StrId::STR_SHOW, StrId::STR_HIDE}, "homeBookTitleMode",
+                          StrId::STR_CAT_DISPLAY),
+        SettingInfo::Enum(StrId::STR_HOME_SHOW_BOOK_AUTHOR, &CrossPointSettings::homeBookAuthorMode,
+                          {StrId::STR_DEFAULT_VALUE, StrId::STR_SHOW, StrId::STR_HIDE}, "homeBookAuthorMode",
+                          StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(
             StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
             {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30},

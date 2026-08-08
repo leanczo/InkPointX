@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "activities/Activity.h"
 #include "network/OtaUpdater.h"
 
@@ -24,8 +27,13 @@ class OtaUpdateActivity : public Activity {
   int lastUpdaterPercentage = UNINITIALIZED_PERCENTAGE;
   OtaUpdater::Phase lastUpdaterPhase = OtaUpdater::Phase::IDLE;
   OtaUpdater updater;
+  std::vector<std::string> releaseNoteLines;
+  int releaseNotesPage = 0;
+  int releaseNotesLinesPerPage = 1;
+  int releaseNotesWrapWidth = 0;
 
   void onWifiSelectionComplete(bool success);
+  void prepareReleaseNoteLines(int wrapWidth);
 
  public:
   explicit OtaUpdateActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

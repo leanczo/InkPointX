@@ -2,11 +2,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 #include "StreamingJsonParser.h"
 
 class ReleaseJsonParser {
  public:
+  static constexpr size_t MAX_RELEASE_NOTES_SIZE = 3072;
   ReleaseJsonParser();
 
   ReleaseJsonParser(const ReleaseJsonParser&) = delete;
@@ -21,6 +23,7 @@ class ReleaseJsonParser {
   const char* getFirmwareUrl() const;
   const char* getFirmwareDigest() const;
   size_t getFirmwareSize() const;
+  const std::string& getReleaseNotes() const;
 
  private:
   enum class Position : uint8_t {
@@ -32,6 +35,7 @@ class ReleaseJsonParser {
   enum class LastKey : uint8_t {
     NONE,
     TAG_NAME,
+    RELEASE_NOTES,
     ASSETS,
     ASSET_NAME,
     ASSET_URL,
@@ -48,6 +52,7 @@ class ReleaseJsonParser {
   static void sOnObjectEnd(void* ctx);
   static void sOnArrayStart(void* ctx);
   static void sOnArrayEnd(void* ctx);
+  static void sOnStringChunk(void* ctx, const char* value, size_t len, bool final);
 
   void commitAsset();
 
@@ -64,6 +69,7 @@ class ReleaseJsonParser {
   size_t firmwareSize;
   bool tagFound;
   bool firmwareFound;
+  std::string releaseNotes;
 
   char currentAssetName[32];
   char currentAssetUrl[512];

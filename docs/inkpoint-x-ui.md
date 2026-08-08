@@ -71,21 +71,21 @@ the firmware. Reader fonts are configured independently.
 
 ## Languages
 
-The firmware ships complete interface text for all 27 declared languages:
+The firmware ships complete interface text for all 28 declared languages:
 English, Arabic, Belarusian, Catalan, Valencian, Czech, Danish, Dutch, Finnish,
-French, German, Hebrew, Hungarian, Italian, Kazakh, Lithuanian, Polish, Portuguese
+French, German, Hebrew, Hungarian, Italian, Kazakh, Korean, Lithuanian, Polish, Portuguese
 (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish,
 Ukrainian, and Vietnamese.
 
-Each locale owns all 498 source strings. The generated release therefore never
+Each locale owns all 533 source strings. The generated release therefore never
 falls back to English for a missing menu label, warning, file operation,
 reader action, network workflow, or settings value. Format placeholders and
 the spacing of concatenated labels are validated before building.
 
-Inter, with its Hebrew and Arabic fallbacks, covers every Unicode character used
+Inter, with its Hebrew, Arabic, and Korean fallbacks, covers every Unicode character used
 by these translations. Hebrew and Arabic use the firmware's bidirectional text path; Arabic also receives
 contextual shaping for static UI text and dynamic book, author and file names.
-Vietnamese precomposed characters and the extended Cyrillic characters used by
+Korean uses exact Noto Sans KR Hangul subsets. Vietnamese precomposed characters and the extended Cyrillic characters used by
 Belarusian, Kazakh, Russian, and Ukrainian are embedded in the subsets.
 
 ## Library and favorites

@@ -32,6 +32,7 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
+#include "PdfViewport.h"
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
 #include "ReaderGesturesActivity.h"
@@ -57,6 +58,8 @@ constexpr uint32_t MIN_SESSION_SECONDS_FOR_COUNT = 60UL;
 constexpr uint32_t MIN_SESSION_SECONDS_FOR_TIME = 10UL;
 constexpr uint32_t IDLE_READING_THRESHOLD_SECONDS = 120UL;
 constexpr uint16_t MIN_PACE_SAMPLE_SECONDS = 2U;
+constexpr char PDF_VIEW_SETTINGS_FILE[] = "/pdf_view.bin";
+constexpr uint8_t PDF_VIEW_SETTINGS_VERSION = 1;
 
 uint32_t addSaturatedUint32(const uint32_t lhs, const uint32_t rhs) {
   return (UINT32_MAX - lhs < rhs) ? UINT32_MAX : lhs + rhs;
@@ -188,6 +191,8 @@ void EpubReaderActivity::onEnter() {
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   epub->setupCacheDir();
+  isPdfDocument = FsHelpers::hasPdfExtension(epub->getPath());
+  loadPdfZoom();
 
   HalFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
@@ -385,19 +390,21 @@ void EpubReaderActivity::loop() {
       }
       const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
       recordCurrentPageReadingTime("reader_menu");
-      startActivityForResult(makeUniqueNoThrow<EpubReaderMenuActivity>(
-                                 renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                                 SETTINGS.orientation, currentPageTurnOption, !currentPageFootnotes.empty(),
-                                 !cachedBookmarks.empty(), FAVORITE_BOOKS.contains(epub->getPath())),
-                             [this](const ActivityResult& result) {
-                               // Always apply orientation change even if the menu was cancelled
-                               const auto& menu = std::get<MenuResult>(result.data);
-                               applyOrientation(menu.orientation);
-                               toggleAutoPageTurn(menu.pageTurnOption);
-                               if (!result.isCancelled) {
-                                 onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
-                               }
-                             });
+      startActivityForResult(
+          makeUniqueNoThrow<EpubReaderMenuActivity>(
+              renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
+              SETTINGS.orientation, currentPageTurnOption, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
+              FAVORITE_BOOKS.contains(epub->getPath()), isPdfDocument, pdfZoomOption),
+          [this](const ActivityResult& result) {
+            // Always apply orientation change even if the menu was cancelled
+            const auto& menu = std::get<MenuResult>(result.data);
+            applyOrientation(menu.orientation);
+            toggleAutoPageTurn(menu.pageTurnOption);
+            applyPdfZoom(menu.pdfZoomOption);
+            if (!result.isCancelled) {
+              onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
+            }
+          });
     }
   }
 
@@ -491,6 +498,7 @@ void EpubReaderActivity::loop() {
       currentSpineIndex = epub->getSpineItemsCount() - 1;
       nextPageNumber = 0;
       pendingPageJump = std::numeric_limits<uint16_t>::max();
+      if (isPdfDocument && pdfZoomOption > 0) pdfViewportIndex = std::numeric_limits<int>::max();
       requestUpdate();
     }
     return;
@@ -537,6 +545,10 @@ void EpubReaderActivity::loop() {
   // No current section, attempt to rerender the book
   if (!section) {
     requestUpdate();
+    return;
+  }
+
+  if (isPdfDocument && pdfZoomOption > 0 && movePdfViewport(nextTriggered)) {
     return;
   }
 
@@ -631,6 +643,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     // this switch for genuinely unhandled entries.
     case EpubReaderMenuActivity::MenuAction::ROTATE_SCREEN:
     case EpubReaderMenuActivity::MenuAction::AUTO_PAGE_TURN:
+    case EpubReaderMenuActivity::MenuAction::PDF_ZOOM:
       break;
     case EpubReaderMenuActivity::MenuAction::GO_TO_PAGE: {
       if (!section || section->pageCount == 0) break;
@@ -1047,7 +1060,77 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
 
     // Reset section to force re-layout in the new orientation.
     section.reset();
+    pdfViewportIndex = 0;
+    pdfViewportCount = 1;
   }
+}
+
+void EpubReaderActivity::loadPdfZoom() {
+  pdfZoomOption = 0;
+  pdfViewportIndex = 0;
+  pdfViewportCount = 1;
+  if (!isPdfDocument || !epub) return;
+
+  HalFile file;
+  if (!Storage.openFileForRead("PDFVIEW", epub->getCachePath() + PDF_VIEW_SETTINGS_FILE, file)) return;
+  uint8_t version = 0;
+  uint8_t option = 0;
+  if (file.read(&version, sizeof(version)) == sizeof(version) && file.read(&option, sizeof(option)) == sizeof(option) &&
+      version == PDF_VIEW_SETTINGS_VERSION) {
+    pdfZoomOption = PdfViewport::clampOption(option);
+  }
+}
+
+void EpubReaderActivity::savePdfZoom() const {
+  if (!isPdfDocument || !epub) return;
+  HalFile file;
+  if (!Storage.openFileForWrite("PDFVIEW", epub->getCachePath() + PDF_VIEW_SETTINGS_FILE, file)) {
+    LOG_ERR("ERS", "Failed to save PDF zoom setting");
+    return;
+  }
+  const uint8_t version = PDF_VIEW_SETTINGS_VERSION;
+  file.write(&version, sizeof(version));
+  file.write(&pdfZoomOption, sizeof(pdfZoomOption));
+  file.close();
+}
+
+void EpubReaderActivity::applyPdfZoom(const uint8_t option) {
+  if (!isPdfDocument) return;
+  const uint8_t clamped = PdfViewport::clampOption(option);
+  if (pdfZoomOption == clamped) return;
+  pdfZoomOption = clamped;
+  pdfViewportIndex = 0;
+  pdfViewportCount = 1;
+  pagesUntilFullRefresh = 0;
+  savePdfZoom();
+  requestUpdate();
+}
+
+bool EpubReaderActivity::movePdfViewport(const bool forward) {
+  if (!section || pdfZoomOption == 0) return false;
+  if (forward) {
+    if (pdfViewportIndex + 1 < pdfViewportCount) {
+      recordCurrentPageReadingTime("pdf_viewport");
+      ++pdfViewportIndex;
+      requestUpdate();
+    } else {
+      pdfViewportIndex = 0;
+      pageTurn(true);
+    }
+  } else {
+    if (pdfViewportIndex > 0) {
+      recordCurrentPageReadingTime("pdf_viewport");
+      --pdfViewportIndex;
+      requestUpdate();
+    } else {
+      if (currentSpineIndex == 0 && section->currentPage == 0) return true;
+      // The previous page may have a different image aspect ratio. A large
+      // sentinel is clamped to that page's final tile during render.
+      pdfViewportIndex = std::numeric_limits<int>::max();
+      pageTurn(false);
+    }
+  }
+  return true;
 }
 
 void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption) {
@@ -1089,6 +1172,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
   }
 
   if (isForwardTurn) {
+    if (isPdfDocument && pdfZoomOption > 0) pdfViewportIndex = 0;
     if (section->currentPage < section->pageCount - 1) {
       section->currentPage++;
     } else {
@@ -1101,6 +1185,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
       }
     }
   } else {
+    if (isPdfDocument && pdfZoomOption > 0 && pdfViewportIndex == 0) {
+      pdfViewportIndex = std::numeric_limits<int>::max();
+    }
     if (section->currentPage > 0) {
       section->currentPage--;
     } else if (currentSpineIndex > 0) {
@@ -1406,6 +1493,33 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   [[maybe_unused]] const auto t0 = millis();
   const int fontId = SETTINGS.getReaderFontId();
 
+  if (isPdfDocument && pdfZoomOption > 0) {
+    int16_t imageX = 0;
+    int16_t imageY = 0;
+    int16_t imageWidth = 0;
+    int16_t imageHeight = 0;
+    if (page->getSingleImageGeometry(imageX, imageY, imageWidth, imageHeight)) {
+      const PdfViewportRect viewport = PdfViewport::calculate(imageWidth, imageHeight, pdfZoomOption, pdfViewportIndex);
+      pdfViewportIndex = viewport.index;
+      pdfViewportCount = viewport.count();
+      if (page->renderSingleImageViewport(renderer, orientedMarginLeft, orientedMarginTop, viewport.x, viewport.y,
+                                          viewport.width, viewport.height, imageWidth, imageHeight)) {
+        renderStatusBar();
+        // PDF raster pages are already dithered in their pixel cache. A second
+        // grayscale reconstruction adds many SD reads but no extra musical
+        // detail, so zoomed tiles use the reader's normal fast/clean cadence.
+        ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+        LOG_DBG("ERS", "Rendered PDF viewport %d/%d at %u%% in %lums", pdfViewportIndex + 1, pdfViewportCount,
+                PdfViewport::zoomPercent(pdfZoomOption), millis() - t0);
+        return;
+      }
+    }
+    // Text/reflow PDF pages and malformed image pages keep the regular EPUB
+    // renderer even when a zoom preference is saved for the document.
+    pdfViewportIndex = 0;
+    pdfViewportCount = 1;
+  }
+
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
@@ -1592,7 +1706,12 @@ void EpubReaderActivity::renderStatusBar() const {
 
   int textYOffset = 0;
 
-  if (automaticPageTurnActive) {
+  if (isPdfDocument && pdfZoomOption > 0 && pdfViewportCount > 1) {
+    char viewportLabel[40];
+    snprintf(viewportLabel, sizeof(viewportLabel), "PDF %u%%  %d/%d", PdfViewport::zoomPercent(pdfZoomOption),
+             pdfViewportIndex + 1, pdfViewportCount);
+    title = viewportLabel;
+  } else if (automaticPageTurnActive) {
     title = tr(STR_AUTO_TURN_ENABLED) + std::to_string(60 * 1000 / pageTurnDuration);
 
     // calculates textYOffset when rendering title in status bar

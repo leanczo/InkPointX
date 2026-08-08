@@ -119,16 +119,19 @@ EpdFontFamily notosans18FontFamily(&notosans18RegularFont, &notosans18BoldFont, 
 
 // Inter's Medium and SemiBold weights, instanced from its variable axes and
 // rasterized to compact 1-bit translation subsets. Medium keeps body labels open on
-// the X4 panel; SemiBold supplies headings and selected/emphasized states. Hebrew
-// and Arabic code points come from Noto fallbacks in the same subsets -- see
-// scripts/build_ui_fonts.py.
+// the X4 panel; SemiBold supplies headings and selected/emphasized states. Hebrew,
+// Arabic and Korean code points come from Noto fallbacks in the same
+// subsets -- see scripts/build_ui_fonts.py. Korean uses Medium for emphasis as
+// well, avoiding duplicate Hangul bitmaps in the OTA-constrained image.
 EpdFont ui8MediumFont(&ui_8_medium);
 EpdFont ui8SemiBoldFont(&ui_8_semibold);
 EpdFontFamily ui8FontFamily(&ui8MediumFont, &ui8SemiBoldFont);
+EpdFontFamily ui8KoreanFontFamily(&ui8MediumFont);
 
 EpdFont ui10MediumFont(&ui_10_medium);
 EpdFont ui10SemiBoldFont(&ui_10_semibold);
 EpdFontFamily ui10FontFamily(&ui10MediumFont, &ui10SemiBoldFont);
+EpdFontFamily ui10KoreanFontFamily(&ui10MediumFont);
 // Handwritten accent voice (Caveat 600). The smaller cut keeps the Home author
 // subordinate to the title; both are single-face families because the script
 // itself supplies the emphasis.
@@ -140,14 +143,17 @@ EpdFontFamily uiScriptFontFamily(&uiScriptFont);
 EpdFont ui12MediumFont(&ui_12_medium);
 EpdFont ui12SemiBoldFont(&ui_12_semibold);
 EpdFontFamily ui12FontFamily(&ui12MediumFont, &ui12SemiBoldFont);
+EpdFontFamily ui12KoreanFontFamily(&ui12MediumFont);
 
 EpdFont ui14MediumFont(&ui_14_medium);
 EpdFont ui14SemiBoldFont(&ui_14_semibold);
 EpdFontFamily ui14FontFamily(&ui14MediumFont, &ui14SemiBoldFont);
+EpdFontFamily ui14KoreanFontFamily(&ui14MediumFont);
 
 EpdFont ui16MediumFont(&ui_16_medium);
 EpdFont ui16SemiBoldFont(&ui_16_semibold);
 EpdFontFamily ui16FontFamily(&ui16MediumFont, &ui16SemiBoldFont);
+EpdFontFamily ui16KoreanFontFamily(&ui16MediumFont);
 
 // Screen headings sit at the top of the scale.
 EpdFontFamily uiHeaderFontFamily(&ui16SemiBoldFont);
@@ -195,6 +201,7 @@ void applyInterfaceFont() {
   renderer.removeFont(UI_14_FONT_ID);
   renderer.removeFont(UI_16_FONT_ID);
   renderer.removeFont(UI_18_FONT_ID);
+  renderer.removeFont(HEADER_FONT_ID);
   renderer.removeFont(SCRIPT_SMALL_FONT_ID);
   renderer.removeFont(SCRIPT_FONT_ID);
   if (renderer.getFontCacheManager()) renderer.getFontCacheManager()->clearCache();
@@ -225,25 +232,32 @@ void applyInterfaceFont() {
   };
 
   sdFontSystem.unloadInterfaceFaces(renderer);
-  if (SETTINGS.uiSdFontFamilyName[0] != '\0') {
+  const bool korean = I18N.getLanguage() == Language::KO;
+  // The catalog's optional interface families do not promise Hangul coverage.
+  // Preserve the user's selection, but use the complete built-in Noto Sans KR
+  // scale while Korean is active; switching languages restores that selection.
+  if (!korean && SETTINGS.uiSdFontFamilyName[0] != '\0') {
     sdFontSystem.loadInterfaceFaces(SETTINGS.uiSdFontFamilyName, renderer, uiSlots, std::size(uiSlots));
   }
-  if (SETTINGS.scriptSdFontFamilyName[0] != '\0') {
+  if (!korean && SETTINGS.scriptSdFontFamilyName[0] != '\0') {
     sdFontSystem.loadInterfaceFaces(SETTINGS.scriptSdFontFamilyName, renderer, accentSlots, std::size(accentSlots));
   }
 
   const auto fillSlot = [](const int fontId, const EpdFontFamily& family) {
     if (renderer.getFontMap().count(fontId) == 0) renderer.insertFont(fontId, family);
   };
-  fillSlot(MICRO_FONT_ID, ui8FontFamily);   // 8 pt  — keyboard, captions
-  fillSlot(SMALL_FONT_ID, ui10FontFamily);  // 10 pt — legends
-  fillSlot(UI_10_FONT_ID, ui12FontFamily);  // 12 pt — labels, values
-  fillSlot(UI_12_FONT_ID, ui14FontFamily);  // 14 pt — list row titles
-  fillSlot(UI_14_FONT_ID, ui16FontFamily);  // 16 pt — book titles
-  fillSlot(UI_16_FONT_ID, ui16FontFamily);
-  fillSlot(UI_18_FONT_ID, ui16FontFamily);
-  fillSlot(SCRIPT_SMALL_FONT_ID, uiScriptSmallFontFamily);  // quieter author line
-  fillSlot(SCRIPT_FONT_ID, uiScriptFontFamily);             // the handwritten accent
+  fillSlot(MICRO_FONT_ID, korean ? ui8KoreanFontFamily : ui8FontFamily);    // 8 pt — keyboard, captions
+  fillSlot(SMALL_FONT_ID, korean ? ui10KoreanFontFamily : ui10FontFamily);  // 10 pt — legends
+  fillSlot(UI_10_FONT_ID, korean ? ui12KoreanFontFamily : ui12FontFamily);  // 12 pt — labels, values
+  fillSlot(UI_12_FONT_ID, korean ? ui14KoreanFontFamily : ui14FontFamily);  // 14 pt — list row titles
+  fillSlot(UI_14_FONT_ID, korean ? ui16KoreanFontFamily : ui16FontFamily);  // 16 pt — book titles
+  fillSlot(UI_16_FONT_ID, korean ? ui16KoreanFontFamily : ui16FontFamily);
+  fillSlot(UI_18_FONT_ID, korean ? ui16KoreanFontFamily : ui16FontFamily);
+  fillSlot(HEADER_FONT_ID, korean ? ui16KoreanFontFamily : uiHeaderFontFamily);
+  // Caveat has no Korean design. Keep the accent slots legible and size-stable
+  // with the 16 px Noto Sans KR face instead of embedding duplicate Hangul.
+  fillSlot(SCRIPT_SMALL_FONT_ID, korean ? ui16KoreanFontFamily : uiScriptSmallFontFamily);
+  fillSlot(SCRIPT_FONT_ID, korean ? ui16KoreanFontFamily : uiScriptFontFamily);
   LOG_DBG("MAIN", "Interface slots: script=%d/%d sd=%d/%d | rows sd=%d asc=%d",
           renderer.getFontAscenderSize(SCRIPT_SMALL_FONT_ID), renderer.getFontAscenderSize(SCRIPT_FONT_ID),
           (int)renderer.isSdCardFont(SCRIPT_SMALL_FONT_ID), (int)renderer.isSdCardFont(SCRIPT_FONT_ID),
@@ -402,8 +416,6 @@ bool setupDisplayAndFonts(bool seamless = false) {
   sdFontSystem.begin(renderer);
 
   applyInterfaceFont();
-  renderer.insertFont(HEADER_FONT_ID, uiHeaderFontFamily);  // 16 pt semibold
-
   LOG_DBG("MAIN", "Fonts setup");
   return true;
 }
@@ -948,23 +960,6 @@ void loop() {
   // Refresh the battery icon when USB is plugged or unplugged.
   // Placed after sleep guards so we never queue a render that won't be processed.
   if (gpio.wasUsbStateChanged()) {
-    activityManager.requestUpdate();
-  }
-
-  // A button can still be physically held while the action-triggered frame is
-  // painted, so its on-screen section is rendered black. The release edge does
-  // not always change activity state and therefore used to leave that frame
-  // latched on e-ink indefinitely. Queue one visual-only redraw after release.
-  // It is deliberately deferred and coalesced with the activity's own update:
-  // no extra gpio.update(), no replayed input event, and no duplicate action.
-  const bool frontButtonReleased = gpio.wasReleased(HalGPIO::BTN_BACK) || gpio.wasReleased(HalGPIO::BTN_CONFIRM) ||
-                                   gpio.wasReleased(HalGPIO::BTN_LEFT) || gpio.wasReleased(HalGPIO::BTN_RIGHT);
-  // Only when the last rendered frame actually shows a pressed pill: the
-  // unconditional version queued a second full-panel refresh on every list
-  // step (action paints on the press edge, this fired on the release edge),
-  // doubling both the visible flashing and the panel energy per keypress.
-  if (frontButtonReleased && SETTINGS.showButtonHints && UITheme::getInstance().hasVisibleButtonHints() &&
-      UITheme::getInstance().hasPressedButtonHints()) {
     activityManager.requestUpdate();
   }
 

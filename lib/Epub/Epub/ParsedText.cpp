@@ -325,13 +325,16 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
 
   // --- FOCUS READING LOGIC BELOW ---
 
-  // Pre-reserve capacity to prevent mid-word heap reallocations.
-  size_t maxPossibleNewTokens = word.length();
-  size_t requiredSize = words.size() + maxPossibleNewTokens;
+  // Pre-reserve only the compact parallel metadata arrays. words is a deque on
+  // purpose: growing it in bounded chunks avoids the large contiguous heap
+  // allocation that used to reboot the ESP32-C3 when Focus Reading split a
+  // sufficiently large/fragmented paragraph.
+  const size_t maxPossibleNewTokens = word.length();
+  const size_t requiredSize = words.size() + maxPossibleNewTokens;
 
-  if (words.capacity() < requiredSize) {
+  if (wordStyles.capacity() < requiredSize) {
     // Emulate standard geometric growth (doubling) to ensure we don't reallocate on every word.
-    size_t newCapacity = words.capacity() * 2;
+    size_t newCapacity = wordStyles.capacity() * 2;
 
     // Ensure the doubled capacity is actually enough for this specific word
     if (newCapacity < requiredSize) {
@@ -342,7 +345,6 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle,
       newCapacity = 16;
     }
 
-    words.reserve(newCapacity);
     wordStyles.reserve(newCapacity);
     wordContinues.reserve(newCapacity);
     wordNoSpaceBefore.reserve(newCapacity);

@@ -3,6 +3,9 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+#include <iterator>
+
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -11,20 +14,22 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
                                                const uint8_t currentPageTurnOption, const bool hasFootnotes,
-                                               const bool hasBookmarks, const bool isFavorite)
+                                               const bool hasBookmarks, const bool isFavorite, const bool isPdf,
+                                               const uint8_t currentPdfZoomOption)
     : Activity("EpubReaderMenu", renderer, mappedInput),
-      menuItems(buildMenuItems(hasFootnotes, hasBookmarks, isFavorite)),
+      menuItems(buildMenuItems(hasFootnotes, hasBookmarks, isFavorite, isPdf)),
       menuRows(buildMenuRows(menuItems)),
       title(title),
       pendingOrientation(currentOrientation),
       selectedPageTurnOption(currentPageTurnOption),
+      selectedPdfZoomOption(std::min<uint8_t>(currentPdfZoomOption, std::size(pdfZoomLabels) - 1)),
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent) {}
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes,
-                                                                                     bool hasBookmarks,
-                                                                                     bool isFavorite) {
+                                                                                     bool hasBookmarks, bool isFavorite,
+                                                                                     bool isPdf) {
   std::vector<MenuItem> items;
   items.reserve(20);
 
@@ -55,6 +60,9 @@ std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuI
   items.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS, MenuGroup::Book, UIIcon::ReaderStats});
 
   items.push_back({MenuAction::READING_SETTINGS, StrId::STR_READING_SETTINGS, MenuGroup::Reading, UIIcon::Reading});
+  if (isPdf) {
+    items.push_back({MenuAction::PDF_ZOOM, StrId::STR_PDF_ZOOM, MenuGroup::Reading, UIIcon::Image});
+  }
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION, MenuGroup::Reading, UIIcon::ReaderRotate});
   items.push_back(
       {MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN, MenuGroup::Reading, UIIcon::ReaderAutoTurn});
@@ -135,13 +143,20 @@ void EpubReaderMenuActivity::loop() {
       return;
     }
 
-    setResult(MenuResult{static_cast<int>(selectedAction), pendingOrientation, selectedPageTurnOption});
+    if (selectedAction == MenuAction::PDF_ZOOM) {
+      selectedPdfZoomOption = (selectedPdfZoomOption + 1) % std::size(pdfZoomLabels);
+      requestUpdate();
+      return;
+    }
+
+    setResult(MenuResult{static_cast<int>(selectedAction), pendingOrientation, selectedPageTurnOption,
+                         selectedPdfZoomOption});
     finish();
     return;
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
     result.isCancelled = true;
-    result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption};
+    result.data = MenuResult{-1, pendingOrientation, selectedPageTurnOption, selectedPdfZoomOption};
     setResult(std::move(result));
     finish();
     return;
@@ -201,6 +216,8 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
         } else if (value == MenuAction::AUTO_PAGE_TURN) {
           // Render current page turn value on the right edge of the content area.
           return pageTurnLabels[selectedPageTurnOption];
+        } else if (value == MenuAction::PDF_ZOOM) {
+          return pdfZoomLabels[selectedPdfZoomOption];
         } else {
           return "";
         }
@@ -211,9 +228,9 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
         if (row.isSection) return UIAccessory::None;
         const auto action = menuItems[row.itemIndex].action;
         if (action == MenuAction::ROTATE_SCREEN || action == MenuAction::AUTO_PAGE_TURN ||
-            action == MenuAction::TOGGLE_BOOKMARK || action == MenuAction::TOGGLE_FAVORITE ||
-            action == MenuAction::SYNC || action == MenuAction::SCREENSHOT || action == MenuAction::GO_HOME ||
-            action == MenuAction::DELETE_CACHE) {
+            action == MenuAction::PDF_ZOOM || action == MenuAction::TOGGLE_BOOKMARK ||
+            action == MenuAction::TOGGLE_FAVORITE || action == MenuAction::SYNC || action == MenuAction::SCREENSHOT ||
+            action == MenuAction::GO_HOME || action == MenuAction::DELETE_CACHE) {
           return UIAccessory::None;
         }
         return UIAccessory::Chevron;

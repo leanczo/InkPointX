@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/qa/v2.0/home-now-reading.png" width="280" alt="InkPoint X home screen on XTEINK X4">
+  <img src="docs/qa/v2.2.8/home-now-reading.png" width="280" alt="InkPoint X 2.2.8 home screen on XTEINK X4">
 </p>
 
 <h1 align="center">InkPoint X</h1>
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.1" src="https://img.shields.io/badge/version-2.2.1-000000">
+  <img alt="Version 2.2.8" src="https://img.shields.io/badge/version-2.2.8-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -20,9 +20,9 @@
 </p>
 
 > [!IMPORTANT]
-> The `dev` branch contains the current development firmware. For a prebuilt, user-facing binary, use the
-> [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically want to test development
-> changes. Devices already running InkPoint X can update over the air from
+> The `main` branch contains the current stable source, while `dev` is used for active development. For a prebuilt,
+> user-facing binary, use the [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically
+> want to test development changes. Devices already running InkPoint X can update over the air from
 > **Settings → System → Check for updates**.
 
 ## Overview
@@ -37,6 +37,39 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Stable Focus Reading and centred modal notifications in 2.2.8.** Focus Reading no longer requests an increasingly
+  large contiguous heap block while splitting long EPUB paragraphs, eliminating the `std::bad_alloc` reboot seen with
+  some books on the ESP32-C3. Contextual messages such as indexing, loading, lookup, and error states now share one
+  centred 1:1 card with rounded corners, a restrained e-ink shadow, a light background scrim that preserves the page
+  beneath it, and a matching rounded progress bar on both X3 and X4.
+- **Correct EPUB cover scaling in 2.2.7.** Low-resolution 1-bit thumbnails produced by progressive JPEG covers now
+  expand to the full aspect-preserving artwork area on the Now Reading screen instead of remaining in its top-left
+  corner. Existing malformed thumbnail caches are supported immediately, and stale prepared Home tiles are invalidated
+  automatically. Covers remain uncropped and the fix is limited to the Home artwork path.
+- **PDF zoom and safer PDF opening in 2.2.6.** Fixed-layout PDFs such as music scores open through a bounded-memory
+  conversion path again. The reader menu now offers 100%, 125%, 150%, and 200% PDF zoom; zoomed pages are explored as
+  four overlapping viewports with the normal page buttons, and the selected zoom is remembered per document. The
+  update screen also downloads and presents the release's **What's new** notes before installation. On the home screen,
+  a book without embedded artwork now receives a full-size typographic cover with its title at the top and author at
+  the bottom; explicit metadata visibility settings still take priority.
+- **A faster, adaptive Now Reading screen in 2.2.5.** Book title and author each support **Default**, **Show**, and
+  **Hide** under Interface settings. The default keeps cover-backed books visually clean, while books without artwork
+  retain their title; explicit user choices always win. The cover expands into every released row without cropping,
+  and its progress bar follows the exact rendered cover width. Cover, percentage, page estimate, and reading time now
+  arrive in one complete frame from lightweight geometry-aware caches instead of appearing after the screen is shown.
+  Physical-button legends no longer animate a pressed state, eliminating the second e-ink refresh formerly needed on
+  release and making horizontal navigation materially faster.
+- **Korean system language in 2.2.4.** All 537 interface strings are available in Korean, and every UI size embeds
+  an exact, 1-bit **Noto Sans KR** subset for crisp Hangul on both X3 and X4. Korean automatically uses this complete
+  built-in family instead of a potentially incompatible custom interface or accent font; the custom selection is
+  preserved and returns when another language is selected.
+- **Reliable X3 navigation and Wi-Fi in 2.2.3.** X3 focus surfaces now use a panel-appropriate, higher-contrast
+  treatment that stays visible during fast side-button navigation. Wi-Fi association scans all channels, chooses
+  the strongest matching access point, keeps the station radio active between scan and connect, ignores stale
+  immediate failure states, and waits for DHCP before reporting success.
+- **Live OTA progress in 2.2.2.** The updater now releases the activity render lock while downloading, validating,
+  and flashing, so the progress bar, percentage, phase, and byte counters update on screen instead of remaining at
+  zero. Progress values are synchronized safely between the installer and e-ink render tasks.
 - **Safer, cleaner web pairing in 2.2.1.** Long pairing URLs no longer run outside the X3/X4 display: the full
   credential stays in the QR payload while the address and bounded pairing code use separate lines. Web-interface
   authorization now has an enabled-by-default switch under **Settings → Network & Sync** and consistently controls
@@ -57,7 +90,8 @@ interface, and controller-specific display tuning.
 - **Broader fixed-layout PDF support.** Large vector scores and diagram-heavy pages use bounded rasterization and
   geometry-aware caches on both X3 and X4 instead of aborting under ESP32-C3 memory pressure.
 - **Faster interaction.** Navigation edges are queued and coalesced while the panel is busy, automatic menu CLEAN
-  flashes are removed, and the normal UI stays on the controller's fast differential path.
+  flashes and release-time button-animation redraws are removed, and the normal UI stays on the controller's fast
+  differential path.
 - **Production hardening.** Network downloads and OTA writes are staged atomically, retries always restart from a
   clean file, caches carry source fingerprints and integrity records, and destructive dialogs require a distinct
   confirmation click.
@@ -137,7 +171,8 @@ The full element-by-element findings and decisions are recorded in [design-qa.md
 
 The home screen is organized into three horizontal pages:
 
-1. **Now Reading** — the largest safe cover, title, smaller author line, and a single compact progress band.
+1. **Now Reading** — the largest safe uncropped cover and a compact progress band; title and author visibility adapt
+   to the artwork by default and remain independently configurable.
 2. **Library** — Books, Files, Gallery, Favorites, Reading Stats, plus a dedicated Transfer subsection.
 3. **Settings** — focused submenus for interface, power, reading, controls, files, network, and system options.
 
@@ -147,18 +182,19 @@ Settings and are intentionally omitted from the reading page.
 
 <table>
   <tr>
-    <td align="center"><img src="docs/qa/v2.0/home-now-reading.png" width="220" alt="Now Reading"><br><sub>Now Reading</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/home-settings-hub.png" width="220" alt="Settings hub"><br><sub>Settings hub</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/library-books.png" width="220" alt="Books"><br><sub>Books</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/home-now-reading.png" width="220" alt="Now Reading"><br><sub>Now Reading</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/home-library.png" width="220" alt="Library hub"><br><sub>Library</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/library-books.png" width="220" alt="Books"><br><sub>Books</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/qa/v2.0/reader-page.png" width="220" alt="Reading page"><br><sub>Reading page</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/settings-interface.png" width="220" alt="Interface settings"><br><sub>Interface settings</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/home-ghost-cover.png" width="220" alt="Book without a cover"><br><sub>Book without a cover</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/home-settings.png" width="220" alt="Settings hub"><br><sub>Settings</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/settings.png" width="220" alt="Interface settings"><br><sub>Interface settings</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/reader-page.png" width="220" alt="Reading page"><br><sub>Reading page</sub></td>
   </tr>
 </table>
 
-All screenshots are captured from the device's own framebuffer over serial, not rendered on a host.
+All screenshots show InkPoint X 2.2.8 and were captured from an XTEINK X4's own framebuffer over serial, not rendered
+on a host.
 
 The detailed interface specification is available in [docs/inkpoint-x-ui.md](docs/inkpoint-x-ui.md).
 
@@ -229,18 +265,18 @@ Resetting settings preserves books, reading progress, bookmarks, statistics, rec
 
 The system interface uses **Inter Medium** for normal text and **Inter SemiBold** for headings, selection, and
 emphasis, instanced from Inter's variable `wght` and `opsz` axes so each size gets its own optical treatment.
-**Caveat** supplies the handwritten accent voice. Inter carries no Hebrew or Arabic, so **Noto Sans Hebrew** and
-**Noto Naskh Arabic** supply exactly the code points it is missing. Full font files are not embedded. During the
+**Caveat** supplies the handwritten accent voice. Inter carries no Hebrew, Arabic, or Korean, so **Noto Sans Hebrew**,
+**Noto Naskh Arabic**, and **Noto Sans KR** supply exactly the code points it is missing. Full font files are not embedded. During the
 build, `scripts/build_ui_fonts.py` scans every string in `lib/I18n/translations/*.yaml` and generates compact native
 subsets containing only the glyphs the firmware needs.
 
-The firmware currently provides complete UI resources for 27 languages:
+The firmware currently provides complete UI resources for 28 languages:
 
 <details>
 <summary>Show language list</summary>
 
 Arabic, Belarusian, Catalan, Czech, Danish, Dutch, English, Finnish, French, German, Hebrew, Hungarian, Italian,
-Kazakh, Lithuanian, Polish, Portuguese (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish,
+Kazakh, Korean, Lithuanian, Polish, Portuguese (Brazil), Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Turkish,
 Ukrainian, Valencian, and Vietnamese.
 
 </details>
@@ -255,6 +291,7 @@ The text pipeline supports:
 - Vietnamese diacritics and NFC composition;
 - bidirectional Hebrew and Arabic text;
 - contextual Arabic shaping for both translated UI strings and dynamic book, author, and file names;
+- complete Hangul coverage for the Korean system interface through Noto Sans KR subsets;
 - mirrored accessories and layout behavior for RTL content.
 
 The interface font and the handwritten accent face can also come from the card:
@@ -278,8 +315,8 @@ InkPoint X contains a panel-aware refresh policy built around the active control
 - explicit clean and full refresh paths are retained for recovery from accumulated ghosting;
 - the first update after controller initialization uses a stronger waveform;
 - grayscale and 1-bit image paths use panel-aware conversion;
-- home-cover thumbnails are generated at their final layout size, avoiding a second rescale of an already-dithered
-  image;
+- home covers use geometry-keyed prepared tiles, so repeated carousel visits restore the exact final region instead
+  of decoding and rescaling the source bitmap again;
 - button debounce is tuned for the shared X3/X4 ADC ladder so one physical press produces one action.
 
 E-ink cannot behave exactly like an emissive phone display, but normal navigation is designed to feel immediate
@@ -395,7 +432,7 @@ Run static analysis:
 pio check -e default --fail-on-defect=medium
 ```
 
-Release validation includes the host suite, localization coverage across 27 languages, development and release
+Release validation includes the host suite, localization coverage across 28 languages, development and release
 compilation, static analysis, PDF conversion checks, and a hard flash budget so the image cannot silently grow into
 the OTA slot's limit.
 

@@ -35,18 +35,20 @@ the firmware.
 - Fetched from: `google/fonts`, revision
   `7ff85c87f93ea6cca5f41c69f2e4edcb90240f26`, `ofl/inter`
 
-## Interface Hebrew and Arabic fallbacks
+## Interface Hebrew, Arabic, and Korean fallbacks
 
-Inter covers no Hebrew or Arabic, which four interface locales and dynamic book,
-author and file names need. The interface subsets are therefore generated from a
-font stack: Inter first, then Noto Sans Hebrew and Noto Naskh Arabic supply exactly
-the code points Inter is missing.
+Inter covers no Hebrew, Arabic, or Korean. The interface subsets are therefore
+generated from a font stack: Inter first, then Noto Sans Hebrew, Noto Naskh Arabic,
+and Noto Sans KR supply exactly the code points Inter is missing.
 
 - Noto Sans Hebrew: SIL Open Font License 1.1 —
   `LICENSES/NotoSansHebrew-OFL-1.1.txt`, sources in
   `lib/EpdFont/builtinFonts/source/NotoSansHebrew`
 - Noto Naskh Arabic: SIL Open Font License 1.1 —
   `LICENSES/NotoNaskhArabic-OFL-1.1.txt`, fetched from the pinned `google/fonts`
+  revision above
+- Noto Sans KR: SIL Open Font License 1.1 —
+  `LICENSES/NotoSansKR-OFL-1.1.txt`, fetched from the pinned `google/fonts`
   revision above
 
 The Arabic presentation forms requested from the fallback are exactly those

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,13 @@ class HomeActivity final : public Activity {
   std::vector<RecentBook> recentBooks;
   ReadingSummary readingSummary;
   std::string homeCoverPath;
+  std::string homeCachePath;
+  std::unique_ptr<uint8_t[]> coverRegionCache;
+  size_t coverRegionCacheSize = 0;
+  int coverRegionX = 0;
+  int coverRegionY = 0;
+  int coverRegionWidth = 0;
+  int coverRegionHeight = 0;
   bool recentDetailsLoaded = false;
   const HomeMenuItem initialMenuItem;
 
@@ -39,6 +47,10 @@ class HomeActivity final : public Activity {
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                         HomeMenuItem initialMenuItemValue = HomeMenuItem::NONE)
       : Activity("Home", renderer, mappedInput), initialMenuItem(initialMenuItemValue) {}
+
+  // Reader/cache mutations call this so the next Home instance reloads the
+  // tiny progress record while ordinary menu round-trips stay instant.
+  static void invalidateDetailsCache();
 
   void onEnter() override;
   void onExit() override;

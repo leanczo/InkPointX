@@ -5,6 +5,8 @@
 #include <Logging.h>
 #include <Serialization.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <new>
 
 #include "Epub/converters/DirectPixelWriter.h"
@@ -119,6 +121,97 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
   return true;
 }
 
+bool renderViewportFromCache(GfxRenderer& renderer, const std::string& cachePath, const int x, const int y,
+                             const int expectedWidth, const int expectedHeight, int sourceX, int sourceY,
+                             int sourceWidth, int sourceHeight, const int destinationWidth,
+                             const int destinationHeight) {
+  if (destinationWidth <= 0 || destinationHeight <= 0 || x < 0 || y < 0 ||
+      x + destinationWidth > renderer.getScreenWidth() || y + destinationHeight > renderer.getScreenHeight()) {
+    LOG_ERR("IMG", "Invalid viewport destination: (%d,%d) size (%dx%d)", x, y, destinationWidth, destinationHeight);
+    return false;
+  }
+
+  HalFile cacheFile;
+  if (!Storage.openFileForRead("IMG", cachePath, cacheFile)) return false;
+
+  uint16_t cachedWidth = 0;
+  uint16_t cachedHeight = 0;
+  if (cacheFile.read(&cachedWidth, sizeof(cachedWidth)) != sizeof(cachedWidth) ||
+      cacheFile.read(&cachedHeight, sizeof(cachedHeight)) != sizeof(cachedHeight)) {
+    return false;
+  }
+  if (abs(static_cast<int>(cachedWidth) - expectedWidth) > 1 ||
+      abs(static_cast<int>(cachedHeight) - expectedHeight) > 1) {
+    LOG_ERR("IMG", "Viewport cache dimension mismatch: %dx%d vs %dx%d", cachedWidth, cachedHeight, expectedWidth,
+            expectedHeight);
+    return false;
+  }
+
+  sourceX = std::clamp(sourceX, 0, static_cast<int>(cachedWidth) - 1);
+  sourceY = std::clamp(sourceY, 0, static_cast<int>(cachedHeight) - 1);
+  sourceWidth = std::clamp(sourceWidth, 1, static_cast<int>(cachedWidth) - sourceX);
+  sourceHeight = std::clamp(sourceHeight, 1, static_cast<int>(cachedHeight) - sourceY);
+
+  // Grayscale strip passes can reject the complete logical destination before
+  // touching the SD card. The PDF zoom path is normally BW-only, but keeping
+  // this generic makes the primitive safe for other image callers.
+  if (!renderer.glyphIntersectsStrip(x, y, x + destinationWidth - 1, y + destinationHeight - 1)) return true;
+
+  const int bytesPerRow = (cachedWidth + 3) / 4;
+  int rowsPerRead = std::max(1, 4096 / bytesPerRow);
+  rowsPerRead = std::min(rowsPerRead, static_cast<int>(cachedHeight));
+  auto* readBuffer = static_cast<uint8_t*>(malloc(static_cast<size_t>(rowsPerRead) * bytesPerRow));
+  if (!readBuffer) {
+    rowsPerRead = 1;
+    readBuffer = static_cast<uint8_t*>(malloc(bytesPerRow));
+  }
+  if (!readBuffer) {
+    LOG_ERR("IMG", "Failed to allocate PDF viewport row buffer");
+    return false;
+  }
+
+  DirectPixelWriter writer;
+  writer.init(renderer);
+  int bufferedStart = -1;
+  int bufferedRows = 0;
+  bool success = true;
+
+  for (int destinationY = 0; destinationY < destinationHeight; ++destinationY) {
+    const int sourceRow =
+        sourceY + std::min(sourceHeight - 1,
+                           static_cast<int>((static_cast<int64_t>(destinationY) * sourceHeight) / destinationHeight));
+    if (sourceRow < bufferedStart || sourceRow >= bufferedStart + bufferedRows) {
+      bufferedStart = sourceRow;
+      bufferedRows = std::min(rowsPerRead, static_cast<int>(cachedHeight) - bufferedStart);
+      const uint64_t offset = sizeof(cachedWidth) + sizeof(cachedHeight) +
+                              static_cast<uint64_t>(bufferedStart) * static_cast<uint64_t>(bytesPerRow);
+      const size_t bytes = static_cast<size_t>(bufferedRows) * bytesPerRow;
+      if (!cacheFile.seek64(offset) || cacheFile.read(readBuffer, bytes) != static_cast<int>(bytes)) {
+        LOG_ERR("IMG", "Viewport cache read error at source row %d", sourceRow);
+        success = false;
+        break;
+      }
+    }
+
+    const uint8_t* rowBuffer = readBuffer + static_cast<size_t>(sourceRow - bufferedStart) * bytesPerRow;
+    writer.beginRow(y + destinationY);
+    int destinationStart = 0;
+    int destinationEnd = destinationWidth;
+    writer.bandColRange(x, destinationWidth, destinationStart, destinationEnd);
+    for (int destinationX = destinationStart; destinationX < destinationEnd; ++destinationX) {
+      const int sourceColumn =
+          sourceX + std::min(sourceWidth - 1,
+                             static_cast<int>((static_cast<int64_t>(destinationX) * sourceWidth) / destinationWidth));
+      const int byteIndex = sourceColumn >> 2;
+      const int bitShift = 6 - (sourceColumn & 3) * 2;
+      writer.writePixel(x + destinationX, (rowBuffer[byteIndex] >> bitShift) & 0x03);
+    }
+  }
+
+  free(readBuffer);
+  return success;
+}
+
 }  // namespace
 
 void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
@@ -201,6 +294,30 @@ void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   }
 
   LOG_DBG("IMG", "Decode successful");
+}
+
+bool ImageBlock::renderViewport(GfxRenderer& renderer, const int x, const int y, const int sourceX, const int sourceY,
+                                const int sourceWidth, const int sourceHeight, const int destinationWidth,
+                                const int destinationHeight) {
+  FontCacheManager* fcm = renderer.getFontCacheManager();
+  if (fcm && fcm->isScanning()) return true;
+
+  const std::string cachePath = getCachePath(imagePath);
+  if (renderViewportFromCache(renderer, cachePath, x, y, width, height, sourceX, sourceY, sourceWidth, sourceHeight,
+                              destinationWidth, destinationHeight)) {
+    return true;
+  }
+
+  // The first normal page view usually created the cache already. If it did
+  // not (cache removed while the book was open, first page opened directly in
+  // zoom, etc.), run the regular decoder once and immediately retry the crop.
+  render(renderer, x, y);
+  // The decoder also painted the fit-page image. Clear those pixels before the
+  // cropped render; otherwise black marks outside the selected source area
+  // survive because DirectPixelWriter intentionally skips white pixels.
+  renderer.fillRect(x, y, destinationWidth, destinationHeight, false);
+  return renderViewportFromCache(renderer, cachePath, x, y, width, height, sourceX, sourceY, sourceWidth, sourceHeight,
+                                 destinationWidth, destinationHeight);
 }
 
 bool ImageBlock::serialize(HalFile& file) {

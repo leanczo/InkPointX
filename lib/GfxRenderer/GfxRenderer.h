@@ -15,6 +15,7 @@ class FontCacheManager;
 class SdCardFont;
 
 #include <cstring>
+#include <deque>
 #include <map>
 #include <string>
 #include <vector>
@@ -131,7 +132,7 @@ class GfxRenderer {
   // Batches a string's glyphs into a card font's cache before measuring or
   // drawing it. No-op for built-in fonts.
   void prepareSdCardGlyphs(int fontId, const char* utf8Text, EpdFontFamily::Style style, bool metadataOnly) const;
-  void ensureSdCardFontReady(int fontId, const std::vector<std::string>& words, bool includeHyphen,
+  void ensureSdCardFontReady(int fontId, const std::deque<std::string>& words, bool includeHyphen,
                              uint8_t styleMask = 0x0F) const;
 
   // Orientation control (affects logical width/height and coordinate transforms)
@@ -204,7 +205,8 @@ class GfxRenderer {
   void drawIcon(const uint8_t bitmap[], int x, int y, int width, int height) const;
   void drawBitmap(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight, float cropX = 0,
                   float cropY = 0) const;
-  void drawBitmap1Bit(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight) const;
+  void drawBitmap1Bit(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight,
+                      bool allowUpscale = false) const;
   void fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state = true) const;
 
   // Text
