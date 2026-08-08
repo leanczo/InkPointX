@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/qa/v2.0/home-now-reading.png" width="280" alt="InkPoint X home screen on XTEINK X4">
+  <img src="docs/qa/v2.2.8/home-now-reading.png" width="280" alt="InkPoint X 2.2.8 home screen on XTEINK X4">
 </p>
 
 <h1 align="center">InkPoint X</h1>
@@ -20,9 +20,9 @@
 </p>
 
 > [!IMPORTANT]
-> The `dev` branch contains the current development firmware. For a prebuilt, user-facing binary, use the
-> [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically want to test development
-> changes. Devices already running InkPoint X can update over the air from
+> The `main` branch contains the current stable source, while `dev` is used for active development. For a prebuilt,
+> user-facing binary, use the [Releases](https://github.com/yokki-vans/InkPointX/releases) page unless you specifically
+> want to test development changes. Devices already running InkPoint X can update over the air from
 > **Settings → System → Check for updates**.
 
 ## Overview
@@ -171,7 +171,8 @@ The full element-by-element findings and decisions are recorded in [design-qa.md
 
 The home screen is organized into three horizontal pages:
 
-1. **Now Reading** — the largest safe cover, title, smaller author line, and a single compact progress band.
+1. **Now Reading** — the largest safe uncropped cover and a compact progress band; title and author visibility adapt
+   to the artwork by default and remain independently configurable.
 2. **Library** — Books, Files, Gallery, Favorites, Reading Stats, plus a dedicated Transfer subsection.
 3. **Settings** — focused submenus for interface, power, reading, controls, files, network, and system options.
 
@@ -181,18 +182,19 @@ Settings and are intentionally omitted from the reading page.
 
 <table>
   <tr>
-    <td align="center"><img src="docs/qa/v2.0/home-now-reading.png" width="220" alt="Now Reading"><br><sub>Now Reading</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/home-settings-hub.png" width="220" alt="Settings hub"><br><sub>Settings hub</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/library-books.png" width="220" alt="Books"><br><sub>Books</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/home-now-reading.png" width="220" alt="Now Reading"><br><sub>Now Reading</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/home-library.png" width="220" alt="Library hub"><br><sub>Library</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/library-books.png" width="220" alt="Books"><br><sub>Books</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/qa/v2.0/reader-page.png" width="220" alt="Reading page"><br><sub>Reading page</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/settings-interface.png" width="220" alt="Interface settings"><br><sub>Interface settings</sub></td>
-    <td align="center"><img src="docs/qa/v2.0/home-ghost-cover.png" width="220" alt="Book without a cover"><br><sub>Book without a cover</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/home-settings.png" width="220" alt="Settings hub"><br><sub>Settings</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/settings.png" width="220" alt="Interface settings"><br><sub>Interface settings</sub></td>
+    <td align="center"><img src="docs/qa/v2.2.8/reader-page.png" width="220" alt="Reading page"><br><sub>Reading page</sub></td>
   </tr>
 </table>
 
-All screenshots are captured from the device's own framebuffer over serial, not rendered on a host.
+All screenshots show InkPoint X 2.2.8 and were captured from an XTEINK X4's own framebuffer over serial, not rendered
+on a host.
 
 The detailed interface specification is available in [docs/inkpoint-x-ui.md](docs/inkpoint-x-ui.md).
 
