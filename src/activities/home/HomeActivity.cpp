@@ -552,9 +552,9 @@ void HomeActivity::render(RenderLock&&) {
             coverVisualWidth = coverWidth;
             const size_t regionSize = renderer.getRegionByteSize(coverX, coverY, coverWidth, coverHeight);
             char tileName[112];
-            snprintf(tileName, sizeof(tileName), "%s/home_tile_v2_%d_%d_%d_%d_%d_%d_%d_%lu.bin",
-                     homeCachePath.c_str(), static_cast<int>(renderer.getOrientation()), coverX, coverY, coverWidth,
-                     coverHeight, bitmap.getWidth(), bitmap.getHeight(), static_cast<unsigned long>(coverFile.size()));
+            snprintf(tileName, sizeof(tileName), "%s/home_tile_v2_%d_%d_%d_%d_%d_%d_%d_%lu.bin", homeCachePath.c_str(),
+                     static_cast<int>(renderer.getOrientation()), coverX, coverY, coverWidth, coverHeight,
+                     bitmap.getWidth(), bitmap.getHeight(), static_cast<unsigned long>(coverFile.size()));
 
             // Across HomeActivity instances, restore the same prepared tile
             // from the book cache. A sequential ~10-20 KB read is far cheaper
@@ -636,9 +636,8 @@ void HomeActivity::render(RenderLock&&) {
       if (metadataInsidePlaceholder) {
         const int placeholderTextWidth = std::max(1, ghostWidth - HOME_PLACEHOLDER_TEXT_MARGIN * 2);
         if (titleVisible) {
-          const auto placeholderTitleLines = renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(),
-                                                                  placeholderTextWidth, 4,
-                                                                  EpdFontFamily::BOLD);
+          const auto placeholderTitleLines =
+              renderer.wrappedText(UI_14_FONT_ID, displayTitle.c_str(), placeholderTextWidth, 4, EpdFontFamily::BOLD);
           const int placeholderTitleLineHeight = renderer.getLineHeight(UI_14_FONT_ID);
           for (size_t line = 0; line < placeholderTitleLines.size(); ++line) {
             renderer.drawCenteredText(
@@ -648,10 +647,9 @@ void HomeActivity::render(RenderLock&&) {
           }
         }
         if (authorVisible) {
-          const std::string placeholderAuthor =
-              renderer.truncatedText(authorFontId, authorLabel, placeholderTextWidth);
-          const int placeholderAuthorY = ghostY + ghostHeight - HOME_PLACEHOLDER_AUTHOR_PADDING -
-                                         renderer.getLineHeight(authorFontId);
+          const std::string placeholderAuthor = renderer.truncatedText(authorFontId, authorLabel, placeholderTextWidth);
+          const int placeholderAuthorY =
+              ghostY + ghostHeight - HOME_PLACEHOLDER_AUTHOR_PADDING - renderer.getLineHeight(authorFontId);
           renderer.drawCenteredText(authorFontId, placeholderAuthorY, placeholderAuthor.c_str());
         }
       }
