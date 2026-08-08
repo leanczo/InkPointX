@@ -39,6 +39,7 @@ class UITheme {
   int getSystemBatteryOverlayWidth(const GfxRenderer& renderer) const;
   void clearSystemBatteryOverlay(const GfxRenderer& renderer) const;
   void drawSystemBatteryOverlay(const GfxRenderer& renderer) const;
+
  private:
   ThemeMetrics currentMetrics = BaseMetrics::values;
   BaseTheme* currentTheme = nullptr;

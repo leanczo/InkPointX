@@ -1362,11 +1362,9 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
       if (screenY < 0) continue;
 
       for (int outputX = 0; outputX < outputWidth; outputX++) {
-        const int sourceX =
-            isScaled
-                ? std::min(bitmap.getWidth() - 1,
-                           static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
-                : outputX;
+        const int sourceX = isScaled ? std::min(bitmap.getWidth() - 1,
+                                                static_cast<int>(std::floor(static_cast<float>(outputX) / scale)))
+                                     : outputX;
         const int screenX = x + outputX;
         if (screenX >= getScreenWidth()) break;
         if (screenX < 0) continue;
