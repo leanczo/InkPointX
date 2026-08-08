@@ -39,6 +39,11 @@ constexpr int buttonHintHeight = 34;
 constexpr int buttonHintBottomMargin = 14;
 constexpr int buttonHintCornerRadius = buttonHintHeight / 2;
 constexpr int selectionCornerRadius = 12;
+constexpr int popupMinWidth = 224;
+constexpr int popupScreenInset = 40;
+constexpr int popupCornerRadius = 18;
+constexpr int popupShadowOffset = 5;
+constexpr int popupShadowRadius = 17;
 
 Rect buttonHintGroupRect(const GfxRenderer& renderer, const int groupIndex) {
   const int pageWidth = renderer.getScreenWidth();
@@ -64,6 +69,19 @@ void fillSparseRoundedRect(const GfxRenderer& renderer, const Rect& rect, const 
     for (int x = rect.x + 2 + rowOffset; x < rect.x + rect.width - 2; x += 4) {
       if (pointInsideRoundedRect(x, y, rect, radius)) renderer.drawPixel(x, y, true);
     }
+  }
+}
+
+// E-ink has no alpha channel, so a conventional translucent modal scrim would
+// destroy the page underneath. Add one black pixel out of every eight instead:
+// existing black content is preserved while white areas become a quiet gray
+// veil. The pattern is deliberately sparse to keep fast refreshes clean.
+void drawPopupScrim(const GfxRenderer& renderer) {
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  for (int y = 0; y < screenHeight; y += 2) {
+    const int rowOffset = ((y / 2) & 1) * 2;
+    for (int x = rowOffset; x < screenWidth; x += 4) renderer.drawPixel(x, y, true);
   }
 }
 
@@ -664,11 +682,12 @@ void BaseTheme::drawEmptyState(const GfxRenderer& renderer, const Rect content, 
 
 Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int marginX = metrics.popupMarginX;
-  const int marginY = metrics.popupMarginY;
-  const EpdFontFamily::Style popupFontFamily = metrics.popupTextBold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
-  const int maxPopupWidth = std::max(120, renderer.getScreenWidth() - metrics.contentSidePadding * 4);
-  const int maxTextWidth = std::max(40, maxPopupWidth - marginX * 2);
+  const int marginX = std::max(20, metrics.popupMarginX);
+  const int marginY = std::max(18, metrics.popupMarginY);
+  const EpdFontFamily::Style popupFontFamily = EpdFontFamily::BOLD;
+  const int maxPopupSide = std::max(120, std::min(renderer.getScreenWidth() - popupScreenInset * 2,
+                                                  renderer.getScreenHeight() - popupScreenInset * 2));
+  const int maxTextWidth = std::max(40, maxPopupSide - marginX * 2);
   auto lines = renderer.wrappedText(UI_12_FONT_ID, message, maxTextWidth, 4, popupFontFamily);
   if (lines.empty()) lines.emplace_back("");
 
@@ -678,29 +697,28 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
       });
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
   const int textHeight = lineHeight * static_cast<int>(lines.size());
-  const int w = std::min(maxPopupWidth, std::max(180, textWidth + marginX * 2));
-  const int h = textHeight + marginY * 2;
+  const int popupSide =
+      std::min(maxPopupSide, std::max({popupMinWidth, textWidth + marginX * 2, textHeight + marginY * 2}));
+  const int w = popupSide;
+  const int h = popupSide;
   const int x = (renderer.getScreenWidth() - w) / 2;
-  const int preferredY = static_cast<int>(renderer.getScreenHeight() * metrics.popupTopOffsetRatio);
-  const int y = std::clamp(preferredY, metrics.topPadding + metrics.headerHeight,
-                           renderer.getScreenHeight() - h - metrics.buttonHintsHeight - metrics.verticalSpacing);
+  const int y = (renderer.getScreenHeight() - h) / 2;
 
-  const bool useRoundedPopup = metrics.popupCornerRadius > 0;
-  if (useRoundedPopup) {
-    renderer.fillRoundedRect(x, y, w, h, metrics.popupCornerRadius,
-                             metrics.popupTextInverted ? Color::Black : Color::White);
-    renderer.drawRoundedRect(x, y, w, h, metrics.popupFrameThickness, metrics.popupCornerRadius, true);
-  } else {
-    renderer.fillRect(x, y, w, h, metrics.popupTextInverted);
-    renderer.drawRect(x, y, w, h, metrics.popupFrameThickness, true);
-  }
+  drawPopupScrim(renderer);
 
+  // A small offset dithered shadow separates the white card from light book
+  // pages without turning the modal into another heavy black UI element.
+  renderer.fillRoundedRect(x + popupShadowOffset, y + popupShadowOffset, w, h, popupShadowRadius, Color::LightGray);
+  renderer.fillRoundedRect(x, y, w, h, popupCornerRadius, Color::White);
+  renderer.drawRoundedRect(x, y, w, h, 1, popupCornerRadius, true);
+
+  const int textStartY = y + (h - textHeight) / 2 + metrics.popupTextBaselineOffsetY - 6;
   for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
     const auto& line = lines[lineIndex];
     const int lineWidth = renderer.getTextWidth(UI_12_FONT_ID, line.c_str(), popupFontFamily);
     const int textX = x + (w - lineWidth) / 2;
-    const int textY = y + marginY + metrics.popupTextBaselineOffsetY + static_cast<int>(lineIndex) * lineHeight;
-    renderer.drawText(UI_12_FONT_ID, textX, textY, line.c_str(), !metrics.popupTextInverted, popupFontFamily);
+    const int textY = textStartY + static_cast<int>(lineIndex) * lineHeight;
+    renderer.drawText(UI_12_FONT_ID, textX, textY, line.c_str(), true, popupFontFamily);
   }
   renderer.displayBuffer();
   return Rect{x, y, w, h};
@@ -708,11 +726,10 @@ Rect BaseTheme::drawPopup(const GfxRenderer& renderer, const char* message) cons
 
 void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int barHeight = metrics.popupProgressBarHeight;
-  const int barWidth =
-      std::max(0, layout.width - metrics.popupMarginX * 2);  // twice the margin in drawPopup to match text width
+  const int barHeight = std::max(6, metrics.popupProgressBarHeight);
+  const int barWidth = std::max(0, layout.width - std::max(20, metrics.popupMarginX) * 2);
   const int barX = layout.x + (layout.width - barWidth) / 2;
-  const int barY = layout.y + layout.height - metrics.popupMarginY / 2 - barHeight / 2 - 1;
+  const int barY = layout.y + layout.height - std::max(18, metrics.popupMarginY) - barHeight;
   if (barWidth <= 0 || barHeight <= 0) {
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     return;
@@ -721,11 +738,11 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
   const int scaledProgress = metrics.popupProgressClampPercent ? std::clamp(progress, 0, 100) : progress;
   const int fillWidth = barWidth * scaledProgress / 100;
 
-  if (metrics.popupProgressDrawOutline) {
-    renderer.drawRect(barX, barY, barWidth, barHeight, 1, metrics.popupProgressOutlineInverted);
-  }
+  const int barRadius = barHeight / 2;
+  renderer.fillRoundedRect(barX, barY, barWidth, barHeight, barRadius, Color::LightGray);
+  renderer.drawRoundedRect(barX, barY, barWidth, barHeight, 1, barRadius, true);
   if (fillWidth > 0) {
-    renderer.fillRect(barX, barY, fillWidth, barHeight, metrics.popupProgressFillInverted);
+    renderer.fillRoundedRect(barX, barY, fillWidth, barHeight, std::min(barRadius, fillWidth / 2), Color::Black);
   }
 
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);

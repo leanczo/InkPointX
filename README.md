@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 2.2.7" src="https://img.shields.io/badge/version-2.2.7-000000">
+  <img alt="Version 2.2.8" src="https://img.shields.io/badge/version-2.2.8-000000">
   <img alt="Target: XTEINK X3 and X4" src="https://img.shields.io/badge/target-XTEINK%20X3%20%2B%20X4-111111">
   <img alt="Displays: 528 × 792 and 480 × 800 monochrome" src="https://img.shields.io/badge/display-528%C3%97792%20%2F%20480%C3%97800-555555">
   <img alt="Platform: ESP32-C3" src="https://img.shields.io/badge/platform-ESP32--C3-8A8A8A">
@@ -37,6 +37,11 @@ interface, and controller-specific display tuning.
 
 ## What's new in 2.2
 
+- **Stable Focus Reading and centred modal notifications in 2.2.8.** Focus Reading no longer requests an increasingly
+  large contiguous heap block while splitting long EPUB paragraphs, eliminating the `std::bad_alloc` reboot seen with
+  some books on the ESP32-C3. Contextual messages such as indexing, loading, lookup, and error states now share one
+  centred 1:1 card with rounded corners, a restrained e-ink shadow, a light background scrim that preserves the page
+  beneath it, and a matching rounded progress bar on both X3 and X4.
 - **Correct EPUB cover scaling in 2.2.7.** Low-resolution 1-bit thumbnails produced by progressive JPEG covers now
   expand to the full aspect-preserving artwork area on the Now Reading screen instead of remaining in its top-left
   corner. Existing malformed thumbnail caches are supported immediately, and stale prepared Home tiles are invalidated

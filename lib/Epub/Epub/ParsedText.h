@@ -2,6 +2,7 @@
 
 #include <EpdFontFamily.h>
 
+#include <deque>
 #include <functional>
 #include <memory>
 #include <string>
@@ -13,7 +14,11 @@
 class GfxRenderer;
 
 class ParsedText {
-  std::vector<std::string> words;
+  // Focus Reading can almost double a paragraph's token count. A vector<string>
+  // must grow by requesting one increasingly large contiguous allocation while
+  // the old block is still alive; that can abort on the fragmented ESP32-C3
+  // heap. A deque grows in small fixed-size nodes and keeps allocations bounded.
+  std::deque<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
   std::vector<bool> wordContinues;      // true = word attaches to previous with no break
   std::vector<bool> wordNoSpaceBefore;  // true = may break before token, but no synthetic space when joined
