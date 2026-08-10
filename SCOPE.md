@@ -27,6 +27,10 @@ usability over "swiss-army-knife" functionality.
 * **Language Support:** E.g. Support for multiple languages both in the reader and in the interfaces.
 * **Reference Tools:** E.g. Local dictionary lookup. Providing quick, offline definitions to enhance comprehension 
   without breaking focus.
+* **Curated Offline Utilities:** A small, fixed set of offline games and local tools (e.g. Snake, a calculator),
+  reachable from dedicated Games / Tools & Utilities home-carousel pages. This is a bounded, curated set, not a
+  general app platform — each addition must justify its RAM cost per the Idea Evaluation section below, the same bar
+  as any other feature.
 * **Clock Display (device dependent):** 
 
 | Device | Scope |
@@ -38,7 +42,9 @@ usability over "swiss-army-knife" functionality.
 
 *These items are rejected because they compromise the device's stability or mission.*
 
-* **Interactive Apps:** No Notepads, Calculators, or Games. This is a reader, not a PDA.
+* **General-Purpose Apps:** This is not an app platform. Interactive apps are scoped in only as the small, curated set
+  described under Curated Offline Utilities above — open-ended additions (Notepads, arbitrary games, etc.) are still
+  rejected.
 * **Active Connectivity:** No RSS readers, News aggregators, or Web browsers. Background Wi-Fi tasks drain the battery
   and complicate the single-core CPU's execution.
 * **Media Playback:** No Audio players or Audio-books.

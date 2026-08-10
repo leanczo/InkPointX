@@ -9,7 +9,7 @@
 #include "activities/Activity.h"
 
 class HomeActivity final : public Activity {
-  static constexpr int PAGE_COUNT = 3;
+  static constexpr int PAGE_COUNT = 5;
 
   struct ReadingSummary {
     uint8_t progressPercent = 0;
@@ -23,8 +23,8 @@ class HomeActivity final : public Activity {
   // Where the selection was on each page. Resetting to the first item on every
   // page change meant stepping over to Now Reading and back lost your place in a
   // seven-item list, which makes the carousel feel lossy to move through.
-  static constexpr int PAGE_COUNT_MAX = 3;
-  int rememberedSelection[PAGE_COUNT_MAX] = {0, 0, 0};
+  static constexpr int PAGE_COUNT_MAX = 5;
+  int rememberedSelection[PAGE_COUNT_MAX] = {0, 0, 0, 0, 0};
   std::vector<RecentBook> recentBooks;
   ReadingSummary readingSummary;
   std::string homeCoverPath;

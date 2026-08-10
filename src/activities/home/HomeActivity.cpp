@@ -366,36 +366,45 @@ void HomeActivity::applyInitialSelection() {
       selectedIndex = 5;
       break;
     case HomeMenuItem::OPDS_BROWSER:
-      pageIndex = 2;
+      // OPDS servers are configured under Settings > Network & Sync, not a Library tile.
+      pageIndex = 4;
       selectedIndex = 5;
       break;
     case HomeMenuItem::SETTINGS_MENU:
-      pageIndex = 2;
+      pageIndex = 4;
       selectedIndex = 0;
       break;
     case HomeMenuItem::SETTINGS_POWER:
-      pageIndex = 2;
+      pageIndex = 4;
       selectedIndex = 1;
       break;
     case HomeMenuItem::SETTINGS_READING:
-      pageIndex = 2;
+      pageIndex = 4;
       selectedIndex = 2;
       break;
     case HomeMenuItem::SETTINGS_CONTROLS:
-      pageIndex = 2;
+      pageIndex = 4;
       selectedIndex = 3;
       break;
     case HomeMenuItem::SETTINGS_LIBRARY:
-      pageIndex = 2;
+      pageIndex = 4;
       selectedIndex = 4;
       break;
     case HomeMenuItem::SETTINGS_NETWORK:
-      pageIndex = 2;
+      pageIndex = 4;
       selectedIndex = 5;
       break;
     case HomeMenuItem::SETTINGS_SYSTEM:
-      pageIndex = 2;
+      pageIndex = 4;
       selectedIndex = 6;
+      break;
+    case HomeMenuItem::GAMES_MENU:
+      pageIndex = 2;
+      selectedIndex = 0;
+      break;
+    case HomeMenuItem::TOOLS_MENU:
+      pageIndex = 3;
+      selectedIndex = 0;
       break;
     case HomeMenuItem::RECENTS:
     case HomeMenuItem::NONE:
@@ -406,6 +415,8 @@ void HomeActivity::applyInitialSelection() {
 int HomeActivity::pageItemCount() const {
   if (pageIndex == 0) return 1;
   if (pageIndex == 1) return 8;
+  if (pageIndex == 2) return 1;  // Games: Snake only, for now.
+  if (pageIndex == 3) return 1;  // Tools & Utilities: Calculator only, for now.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -450,7 +461,17 @@ void HomeActivity::openSelection() {
     }
   }
 
-  activityManager.goToSettings(selectedIndex);
+  if (pageIndex == 2) {
+    if (selectedIndex == 0) activityManager.goToSnake();
+    return;
+  }
+
+  if (pageIndex == 3) {
+    if (selectedIndex == 0) activityManager.goToCalculator();
+    return;
+  }
+
+  if (pageIndex == 4) activityManager.goToSettings(selectedIndex);
 }
 
 void HomeActivity::loop() {
@@ -711,10 +732,24 @@ void HomeActivity::render(RenderLock&&) {
     }
 
   } else {
-    // All three Home pages speak with the same handwritten voice — the hub
-    // headers are part of "home", not navigation chrome. The actual Library
-    // and Settings screens keep their structural headers.
-    const char* header = pageIndex == 1 ? tr(STR_LIBRARY) : tr(STR_SETTINGS_TITLE);
+    // All Home hub pages speak with the same handwritten voice — the hub
+    // headers are part of "home", not navigation chrome. The actual Library,
+    // Games, Tools and Settings screens keep their structural headers.
+    const char* header = nullptr;
+    switch (pageIndex) {
+      case 1:
+        header = tr(STR_LIBRARY);
+        break;
+      case 2:
+        header = tr(STR_GAMES);
+        break;
+      case 3:
+        header = tr(STR_TOOLS);
+        break;
+      default:
+        header = tr(STR_SETTINGS_TITLE);
+        break;
+    }
     GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, nullptr);
     renderer.drawText(SCRIPT_FONT_ID, metrics.contentSidePadding, metrics.topPadding + 4, header);
 
@@ -725,6 +760,11 @@ void HomeActivity::render(RenderLock&&) {
     constexpr std::array<UIIcon, 3> transferIcons = {UIIcon::Wifi, UIIcon::Library, UIIcon::Hotspot};
     const std::array<const char*, 3> transferLabels = {tr(STR_JOIN_NETWORK), tr(STR_CALIBRE_WIRELESS),
                                                        tr(STR_CREATE_HOTSPOT)};
+    // One-entry tile lists for now — Phase 2+ appends more ported games/tools here.
+    constexpr std::array<UIIcon, 1> gamesIcons = {UIIcon::Snake};
+    const std::array<const char*, 1> gamesLabels = {tr(STR_SNAKE)};
+    constexpr std::array<UIIcon, 1> toolsIcons = {UIIcon::Calculator};
+    const std::array<const char*, 1> toolsLabels = {tr(STR_CALCULATOR)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,
@@ -765,6 +805,18 @@ void HomeActivity::render(RenderLock&&) {
           selectedIndex >= libraryItemCount ? selectedIndex - libraryItemCount : -1,
           [&](const int index) { return std::string(transferLabels[index]); },
           [&](const int index) { return transferIcons[index]; });
+    } else if (pageIndex == 2) {
+      GUI.drawButtonMenu(
+          renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96},
+          static_cast<int>(gamesIcons.size()), selectedIndex,
+          [&](const int index) { return std::string(gamesLabels[index]); },
+          [&](const int index) { return gamesIcons[index]; });
+    } else if (pageIndex == 3) {
+      GUI.drawButtonMenu(
+          renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96},
+          static_cast<int>(toolsIcons.size()), selectedIndex,
+          [&](const int index) { return std::string(toolsLabels[index]); },
+          [&](const int index) { return toolsIcons[index]; });
     } else {
       GUI.drawButtonMenu(
           renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96}, SettingsActivity::CATEGORY_COUNT,

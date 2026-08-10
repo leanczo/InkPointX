@@ -111,6 +111,10 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideHome32;
       case UIIcon::ReaderTrash:
         return LucideTrash32;
+      case UIIcon::Snake:
+        return LucideWorm32;
+      case UIIcon::Calculator:
+        return LucideCalculator32;
       default:
         return nullptr;
     }

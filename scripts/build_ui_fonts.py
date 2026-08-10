@@ -336,9 +336,36 @@ def generate_font(
     write_if_changed(output_path, generated)
 
 
+def locate_bash() -> str:
+    """Resolve a real bash.exe on Windows instead of trusting name lookup.
+
+    Windows machines with the "Windows Subsystem for Linux" optional feature
+    enabled but no distro installed have a WSL launcher stub at
+    C:\\Windows\\System32\\bash.exe that fails with "execvpe(/bin/bash) failed:
+    No such file or directory" when invoked. That directory is always on
+    PATH, so a plain shutil.which("bash") happily returns that stub as a
+    "valid" match on a plain PowerShell/cmd session, since Git for Windows'
+    standard installer only adds Git\\cmd (for git.exe) to PATH, not Git\\bin
+    or Git\\usr\\bin, where the real bash.exe actually lives. Locate the Git
+    install directory from git.exe instead, since that *is* reliably on
+    PATH, and look for bash.exe relative to it before ever trying a bare
+    PATH search.
+    """
+    git_exe = shutil.which("git")
+    if git_exe:
+        git_root = Path(git_exe).resolve().parent.parent  # .../Git/cmd/git.exe -> .../Git
+        for candidate in (git_root / "bin" / "bash.exe", git_root / "usr" / "bin" / "bash.exe"):
+            if candidate.exists():
+                return str(candidate)
+    on_path = shutil.which("bash")
+    if on_path and Path(on_path).parent.name.lower() != "system32":
+        return on_path
+    return "bash"
+
+
 def regenerate_font_ids() -> None:
     result = subprocess.run(
-        ["bash", str(FONT_ID_SCRIPT)],
+        [locate_bash(), str(FONT_ID_SCRIPT)],
         cwd=ROOT,
         capture_output=True,
     )

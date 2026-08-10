@@ -53,6 +53,8 @@ ICONS = (
     ("LucideChevronRight24", "chevron-right", 24),
     ("LucideCheck24", "check", 24),
     ("LucideStar24", "star", 24),
+    ("LucideWorm32", "worm", 32),
+    ("LucideCalculator32", "calculator", 32),
 )
 
 
@@ -72,7 +74,38 @@ def render_svg(svg: Path, png: Path, size: int) -> None:
             check=True,
         )
         return
-    raise RuntimeError("Install librsvg (rsvg-convert) or run the generator on macOS with sips")
+    render_svg_pure_python(svg, png, size)
+
+
+def render_svg_pure_python(svg: Path, png: Path, size: int) -> None:
+    """Fallback renderer for hosts without sips/rsvg-convert (e.g. Windows CI/dev
+    machines). Needs `pip install svglib reportlab pymupdf` - none of which need a
+    system-installed native library, unlike cairosvg's libcairo dependency."""
+    try:
+        from svglib.svglib import svg2rlg
+        from reportlab.graphics import renderPDF
+        import fitz  # PyMuPDF
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install librsvg (rsvg-convert), run the generator on macOS with sips, or "
+            "`pip install svglib reportlab pymupdf` for the pure-Python fallback"
+        ) from exc
+
+    # Lucide SVGs set stroke="currentColor" at the root, relying on CSS context a
+    # standalone SVG parser doesn't have; svglib silently renders it as an
+    # invisible stroke instead of erroring. Pin it to black before parsing.
+    fixed_svg = svg.with_name(svg.stem + "-fixed.svg")
+    fixed_svg.write_text(svg.read_text(encoding="utf-8").replace("currentColor", "#000000"), encoding="utf-8")
+
+    drawing = svg2rlg(str(fixed_svg))
+    pdf_path = svg.with_suffix(".pdf")
+    renderPDF.drawToFile(drawing, str(pdf_path))
+
+    doc = fitz.open(str(pdf_path))
+    page = doc[0]
+    zoom = size / page.rect.width
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=True)
+    pix.save(str(png))
 
 
 def packed_bitmap(image: Image.Image, size: int) -> list[int]:

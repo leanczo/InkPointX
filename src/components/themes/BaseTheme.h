@@ -130,6 +130,8 @@ enum UIIcon {
   ReaderQr,
   ReaderHome,
   ReaderTrash,
+  Snake,
+  Calculator,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };
