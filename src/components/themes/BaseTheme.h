@@ -135,6 +135,20 @@ enum UIIcon {
   Dice,
   Football,
   F1,
+  TicTacToe,
+  Game2048,
+  Minesweeper,
+  Simon,
+  Sudoku,
+  Calendar,
+  Reminders,
+  Weather,
+  WeatherCity,
+  Wikipedia,
+  HackerNews,
+  Rss,
+  DuckDuckGo,
+  OnThisDay,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

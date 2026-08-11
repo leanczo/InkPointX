@@ -13,7 +13,12 @@
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/UITheme.h"
 #include "games/DiceActivity.h"
+#include "games/Game2048Activity.h"
+#include "games/MinesweeperActivity.h"
+#include "games/SimonActivity.h"
 #include "games/SnakeActivity.h"
+#include "games/SudokuActivity.h"
+#include "games/TicTacToeActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/GalleryActivity.h"
@@ -27,8 +32,17 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "tools/CalculatorActivity.h"
+#include "tools/CalendarActivity.h"
+#include "tools/ClockActivity.h"
+#include "tools/DuckDuckGoActivity.h"
 #include "tools/FootballActivity.h"
 #include "tools/FormulaOneActivity.h"
+#include "tools/HackerNewsActivity.h"
+#include "tools/OnThisDayActivity.h"
+#include "tools/RemindersListActivity.h"
+#include "tools/RssActivity.h"
+#include "tools/WeatherActivity.h"
+#include "tools/WikipediaActivity.h"
 #include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
 
@@ -331,6 +345,22 @@ void ActivityManager::goToSnake() { replaceActivity(makeUniqueNoThrow<SnakeActiv
 
 void ActivityManager::goToDice() { replaceActivity(makeUniqueNoThrow<DiceActivity>(renderer, mappedInput)); }
 
+void ActivityManager::goToTicTacToe() {
+  replaceActivity(makeUniqueNoThrow<TicTacToeActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToGame2048() {
+  replaceActivity(makeUniqueNoThrow<Game2048Activity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToMinesweeper() {
+  replaceActivity(makeUniqueNoThrow<MinesweeperActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToSimon() { replaceActivity(makeUniqueNoThrow<SimonActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToSudoku() { replaceActivity(makeUniqueNoThrow<SudokuActivity>(renderer, mappedInput)); }
+
 void ActivityManager::goToCalculator() {
   replaceActivity(makeUniqueNoThrow<CalculatorActivity>(renderer, mappedInput));
 }
@@ -339,6 +369,34 @@ void ActivityManager::goToFootball() { replaceActivity(makeUniqueNoThrow<Footbal
 
 void ActivityManager::goToFormulaOne() {
   replaceActivity(makeUniqueNoThrow<FormulaOneActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToCalendar() { replaceActivity(makeUniqueNoThrow<CalendarActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToClock() { replaceActivity(makeUniqueNoThrow<ClockActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToReminders() {
+  replaceActivity(makeUniqueNoThrow<RemindersListActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToWeather() { replaceActivity(makeUniqueNoThrow<WeatherActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToWikipedia() {
+  replaceActivity(makeUniqueNoThrow<WikipediaActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToHackerNews() {
+  replaceActivity(makeUniqueNoThrow<HackerNewsActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToRss() { replaceActivity(makeUniqueNoThrow<RssActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToDuckDuckGo() {
+  replaceActivity(makeUniqueNoThrow<DuckDuckGoActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToOnThisDay() {
+  replaceActivity(makeUniqueNoThrow<OnThisDayActivity>(renderer, mappedInput));
 }
 
 void ActivityManager::goToFileBrowser(std::string path) {

@@ -58,6 +58,20 @@ ICONS = (
     ("LucideDices32", "dices", 32),
     ("LucideGoal32", "goal", 32),
     ("LucideCar32", "car", 32),
+    ("LucideGrid3x332", "grid-3x3", 32),
+    ("LucideGrid2x232", "grid-2x2", 32),
+    ("LucideBomb32", "bomb", 32),
+    ("LucideLightbulb32", "lightbulb", 32),
+    ("LucideHash32", "hash", 32),
+    ("LucideCalendarDays32", "calendar-days", 32),
+    ("LucideBell32", "bell", 32),
+    ("LucideCloudSun32", "cloud-sun", 32),
+    ("LucideMapPin32", "map-pin", 32),
+    ("LucideGlobe32", "globe", 32),
+    ("LucideFlame32", "flame", 32),
+    ("LucideRss32", "rss", 32),
+    ("LucideSearch32", "search", 32),
+    ("LucideHistory32", "history", 32),
 )
 
 

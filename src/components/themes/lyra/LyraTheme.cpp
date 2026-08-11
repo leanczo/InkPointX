@@ -121,6 +121,34 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideGoal32;
       case UIIcon::F1:
         return LucideCar32;
+      case UIIcon::TicTacToe:
+        return LucideGrid3x332;
+      case UIIcon::Game2048:
+        return LucideGrid2x232;
+      case UIIcon::Minesweeper:
+        return LucideBomb32;
+      case UIIcon::Simon:
+        return LucideLightbulb32;
+      case UIIcon::Sudoku:
+        return LucideHash32;
+      case UIIcon::Calendar:
+        return LucideCalendarDays32;
+      case UIIcon::Reminders:
+        return LucideBell32;
+      case UIIcon::Weather:
+        return LucideCloudSun32;
+      case UIIcon::WeatherCity:
+        return LucideMapPin32;
+      case UIIcon::Wikipedia:
+        return LucideGlobe32;
+      case UIIcon::HackerNews:
+        return LucideFlame32;
+      case UIIcon::Rss:
+        return LucideRss32;
+      case UIIcon::DuckDuckGo:
+        return LucideSearch32;
+      case UIIcon::OnThisDay:
+        return LucideHistory32;
       default:
         return nullptr;
     }

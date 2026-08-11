@@ -415,8 +415,10 @@ void HomeActivity::applyInitialSelection() {
 int HomeActivity::pageItemCount() const {
   if (pageIndex == 0) return 1;
   if (pageIndex == 1) return 8;
-  if (pageIndex == 2) return 2;  // Games: Snake, Dice.
-  if (pageIndex == 3) return 3;  // Tools & Utilities: Calculator, Football, Formula 1.
+  if (pageIndex == 2) return 7;  // Games: Snake, Dice, TicTacToe, 2048, Minesweeper, Simon, Sudoku.
+  if (pageIndex == 3)
+    return 12;  // Tools & Utilities: Calculator, Football, F1, Calendar, Clock, Reminders, Weather, Wikipedia, Hacker
+                // News, RSS, DuckDuckGo, On This Day.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -462,15 +464,75 @@ void HomeActivity::openSelection() {
   }
 
   if (pageIndex == 2) {
-    if (selectedIndex == 0) activityManager.goToSnake();
-    if (selectedIndex == 1) activityManager.goToDice();
+    switch (selectedIndex) {
+      case 0:
+        activityManager.goToSnake();
+        break;
+      case 1:
+        activityManager.goToDice();
+        break;
+      case 2:
+        activityManager.goToTicTacToe();
+        break;
+      case 3:
+        activityManager.goToGame2048();
+        break;
+      case 4:
+        activityManager.goToMinesweeper();
+        break;
+      case 5:
+        activityManager.goToSimon();
+        break;
+      case 6:
+        activityManager.goToSudoku();
+        break;
+      default:
+        break;
+    }
     return;
   }
 
   if (pageIndex == 3) {
-    if (selectedIndex == 0) activityManager.goToCalculator();
-    if (selectedIndex == 1) activityManager.goToFootball();
-    if (selectedIndex == 2) activityManager.goToFormulaOne();
+    switch (selectedIndex) {
+      case 0:
+        activityManager.goToCalculator();
+        break;
+      case 1:
+        activityManager.goToFootball();
+        break;
+      case 2:
+        activityManager.goToFormulaOne();
+        break;
+      case 3:
+        activityManager.goToCalendar();
+        break;
+      case 4:
+        activityManager.goToClock();
+        break;
+      case 5:
+        activityManager.goToReminders();
+        break;
+      case 6:
+        activityManager.goToWeather();
+        break;
+      case 7:
+        activityManager.goToWikipedia();
+        break;
+      case 8:
+        activityManager.goToHackerNews();
+        break;
+      case 9:
+        activityManager.goToRss();
+        break;
+      case 10:
+        activityManager.goToDuckDuckGo();
+        break;
+      case 11:
+        activityManager.goToOnThisDay();
+        break;
+      default:
+        break;
+    }
     return;
   }
 
@@ -764,10 +826,20 @@ void HomeActivity::render(RenderLock&&) {
     const std::array<const char*, 3> transferLabels = {tr(STR_JOIN_NETWORK), tr(STR_CALIBRE_WIRELESS),
                                                        tr(STR_CREATE_HOTSPOT)};
     // Phase 2+ appends more ported games/tools here.
-    constexpr std::array<UIIcon, 2> gamesIcons = {UIIcon::Snake, UIIcon::Dice};
-    const std::array<const char*, 2> gamesLabels = {tr(STR_SNAKE), tr(STR_DICE_TITLE)};
-    constexpr std::array<UIIcon, 3> toolsIcons = {UIIcon::Calculator, UIIcon::Football, UIIcon::F1};
-    const std::array<const char*, 3> toolsLabels = {tr(STR_CALCULATOR), tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE)};
+    constexpr std::array<UIIcon, 7> gamesIcons = {UIIcon::Snake,     UIIcon::Dice,        UIIcon::TicTacToe,
+                                                   UIIcon::Game2048, UIIcon::Minesweeper, UIIcon::Simon,
+                                                   UIIcon::Sudoku};
+    const std::array<const char*, 7> gamesLabels = {
+        tr(STR_SNAKE),          tr(STR_DICE_TITLE),  tr(STR_TICTACTOE_TITLE), tr(STR_2048_TITLE),
+        tr(STR_MINESWEEPER_TITLE), tr(STR_SIMON_TITLE), tr(STR_SUDOKU_TITLE)};
+    constexpr std::array<UIIcon, 12> toolsIcons = {
+        UIIcon::Calculator, UIIcon::Football, UIIcon::F1,         UIIcon::Calendar,   UIIcon::Clock,
+        UIIcon::Reminders,  UIIcon::Weather,  UIIcon::Wikipedia,  UIIcon::HackerNews, UIIcon::Rss,
+        UIIcon::DuckDuckGo, UIIcon::OnThisDay};
+    const std::array<const char*, 12> toolsLabels = {
+        tr(STR_CALCULATOR),     tr(STR_FOOTBALL_TITLE),  tr(STR_F1_TITLE),      tr(STR_CALENDAR_TITLE),
+        tr(STR_CLOCK),          tr(STR_REMINDERS_TITLE), tr(STR_WEATHER_TITLE), tr(STR_WIKIPEDIA_TITLE),
+        tr(STR_HN_TITLE),       tr(STR_RSS_TITLE),       tr(STR_DDG_TITLE),     tr(STR_OTD_TITLE)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,
