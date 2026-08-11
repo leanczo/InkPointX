@@ -55,6 +55,9 @@ ICONS = (
     ("LucideStar24", "star", 24),
     ("LucideWorm32", "worm", 32),
     ("LucideCalculator32", "calculator", 32),
+    ("LucideDices32", "dices", 32),
+    ("LucideGoal32", "goal", 32),
+    ("LucideCar32", "car", 32),
 )
 
 

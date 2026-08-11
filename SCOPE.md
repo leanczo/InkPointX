@@ -27,10 +27,12 @@ usability over "swiss-army-knife" functionality.
 * **Language Support:** E.g. Support for multiple languages both in the reader and in the interfaces.
 * **Reference Tools:** E.g. Local dictionary lookup. Providing quick, offline definitions to enhance comprehension 
   without breaking focus.
-* **Curated Offline Utilities:** A small, fixed set of offline games and local tools (e.g. Snake, a calculator),
-  reachable from dedicated Games / Tools & Utilities home-carousel pages. This is a bounded, curated set, not a
-  general app platform — each addition must justify its RAM cost per the Idea Evaluation section below, the same bar
-  as any other feature.
+* **Curated Utilities:** A small, fixed set of games and tools (e.g. Snake, a calculator), reachable from dedicated
+  Games / Tools & Utilities home-carousel pages. Most are offline; a few (e.g. football scores, F1 standings) fetch
+  from a public API strictly on demand — only while the user is actively viewing that screen and has pressed a
+  button, never as a background/scheduled task, so the battery-drain concern under Active Connectivity below doesn't
+  apply to them. This is a bounded, curated set, not a general app platform — each addition must justify its RAM cost
+  per the Idea Evaluation section below, the same bar as any other feature.
 * **Clock Display (device dependent):** 
 
 | Device | Scope |
@@ -45,8 +47,10 @@ usability over "swiss-army-knife" functionality.
 * **General-Purpose Apps:** This is not an app platform. Interactive apps are scoped in only as the small, curated set
   described under Curated Offline Utilities above — open-ended additions (Notepads, arbitrary games, etc.) are still
   rejected.
-* **Active Connectivity:** No RSS readers, News aggregators, or Web browsers. Background Wi-Fi tasks drain the battery
-  and complicate the single-core CPU's execution.
+* **Active Connectivity:** No RSS readers, News aggregators, or Web browsers, and no background/scheduled Wi-Fi
+  tasks — those drain the battery and complicate the single-core CPU's execution. A handful of on-demand data tools
+  are scoped in under Curated Utilities above precisely because they avoid this: no background task, no polling, no
+  auto-refresh — a fetch only ever happens synchronously in response to the user pressing a button on that screen.
 * **Media Playback:** No Audio players or Audio-books.
 * **Complex Annotation:** No typed out notes. These features are better suited for devices with better input
   capabilities and more powerful chips.

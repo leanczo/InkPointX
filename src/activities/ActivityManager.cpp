@@ -12,6 +12,7 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/UITheme.h"
+#include "games/DiceActivity.h"
 #include "games/SnakeActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
@@ -26,6 +27,8 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "tools/CalculatorActivity.h"
+#include "tools/FootballActivity.h"
+#include "tools/FormulaOneActivity.h"
 #include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
 
@@ -326,8 +329,16 @@ void ActivityManager::goToGallery() { replaceActivity(makeUniqueNoThrow<GalleryA
 
 void ActivityManager::goToSnake() { replaceActivity(makeUniqueNoThrow<SnakeActivity>(renderer, mappedInput)); }
 
+void ActivityManager::goToDice() { replaceActivity(makeUniqueNoThrow<DiceActivity>(renderer, mappedInput)); }
+
 void ActivityManager::goToCalculator() {
   replaceActivity(makeUniqueNoThrow<CalculatorActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToFootball() { replaceActivity(makeUniqueNoThrow<FootballActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToFormulaOne() {
+  replaceActivity(makeUniqueNoThrow<FormulaOneActivity>(renderer, mappedInput));
 }
 
 void ActivityManager::goToFileBrowser(std::string path) {

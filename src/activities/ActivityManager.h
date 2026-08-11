@@ -122,7 +122,10 @@ class ActivityManager {
   void goToReadingStats();
   void goToGallery();
   void goToSnake();
+  void goToDice();
   void goToCalculator();
+  void goToFootball();
+  void goToFormulaOne();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();

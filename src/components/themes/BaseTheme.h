@@ -132,6 +132,9 @@ enum UIIcon {
   ReaderTrash,
   Snake,
   Calculator,
+  Dice,
+  Football,
+  F1,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

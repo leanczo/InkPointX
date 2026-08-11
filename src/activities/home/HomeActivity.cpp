@@ -415,8 +415,8 @@ void HomeActivity::applyInitialSelection() {
 int HomeActivity::pageItemCount() const {
   if (pageIndex == 0) return 1;
   if (pageIndex == 1) return 8;
-  if (pageIndex == 2) return 1;  // Games: Snake only, for now.
-  if (pageIndex == 3) return 1;  // Tools & Utilities: Calculator only, for now.
+  if (pageIndex == 2) return 2;  // Games: Snake, Dice.
+  if (pageIndex == 3) return 3;  // Tools & Utilities: Calculator, Football, Formula 1.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -463,11 +463,14 @@ void HomeActivity::openSelection() {
 
   if (pageIndex == 2) {
     if (selectedIndex == 0) activityManager.goToSnake();
+    if (selectedIndex == 1) activityManager.goToDice();
     return;
   }
 
   if (pageIndex == 3) {
     if (selectedIndex == 0) activityManager.goToCalculator();
+    if (selectedIndex == 1) activityManager.goToFootball();
+    if (selectedIndex == 2) activityManager.goToFormulaOne();
     return;
   }
 
@@ -760,11 +763,11 @@ void HomeActivity::render(RenderLock&&) {
     constexpr std::array<UIIcon, 3> transferIcons = {UIIcon::Wifi, UIIcon::Library, UIIcon::Hotspot};
     const std::array<const char*, 3> transferLabels = {tr(STR_JOIN_NETWORK), tr(STR_CALIBRE_WIRELESS),
                                                        tr(STR_CREATE_HOTSPOT)};
-    // One-entry tile lists for now — Phase 2+ appends more ported games/tools here.
-    constexpr std::array<UIIcon, 1> gamesIcons = {UIIcon::Snake};
-    const std::array<const char*, 1> gamesLabels = {tr(STR_SNAKE)};
-    constexpr std::array<UIIcon, 1> toolsIcons = {UIIcon::Calculator};
-    const std::array<const char*, 1> toolsLabels = {tr(STR_CALCULATOR)};
+    // Phase 2+ appends more ported games/tools here.
+    constexpr std::array<UIIcon, 2> gamesIcons = {UIIcon::Snake, UIIcon::Dice};
+    const std::array<const char*, 2> gamesLabels = {tr(STR_SNAKE), tr(STR_DICE_TITLE)};
+    constexpr std::array<UIIcon, 3> toolsIcons = {UIIcon::Calculator, UIIcon::Football, UIIcon::F1};
+    const std::array<const char*, 3> toolsLabels = {tr(STR_CALCULATOR), tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,

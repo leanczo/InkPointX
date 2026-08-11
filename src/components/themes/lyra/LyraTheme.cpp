@@ -115,6 +115,12 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideWorm32;
       case UIIcon::Calculator:
         return LucideCalculator32;
+      case UIIcon::Dice:
+        return LucideDices32;
+      case UIIcon::Football:
+        return LucideGoal32;
+      case UIIcon::F1:
+        return LucideCar32;
       default:
         return nullptr;
     }
