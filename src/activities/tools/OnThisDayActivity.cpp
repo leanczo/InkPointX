@@ -302,7 +302,7 @@ void OnThisDayActivity::loop() {
   const int totalRows = 3 + static_cast<int>(entries[cat].size());  // 0=Refresh,1=PrevDay,2=NextDay
 
   if (mappedInput.wasReleased(Button::Back)) {
-    onGoHome(HomeMenuItem::TOOLS_MENU);
+    onGoHome(HomeMenuItem::APPS_MENU);
     return;
   } else if (mappedInput.wasReleased(Button::Left)) {
     currentCategory = static_cast<OnThisDayCategory>(ButtonNavigator::previousIndex(cat, OTD_CATEGORY_COUNT));

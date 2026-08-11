@@ -439,7 +439,7 @@ void FormulaOneActivity::loop() {
       requestUpdate();
       return;
     }
-    onGoHome(HomeMenuItem::TOOLS_MENU);
+    onGoHome(HomeMenuItem::APPS_MENU);
     return;
   }
 

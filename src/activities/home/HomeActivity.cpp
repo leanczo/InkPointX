@@ -367,35 +367,35 @@ void HomeActivity::applyInitialSelection() {
       break;
     case HomeMenuItem::OPDS_BROWSER:
       // OPDS servers are configured under Settings > Network & Sync, not a Library tile.
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 5;
       break;
     case HomeMenuItem::SETTINGS_MENU:
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 0;
       break;
     case HomeMenuItem::SETTINGS_POWER:
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 1;
       break;
     case HomeMenuItem::SETTINGS_READING:
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 2;
       break;
     case HomeMenuItem::SETTINGS_CONTROLS:
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 3;
       break;
     case HomeMenuItem::SETTINGS_LIBRARY:
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 4;
       break;
     case HomeMenuItem::SETTINGS_NETWORK:
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 5;
       break;
     case HomeMenuItem::SETTINGS_SYSTEM:
-      pageIndex = 4;
+      pageIndex = 5;
       selectedIndex = 6;
       break;
     case HomeMenuItem::GAMES_MENU:
@@ -404,6 +404,10 @@ void HomeActivity::applyInitialSelection() {
       break;
     case HomeMenuItem::TOOLS_MENU:
       pageIndex = 3;
+      selectedIndex = 0;
+      break;
+    case HomeMenuItem::APPS_MENU:
+      pageIndex = 4;
       selectedIndex = 0;
       break;
     case HomeMenuItem::RECENTS:
@@ -416,9 +420,9 @@ int HomeActivity::pageItemCount() const {
   if (pageIndex == 0) return 1;
   if (pageIndex == 1) return 8;
   if (pageIndex == 2) return 7;  // Games: Snake, Dice, TicTacToe, 2048, Minesweeper, Simon, Sudoku.
-  if (pageIndex == 3)
-    return 12;  // Tools & Utilities: Calculator, Football, F1, Calendar, Clock, Reminders, Weather, Wikipedia, Hacker
-                // News, RSS, DuckDuckGo, On This Day.
+  if (pageIndex == 3) return 5;  // Herramientas: Calculator, Calendar, Clock, Reminders, Weather.
+  if (pageIndex == 4)
+    return 8;  // Apps: Football, F1, Wikipedia, HackerNews, RSS, DuckDuckGo, On This Day, Pokedex.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -498,37 +502,16 @@ void HomeActivity::openSelection() {
         activityManager.goToCalculator();
         break;
       case 1:
-        activityManager.goToFootball();
-        break;
-      case 2:
-        activityManager.goToFormulaOne();
-        break;
-      case 3:
         activityManager.goToCalendar();
         break;
-      case 4:
+      case 2:
         activityManager.goToClock();
         break;
-      case 5:
+      case 3:
         activityManager.goToReminders();
         break;
-      case 6:
+      case 4:
         activityManager.goToWeather();
-        break;
-      case 7:
-        activityManager.goToWikipedia();
-        break;
-      case 8:
-        activityManager.goToHackerNews();
-        break;
-      case 9:
-        activityManager.goToRss();
-        break;
-      case 10:
-        activityManager.goToDuckDuckGo();
-        break;
-      case 11:
-        activityManager.goToOnThisDay();
         break;
       default:
         break;
@@ -536,7 +519,39 @@ void HomeActivity::openSelection() {
     return;
   }
 
-  if (pageIndex == 4) activityManager.goToSettings(selectedIndex);
+  if (pageIndex == 4) {
+    switch (selectedIndex) {
+      case 0:
+        activityManager.goToFootball();
+        break;
+      case 1:
+        activityManager.goToFormulaOne();
+        break;
+      case 2:
+        activityManager.goToWikipedia();
+        break;
+      case 3:
+        activityManager.goToHackerNews();
+        break;
+      case 4:
+        activityManager.goToRss();
+        break;
+      case 5:
+        activityManager.goToDuckDuckGo();
+        break;
+      case 6:
+        activityManager.goToOnThisDay();
+        break;
+      case 7:
+        activityManager.goToPokedex();
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
+  if (pageIndex == 5) activityManager.goToSettings(selectedIndex);
 }
 
 void HomeActivity::loop() {
@@ -811,6 +826,9 @@ void HomeActivity::render(RenderLock&&) {
       case 3:
         header = tr(STR_TOOLS);
         break;
+      case 4:
+        header = tr(STR_APPS_TITLE);
+        break;
       default:
         header = tr(STR_SETTINGS_TITLE);
         break;
@@ -832,14 +850,16 @@ void HomeActivity::render(RenderLock&&) {
     const std::array<const char*, 7> gamesLabels = {
         tr(STR_SNAKE),          tr(STR_DICE_TITLE),  tr(STR_TICTACTOE_TITLE), tr(STR_2048_TITLE),
         tr(STR_MINESWEEPER_TITLE), tr(STR_SIMON_TITLE), tr(STR_SUDOKU_TITLE)};
-    constexpr std::array<UIIcon, 12> toolsIcons = {
-        UIIcon::Calculator, UIIcon::Football, UIIcon::F1,         UIIcon::Calendar,   UIIcon::Clock,
-        UIIcon::Reminders,  UIIcon::Weather,  UIIcon::Wikipedia,  UIIcon::HackerNews, UIIcon::Rss,
-        UIIcon::DuckDuckGo, UIIcon::OnThisDay};
-    const std::array<const char*, 12> toolsLabels = {
-        tr(STR_CALCULATOR),     tr(STR_FOOTBALL_TITLE),  tr(STR_F1_TITLE),      tr(STR_CALENDAR_TITLE),
-        tr(STR_CLOCK),          tr(STR_REMINDERS_TITLE), tr(STR_WEATHER_TITLE), tr(STR_WIKIPEDIA_TITLE),
-        tr(STR_HN_TITLE),       tr(STR_RSS_TITLE),       tr(STR_DDG_TITLE),     tr(STR_OTD_TITLE)};
+    constexpr std::array<UIIcon, 5> toolsIcons = {UIIcon::Calculator, UIIcon::Calendar, UIIcon::Clock,
+                                                  UIIcon::Reminders, UIIcon::Weather};
+    const std::array<const char*, 5> toolsLabels = {tr(STR_CALCULATOR), tr(STR_CALENDAR_TITLE), tr(STR_CLOCK),
+                                                     tr(STR_REMINDERS_TITLE), tr(STR_WEATHER_TITLE)};
+    constexpr std::array<UIIcon, 8> appsIcons = {UIIcon::Football,   UIIcon::F1,        UIIcon::Wikipedia,
+                                                 UIIcon::HackerNews, UIIcon::Rss,       UIIcon::DuckDuckGo,
+                                                 UIIcon::OnThisDay,  UIIcon::Pokedex};
+    const std::array<const char*, 8> appsLabels = {
+        tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE),  tr(STR_WIKIPEDIA_TITLE), tr(STR_HN_TITLE),
+        tr(STR_RSS_TITLE),      tr(STR_DDG_TITLE), tr(STR_OTD_TITLE),       tr(STR_POKEDEX_TITLE)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,
@@ -892,6 +912,12 @@ void HomeActivity::render(RenderLock&&) {
           static_cast<int>(toolsIcons.size()), selectedIndex,
           [&](const int index) { return std::string(toolsLabels[index]); },
           [&](const int index) { return toolsIcons[index]; });
+    } else if (pageIndex == 4) {
+      GUI.drawButtonMenu(
+          renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96},
+          static_cast<int>(appsIcons.size()), selectedIndex,
+          [&](const int index) { return std::string(appsLabels[index]); },
+          [&](const int index) { return appsIcons[index]; });
     } else {
       GUI.drawButtonMenu(
           renderer, Rect{0, contentTop, pageWidth, pageHeight - contentTop - 96}, SettingsActivity::CATEGORY_COUNT,

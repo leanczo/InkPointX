@@ -543,7 +543,7 @@ void HackerNewsActivity::loop() {
   const int totalRows = static_cast<int>(stories[tab].size()) + 1;  // row 0 = synthetic "Refresh"
 
   if (mappedInput.wasReleased(Button::Back)) {
-    onGoHome(HomeMenuItem::TOOLS_MENU);
+    onGoHome(HomeMenuItem::APPS_MENU);
     return;
   } else if (mappedInput.wasReleased(Button::Left)) {
     currentTab = static_cast<HNTab>(ButtonNavigator::previousIndex(tab, HN_TAB_COUNT));

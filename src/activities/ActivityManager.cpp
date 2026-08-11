@@ -39,6 +39,7 @@
 #include "tools/FormulaOneActivity.h"
 #include "tools/HackerNewsActivity.h"
 #include "tools/OnThisDayActivity.h"
+#include "tools/PokedexActivity.h"
 #include "tools/RemindersListActivity.h"
 #include "tools/RssActivity.h"
 #include "tools/WeatherActivity.h"
@@ -398,6 +399,8 @@ void ActivityManager::goToDuckDuckGo() {
 void ActivityManager::goToOnThisDay() {
   replaceActivity(makeUniqueNoThrow<OnThisDayActivity>(renderer, mappedInput));
 }
+
+void ActivityManager::goToPokedex() { replaceActivity(makeUniqueNoThrow<PokedexActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(makeUniqueNoThrow<FileBrowserActivity>(renderer, mappedInput, std::move(path)));

@@ -35,7 +35,8 @@ enum class HomeMenuItem {
   SETTINGS_NETWORK,
   SETTINGS_SYSTEM,
   GAMES_MENU,
-  TOOLS_MENU
+  TOOLS_MENU,
+  APPS_MENU
 };
 
 /**
@@ -140,6 +141,7 @@ class ActivityManager {
   void goToRss();
   void goToDuckDuckGo();
   void goToOnThisDay();
+  void goToPokedex();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();

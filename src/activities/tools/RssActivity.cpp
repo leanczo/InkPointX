@@ -949,7 +949,7 @@ void RssActivity::loop() {
       state = RssState::FeedSelection;
       requestUpdate();
     } else if (state == RssState::FeedSelection) {
-      onGoHome(HomeMenuItem::TOOLS_MENU);
+      onGoHome(HomeMenuItem::APPS_MENU);
     } else if (state == RssState::PostDetail) {
       loadOfflineFeeds();  // free RAM by reloading the summary-only feed list
       state = RssState::FeedList;
@@ -1093,7 +1093,9 @@ void RssActivity::loop() {
     } else if (mappedInput.wasReleased(Button::Down)) {
       if (selectedItemIndex < static_cast<int>(allItems.size()) - 1) {
         selectedItemIndex++;
-        if (selectedItemIndex >= itemsScrollOffset + 5) itemsScrollOffset = selectedItemIndex - 4;
+        // render() grows itemsScrollOffset as needed -- card heights vary
+        // (title wraps 1-3 lines, description 0-2), so only it knows how many
+        // actually fit above the selected one.
         requestUpdate();
       }
     } else if (mappedInput.wasReleased(Button::Left) || mappedInput.wasReleased(Button::Confirm)) {
@@ -1169,23 +1171,59 @@ void RssActivity::render(RenderLock&&) {
       int errY = contentTop + 40;
       renderer.drawCenteredText(UI_10_FONT_ID, errY, errorMessage.c_str(), true, EpdFontFamily::BOLD);
     } else {
-      const int cellH = 115;
-      const int spacing = 10;
+      const int cellX = metrics.contentSidePadding;
+      const int cellW = pageWidth - 2 * metrics.contentSidePadding;
       const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-      const int sectionGap = 6;
+      constexpr int kCardPadding = 12;  // top+bottom padding inside a card
+      constexpr int kCardGap = 10;      // vertical gap between cards
+      constexpr int kSectionGap = 6;
+      constexpr int kMaxTitleLines = 3;
+      constexpr int kMaxDescLines = 2;
+      constexpr int kTimeReserve = 70;  // room for the relative-time label beside the title's first line
 
-      for (int i = 0; i < 5; i++) {
-        int idx = itemsScrollOffset + i;
-        if (idx >= static_cast<int>(allItems.size())) break;
+      // Cards are sized to their own wrapped-text line count (title, up to 3
+      // lines, + description, up to 2) rather than a fixed height -- a fixed
+      // height either clipped longer titles against the time label or wasted
+      // space on short ones. Same approach as OnThisDayActivity's cards.
+      auto cardHeightFor = [&](const RssItem& item) {
+        auto titleLines = renderer.wrappedText(UI_10_FONT_ID, item.title.c_str(), cellW - 24 - kTimeReserve,
+                                               kMaxTitleLines, EpdFontFamily::BOLD);
+        int h = kCardPadding + static_cast<int>(titleLines.size()) * lineHeight;
+        if (!item.description.empty()) {
+          auto descLines =
+              renderer.wrappedText(UI_10_FONT_ID, item.description.c_str(), cellW - 24, kMaxDescLines, EpdFontFamily::REGULAR);
+          h += kSectionGap + static_cast<int>(descLines.size()) * lineHeight;
+        }
+        return h + kCardPadding + kCardGap;
+      };
 
+      // Grow itemsScrollOffset until the selected card is visible -- scrolling
+      // upward (selectedItemIndex < itemsScrollOffset) is already snapped by
+      // loop()'s Up handler; this only grows the window past the bottom, and
+      // needs the real (variable) card heights computed above.
+      if (selectedItemIndex >= itemsScrollOffset) {
+        while (true) {
+          int yy = contentTop;
+          int lastVisible = itemsScrollOffset - 1;
+          for (int idx = itemsScrollOffset; idx < static_cast<int>(allItems.size()); idx++) {
+            const int h = cardHeightFor(allItems[idx]);
+            if (yy + h > contentBottom) break;
+            yy += h;
+            lastVisible = idx;
+          }
+          if (selectedItemIndex <= lastVisible || itemsScrollOffset >= selectedItemIndex) break;
+          itemsScrollOffset++;
+        }
+      }
+
+      int cellY = contentTop;
+      for (int idx = itemsScrollOffset; idx < static_cast<int>(allItems.size()); idx++) {
         const auto& item = allItems[idx];
-        int cellY = contentTop + i * (cellH + spacing);
-        int cellX = metrics.contentSidePadding;
-        int cellW = pageWidth - 2 * metrics.contentSidePadding;
-        int cellBottom = cellY + cellH - 4;
+        const int cardH = cardHeightFor(item);
+        if (cellY + cardH > contentBottom) break;
 
         bool isSelected = (idx == selectedItemIndex);
-        renderer.drawRoundedRect(cellX, cellY, cellW, cellH, isSelected ? 3 : 1, 8, true);
+        renderer.drawRoundedRect(cellX, cellY, cellW, cardH - kCardGap, isSelected ? 3 : 1, 8, true);
 
         // The source is already shown once in the screen header (every card
         // here is from the same feed), so it isn't repeated per card. The
@@ -1194,30 +1232,30 @@ void RssActivity::render(RenderLock&&) {
         // it never collides.
         long long ts = atoll(item.timestamp.c_str());
         std::string relativeTime = timeAgo(static_cast<uint32_t>(ts));
-        int textY = cellY + 12;
+        int textY = cellY + kCardPadding / 2;
 
-        constexpr int kTimeReserve = 70;  // room for the relative-time label beside the title
-        auto titleLines =
-            renderer.wrappedText(UI_10_FONT_ID, item.title.c_str(), cellW - 24 - kTimeReserve, 2, EpdFontFamily::BOLD);
-        for (size_t l = 0; l < titleLines.size() && l < 2 && textY + lineHeight <= cellBottom; l++) {
+        auto titleLines = renderer.wrappedText(UI_10_FONT_ID, item.title.c_str(), cellW - 24 - kTimeReserve,
+                                               kMaxTitleLines, EpdFontFamily::BOLD);
+        for (size_t l = 0; l < titleLines.size(); l++) {
           renderer.drawText(UI_10_FONT_ID, cellX + 12, textY, titleLines[l].c_str(), true, EpdFontFamily::BOLD);
           textY += lineHeight;
         }
         if (!relativeTime.empty()) {
           const int timeWidth = renderer.getTextWidth(UI_10_FONT_ID, relativeTime.c_str(), EpdFontFamily::REGULAR);
-          renderer.drawText(UI_10_FONT_ID, cellX + cellW - 12 - timeWidth, cellY + 12, relativeTime.c_str(), true,
-                            EpdFontFamily::REGULAR);
+          renderer.drawText(UI_10_FONT_ID, cellX + cellW - 12 - timeWidth, cellY + kCardPadding / 2,
+                            relativeTime.c_str(), true, EpdFontFamily::REGULAR);
         }
-        textY += sectionGap;
+        textY += kSectionGap;
 
         if (!item.description.empty()) {
           auto descLines =
-              renderer.wrappedText(UI_10_FONT_ID, item.description.c_str(), cellW - 24, 2, EpdFontFamily::REGULAR);
-          for (size_t l = 0; l < descLines.size() && l < 2 && textY + lineHeight <= cellBottom; l++) {
+              renderer.wrappedText(UI_10_FONT_ID, item.description.c_str(), cellW - 24, kMaxDescLines, EpdFontFamily::REGULAR);
+          for (size_t l = 0; l < descLines.size(); l++) {
             renderer.drawText(UI_10_FONT_ID, cellX + 12, textY, descLines[l].c_str(), true, EpdFontFamily::REGULAR);
             textY += lineHeight;
           }
         }
+        cellY += cardH;
       }
     }
 

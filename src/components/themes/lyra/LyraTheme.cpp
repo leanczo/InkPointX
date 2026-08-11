@@ -149,6 +149,8 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideSearch32;
       case UIIcon::OnThisDay:
         return LucideHistory32;
+      case UIIcon::Pokedex:
+        return LucideCircleDot32;
       default:
         return nullptr;
     }
@@ -563,8 +565,18 @@ void LyraTheme::drawSideButtonHints(const GfxRenderer& renderer, const char* top
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
+  // Paginated the same way drawList is: a page-sized window jumps (rather
+  // than scrolls one row at a time) to keep the selection in view, so a menu
+  // with more entries than fit vertically doesn't just run off the bottom of
+  // the screen. Row height/spacing are untouched -- only which rows are on
+  // screen changes.
+  const int rowPitch = LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing;
+  const int pageItems = std::max(1, (rect.height + LyraMetrics::values.menuSpacing) / rowPitch);
+  const int pageStartIndex = selectedIndex >= 0 ? selectedIndex / pageItems * pageItems : 0;
+  const int pageEndIndex = std::min(buttonCount, pageStartIndex + pageItems);
+
   std::string labels;
-  for (int i = 0; i < buttonCount; ++i) {
+  for (int i = pageStartIndex; i < pageEndIndex; ++i) {
     const std::string label = buttonLabel(i);
     labels.append(label).push_back('\n');
   }
@@ -573,13 +585,25 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
     cache->warmGlyphCache(UI_12_FONT_ID, labels.c_str(), 1U << EpdFontFamily::BOLD);
   }
 
-  for (int i = 0; i < buttonCount; ++i) {
+  const int totalPages = (buttonCount + pageItems - 1) / pageItems;
+  if (totalPages > 1) {
+    const int scrollAreaHeight = rect.height;
+    const int scrollBarHeight = std::max(28, (scrollAreaHeight * pageItems) / buttonCount);
+    const int scrollBarY =
+        rect.y + ((scrollAreaHeight - scrollBarHeight) * (pageStartIndex / pageItems)) / (totalPages - 1);
+    const int scrollBarX = rect.x + rect.width - LyraMetrics::values.scrollBarRightOffset;
+    renderer.fillRoundedRect(scrollBarX - LyraMetrics::values.scrollBarWidth, scrollBarY,
+                             LyraMetrics::values.scrollBarWidth, scrollBarHeight,
+                             LyraMetrics::values.scrollBarWidth / 2, Color::Black);
+  }
+
+  for (int i = pageStartIndex; i < pageEndIndex; ++i) {
+    const int row = i - pageStartIndex;
     // Same right edge and same vertical inset as drawList, so a selection moving
     // between menu tiles and list rows on one screen does not visibly jog.
     const int tileWidth = rect.width - LyraMetrics::values.contentSidePadding * 2 - scrollGutterWidth;
-    const Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding,
-                               rect.y + i * (LyraMetrics::values.menuRowHeight + LyraMetrics::values.menuSpacing),
-                               tileWidth, LyraMetrics::values.menuRowHeight};
+    const Rect tileRect = Rect{rect.x + LyraMetrics::values.contentSidePadding, rect.y + row * rowPitch, tileWidth,
+                               LyraMetrics::values.menuRowHeight};
 
     const bool selected = selectedIndex == i;
 
@@ -617,7 +641,7 @@ void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
                   rtl);
 
     const bool nextSelected = i + 1 == selectedIndex;
-    if (!selected && !nextSelected && i + 1 < buttonCount) {
+    if (!selected && !nextSelected && i + 1 < pageEndIndex) {
       drawHairline(renderer, textLeft, textRight, tileRect.y + tileRect.height + LyraMetrics::values.menuSpacing / 2);
     }
   }

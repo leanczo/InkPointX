@@ -149,6 +149,7 @@ enum UIIcon {
   Rss,
   DuckDuckGo,
   OnThisDay,
+  Pokedex,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

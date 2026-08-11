@@ -415,7 +415,7 @@ void DuckDuckGoActivity::loop() {
       selectedIndex = 0;
       requestUpdate();
     } else {
-      onGoHome(HomeMenuItem::TOOLS_MENU);
+      onGoHome(HomeMenuItem::APPS_MENU);
     }
     return;
   }

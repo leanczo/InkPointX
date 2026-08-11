@@ -466,7 +466,7 @@ void FootballActivity::loop() {
   if (state == FootballState::LeagueSelection) {
     const int totalItems = static_cast<int>(subscriptions.size()) + 1;  // + "Add League"
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      onGoHome(HomeMenuItem::TOOLS_MENU);
+      onGoHome(HomeMenuItem::APPS_MENU);
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
       selectedSubIndex = (selectedSubIndex - 1 + totalItems) % totalItems;
       requestUpdate();
