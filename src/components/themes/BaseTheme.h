@@ -144,7 +144,6 @@ enum UIIcon {
   Reminders,
   Weather,
   WeatherCity,
-  HackerNews,
   Rss,
   OnThisDay,
 };

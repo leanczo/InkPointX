@@ -1365,7 +1365,7 @@ void RssActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   std::string headerTitle = tr(STR_RSS_TITLE);
-  if (state == RssState::FeedList || state == RssState::Loading) {
+  if (state == RssState::FeedList || state == RssState::Loading || state == RssState::PostDetail) {
     headerTitle = displayNameForUrl(activeFeed);
   }
   GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, headerTitle.c_str());

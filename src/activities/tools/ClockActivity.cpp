@@ -459,7 +459,6 @@ void ClockActivity::render(RenderLock&&) {
   const bool isTimer = (mode == ClockMode::Timer);
 
   if (isStopwatch || isTimer) {
-    const int subHeaderHeight = 30;
     const char* title = isStopwatch ? tr(STR_CLOCK_STOPWATCH_TITLE) : tr(STR_CLOCK_TIMER_TITLE);
     const char* status;
     if (isTimer && timerFinished) {
@@ -468,8 +467,8 @@ void ClockActivity::render(RenderLock&&) {
       bool running = isStopwatch ? stopwatchRunning : timerRunning;
       status = running ? tr(STR_CLOCK_RUNNING) : tr(STR_CLOCK_PAUSED);
     }
-    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, subHeaderHeight}, title, status);
-    contentTop += subHeaderHeight + metrics.verticalSpacing;
+    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, title, status);
+    contentTop += metrics.subHeaderHeight + metrics.verticalSpacing;
   }
 
   const int contentHeight = contentBottom - contentTop;

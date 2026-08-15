@@ -33,13 +33,13 @@ enum class RssState {
 };
 
 // Network fetches are synchronous (block the main loop behind a "Loading"/
-// "Refreshing" state, same as FootballActivity/HackerNewsActivity) instead of
-// the source app's background-FreeRTOS-task pattern.
+// "Refreshing" state, same as FootballActivity) instead of the source app's
+// background-FreeRTOS-task pattern.
 //
 // "Visit Link" (downloading a post's external URL and displaying its raw
-// HTML/text) is not ported, for the same reason HackerNewsActivity drops
-// "Open Link": TxtReaderActivity has no tag-aware rendering, so dumping an
-// arbitrary external page's markup into it would just print visible <tags>.
+// HTML/text) is not ported: TxtReaderActivity has no tag-aware rendering, so
+// dumping an arbitrary external page's markup into it would just print
+// visible <tags>.
 // "Show QR" (encode the post's URL so it can be opened on a phone) covers the
 // same underlying need without that problem, so PostDetail's Confirm goes
 // straight to it instead of through the source's now-redundant 2-item

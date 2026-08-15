@@ -476,9 +476,9 @@ void OnThisDayActivity::render(RenderLock&&) {
   const int rowWidth = pageWidth - 2 * sideX;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
-  // 3 synthetic rows: Refresh / Previous Day / Next Day, same convention
-  // HackerNewsActivity uses for its single "Refresh" row 0, extended to
-  // cover date navigation too since no dedicated button pair is free for it.
+  // 3 synthetic rows: Refresh / Previous Day / Next Day, extending the
+  // single-synthetic-row-for-Refresh convention used elsewhere to also cover
+  // date navigation, since no dedicated button pair is free for it.
   constexpr int kSyntheticRowHeight = 30;
   const char* syntheticLabels[3] = {tr(STR_OTD_REFRESH), tr(STR_OTD_PREV_DAY), tr(STR_OTD_NEXT_DAY)};
   int y = contentTop;

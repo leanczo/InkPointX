@@ -19,6 +19,7 @@ class WeatherActivity final : public Activity {
   double temp = 0.0;
   double windspeed = 0.0;
   int weatherCode = 0;
+  bool isDay = true;
   std::string timeStr;
   std::string cityName;
   std::string errorMessage;

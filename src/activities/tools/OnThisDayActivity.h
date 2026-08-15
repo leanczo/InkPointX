@@ -19,8 +19,8 @@ struct OnThisDayEntry {
 };
 
 // Network fetches are synchronous (block the main loop behind a "Loading"/
-// "Refreshing" state, same as FootballActivity/HackerNewsActivity) instead of
-// the source app's background-FreeRTOS-task pattern.
+// "Refreshing" state, same as FootballActivity) instead of the source app's
+// background-FreeRTOS-task pattern.
 class OnThisDayActivity final : public Activity {
  private:
   OnThisDayState state = OnThisDayState::List;

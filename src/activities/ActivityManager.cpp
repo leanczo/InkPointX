@@ -36,7 +36,6 @@
 #include "tools/ClockActivity.h"
 #include "tools/FootballActivity.h"
 #include "tools/FormulaOneActivity.h"
-#include "tools/HackerNewsActivity.h"
 #include "tools/OnThisDayActivity.h"
 #include "tools/RemindersListActivity.h"
 #include "tools/RssActivity.h"
@@ -378,10 +377,6 @@ void ActivityManager::goToReminders() {
 }
 
 void ActivityManager::goToWeather() { replaceActivity(makeUniqueNoThrow<WeatherActivity>(renderer, mappedInput)); }
-
-void ActivityManager::goToHackerNews() {
-  replaceActivity(makeUniqueNoThrow<HackerNewsActivity>(renderer, mappedInput));
-}
 
 void ActivityManager::goToRss() { replaceActivity(makeUniqueNoThrow<RssActivity>(renderer, mappedInput)); }
 

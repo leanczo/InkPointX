@@ -18,7 +18,7 @@ struct Holiday {
   std::string name;
 };
 
-enum class CalendarState { Grid, HolidayList };
+enum class CalendarState { Grid, HolidayList, NoteView };
 
 // Offline month-view calendar. Navigable with Left/Right (month) and
 // Up/Down (day cursor within the month); Confirm opens a short text note for
@@ -50,6 +50,10 @@ class CalendarActivity final : public Activity {
   std::string holidaysError;
   int holidayListSelectedRow = 0;
   int fetchingYear = -1;
+  // Guards the Confirm release right after a hold-to-open-Holidays fires, so
+  // that release doesn't also open the day's note (cf. RecentBooksActivity's
+  // longPressFired for the same firmware-wide hold-to-act pattern).
+  bool holidayHoldFired = false;
 
   static int daysInMonth(int year, int month);
   static int firstWeekdayOfMonth(int year, int month);  // 0=Monday..6=Sunday
@@ -62,6 +66,7 @@ class CalendarActivity final : public Activity {
   void setNote(int day, const std::string& text);
   void goToMonth(int year, int month);
   void openNoteEditor();
+  std::string dayPreviewText(int day) const;
 
   std::string holidaysCachePath(int year) const;
   std::string holidaysTmpPath(int year) const;

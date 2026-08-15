@@ -9,6 +9,7 @@
 #include <WiFi.h>
 
 #include <algorithm>
+#include <cctype>
 #include <ctime>
 
 #include "CrossPointSettings.h"
@@ -18,8 +19,24 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/HoldGestures.h"
 
 namespace {
+// Every d-pad button in the Grid state is already spoken for (day/month
+// navigation, note, back), so Holidays is reached by holding the button that
+// already means "act on this day" rather than a dedicated key.
+constexpr unsigned long HOLIDAYS_HOLD_MS = HoldGestures::SHORT_MS;
+
+// Month names are stored lowercase (correct Spanish grammar for mid-sentence
+// use, e.g. OnThisDayActivity's "14 de agosto de 2026"), but every place this
+// screen shows one it's a standalone label, not mid-sentence, so it reads
+// better title-cased.
+std::string capitalizeFirst(const std::string& s) {
+  std::string out = s;
+  if (!out.empty()) out[0] = static_cast<char>(toupper(static_cast<unsigned char>(out[0])));
+  return out;
+}
+
 constexpr StrId kMonthKeys[12] = {
     StrId::STR_MONTH_JANUARY,   StrId::STR_MONTH_FEBRUARY, StrId::STR_MONTH_MARCH,    StrId::STR_MONTH_APRIL,
     StrId::STR_MONTH_MAY,       StrId::STR_MONTH_JUNE,     StrId::STR_MONTH_JULY,     StrId::STR_MONTH_AUGUST,
@@ -277,17 +294,29 @@ void CalendarActivity::goToMonth(int year, int month) {
   if (viewYear == todayYear && viewMonth == todayMonth) {
     selectedDay = todayDay;
   } else {
-    selectedDay = std::min(selectedDay, total + 1);
+    selectedDay = std::min(selectedDay, total);
   }
   loadNotes();
   ensureHolidaysForYear(viewYear);
   requestUpdate();
 }
 
+// Combined holiday name + personal note for `day`, as shown in the note
+// view popup. Empty when the day has neither.
+std::string CalendarActivity::dayPreviewText(int day) const {
+  std::string holidayName;
+  const bool dayIsHoliday = isHoliday(viewMonth, day, &holidayName);
+  const std::string note = getNote(day);
+
+  if (dayIsHoliday && !note.empty()) return holidayName + " - " + note;
+  if (dayIsHoliday) return holidayName;
+  return note;
+}
+
 void CalendarActivity::openNoteEditor() {
   char titleBuf[48];
-  snprintf(titleBuf, sizeof(titleBuf), tr(STR_CALENDAR_NOTE_TITLE_FORMAT), I18N.get(kMonthKeys[viewMonth - 1]),
-            selectedDay, viewYear);
+  const std::string monthName = capitalizeFirst(I18N.get(kMonthKeys[viewMonth - 1]));
+  snprintf(titleBuf, sizeof(titleBuf), tr(STR_CALENDAR_NOTE_TITLE_FORMAT), monthName.c_str(), selectedDay, viewYear);
   const std::string existing = getNote(selectedDay);
   auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(renderer, mappedInput, titleBuf, existing, 200);
   const int day = selectedDay;
@@ -327,6 +356,29 @@ void CalendarActivity::onEnter() {
 void CalendarActivity::loop() {
   using Button = MappedInputManager::Button;
 
+  // After a hold-to-open-Holidays fires, swallow input globally (regardless of
+  // which state that transition landed on, i.e. Grid -> HolidayList) until
+  // Confirm is physically released. Otherwise the same release that ends the
+  // hold would immediately fire whatever Confirm does in the new state (e.g.
+  // HolidayList's Refresh row). Re-arms once the button is up.
+  if (holidayHoldFired) {
+    if (!mappedInput.isPressed(Button::Confirm)) {
+      holidayHoldFired = false;
+    }
+    return;
+  }
+
+  if (state == CalendarState::NoteView) {
+    if (mappedInput.wasReleased(Button::Back)) {
+      state = CalendarState::Grid;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(Button::Confirm)) {
+      state = CalendarState::Grid;
+      openNoteEditor();
+    }
+    return;
+  }
+
   if (state == CalendarState::HolidayList) {
     const int totalRows = 1 + static_cast<int>(holidays.size());  // row 0 = synthetic "Refresh"
     if (mappedInput.wasReleased(Button::Back)) {
@@ -346,19 +398,26 @@ void CalendarActivity::loop() {
     return;
   }
 
+  if (mappedInput.isPressed(Button::Confirm) && mappedInput.getHeldTime() >= HOLIDAYS_HOLD_MS) {
+    holidayHoldFired = true;
+    holidayListSelectedRow = 0;
+    state = CalendarState::HolidayList;
+    requestUpdate();
+    return;
+  }
+
   if (mappedInput.wasReleased(Button::Back)) {
     onGoHome(HomeMenuItem::TOOLS_MENU);
     return;
   }
 
   const int total = daysInMonth(viewYear, viewMonth);
-  const int totalWithHolidaysRow = total + 1;  // last position = "View Holidays"
 
   if (mappedInput.wasReleased(Button::Up)) {
-    selectedDay = selectedDay > 1 ? selectedDay - 1 : totalWithHolidaysRow;
+    selectedDay = selectedDay > 1 ? selectedDay - 1 : total;
     requestUpdate();
   } else if (mappedInput.wasReleased(Button::Down)) {
-    selectedDay = selectedDay < totalWithHolidaysRow ? selectedDay + 1 : 1;
+    selectedDay = selectedDay < total ? selectedDay + 1 : 1;
     requestUpdate();
   } else if (mappedInput.wasReleased(Button::Left)) {
     int y = viewYear;
@@ -377,9 +436,8 @@ void CalendarActivity::loop() {
     }
     goToMonth(y, m);
   } else if (mappedInput.wasReleased(Button::Confirm)) {
-    if (selectedDay == totalWithHolidaysRow) {
-      holidayListSelectedRow = 0;
-      state = CalendarState::HolidayList;
+    if (!dayPreviewText(selectedDay).empty()) {
+      state = CalendarState::NoteView;
       requestUpdate();
     } else {
       openNoteEditor();
@@ -425,7 +483,7 @@ void CalendarActivity::render(RenderLock&&) {
             if (i == 0) return "";
             const auto& h = holidays[order[i - 1]];
             char buf[24];
-            snprintf(buf, sizeof(buf), "%d %s", h.day, I18N.get(kMonthKeys[h.month - 1]));
+            snprintf(buf, sizeof(buf), "%d %s", h.day, capitalizeFirst(I18N.get(kMonthKeys[h.month - 1])).c_str());
             return buf;
           },
           nullptr, nullptr, false);
@@ -444,16 +502,32 @@ void CalendarActivity::render(RenderLock&&) {
   GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CALENDAR_TITLE));
 
   char subBuf[32];
-  snprintf(subBuf, sizeof(subBuf), "%s %d", I18N.get(kMonthKeys[viewMonth - 1]), viewYear);
+  snprintf(subBuf, sizeof(subBuf), "%s %d", capitalizeFirst(I18N.get(kMonthKeys[viewMonth - 1])).c_str(), viewYear);
   const int subHeaderY = metrics.topPadding + metrics.headerHeight;
-  constexpr int SUBHEADER_H = 30;
-  GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, SUBHEADER_H}, subBuf, nullptr);
+  GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, metrics.subHeaderHeight}, subBuf, nullptr);
+
+  // Persistent "Feriados" chip, top-right of the subheader row. Always visible
+  // -- unlike the old last-day-of-month row it replaces, which only appeared
+  // once you navigated all the way past every day to reach it -- and opened
+  // via a Confirm hold since every d-pad button here is already spoken for.
+  {
+    const char* holidaysLabel = tr(STR_CALENDAR_HOLIDAYS_TITLE);
+    constexpr int CHIP_PAD_X = 8;
+    constexpr int CHIP_H = 24;
+    const int labelW = renderer.getTextWidth(SMALL_FONT_ID, holidaysLabel);
+    const int chipW = labelW + CHIP_PAD_X * 2;
+    const int chipX = pageWidth - metrics.contentSidePadding - chipW;
+    const int chipY = subHeaderY + (metrics.subHeaderHeight - CHIP_H) / 2;
+    renderer.drawRect(chipX, chipY, chipW, CHIP_H, 1, true);
+    const int textY = chipY + (CHIP_H - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+    renderer.drawText(SMALL_FONT_ID, chipX + CHIP_PAD_X, textY, holidaysLabel, true);
+  }
 
   constexpr int GRID_MARGIN_X = 10;
   constexpr int WEEKDAY_HEADER_H = 22;
   constexpr int NOTE_AREA_H = 34;
 
-  const int gridTop = subHeaderY + SUBHEADER_H + 6;
+  const int gridTop = subHeaderY + metrics.subHeaderHeight + metrics.verticalSpacing;
   const int gridBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - NOTE_AREA_H;
 
   const int gridW = pageWidth - 2 * GRID_MARGIN_X;
@@ -509,41 +583,25 @@ void CalendarActivity::render(RenderLock&&) {
     }
   }
 
+  // Day/holiday text lives in the NoteView popup on demand (see below), not
+  // as a passive strip here -- a truncated one-liner squeezed under the grid
+  // read as clutter rather than content.
   const int noteY = gridBottom + 6;
   if (dateUnconfirmed) {
     renderer.drawText(SMALL_FONT_ID, GRID_MARGIN_X, noteY, tr(STR_CALENDAR_CLOCK_NOT_SYNCED), true);
-  } else if (selectedDay == total + 1) {
-    // This bar only ever renders while it's the current selection, so the
-    // fill+inverted-text pairing used for a "selected" row elsewhere in this
-    // screen is unconditional here.
-    renderer.fillRect(GRID_MARGIN_X, noteY - 4, gridW, NOTE_AREA_H - 6, true);
-    renderer.drawText(SMALL_FONT_ID, GRID_MARGIN_X + 6, noteY, tr(STR_CALENDAR_VIEW_HOLIDAYS), false);
   } else {
-    std::string holidayName;
-    const bool selectedIsHoliday = isHoliday(viewMonth, selectedDay, &holidayName);
-    const std::string note = getNote(selectedDay);
-
-    std::string preview;
-    if (selectedIsHoliday && !note.empty()) {
-      preview = holidayName + " - " + note;
-    } else if (selectedIsHoliday) {
-      preview = holidayName;
-    } else {
-      preview = note;
-    }
-
-    if (!preview.empty()) {
-      constexpr size_t MAX_PREVIEW = 70;
-      if (preview.length() > MAX_PREVIEW) {
-        preview = preview.substr(0, MAX_PREVIEW - 3) + "...";
-      }
-      renderer.drawText(SMALL_FONT_ID, GRID_MARGIN_X, noteY, preview.c_str(), true);
-    }
+    renderer.drawText(SMALL_FONT_ID, GRID_MARGIN_X, noteY, tr(STR_CALENDAR_HOLIDAYS_HOLD_HINT), true);
   }
 
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_BACK), tr(STR_CALENDAR_NOTE), tr(STR_PREVIOUS_TAB), tr(STR_NEXT_TAB));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  if (state == CalendarState::NoteView) {
+    GUI.drawPopup(renderer, dayPreviewText(selectedDay).c_str());
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CALENDAR_NOTE), nullptr, nullptr);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  } else {
+    const auto labels =
+        mappedInput.mapLabels(tr(STR_BACK), tr(STR_CALENDAR_NOTE), tr(STR_PREVIOUS_TAB), tr(STR_NEXT_TAB));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  }
 
   renderer.displayBuffer();
 }

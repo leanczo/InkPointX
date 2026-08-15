@@ -136,7 +136,6 @@ class ActivityManager {
   void goToClock();
   void goToReminders();
   void goToWeather();
-  void goToHackerNews();
   void goToRss();
   void goToOnThisDay();
   void goToFileBrowser(std::string path = {});
