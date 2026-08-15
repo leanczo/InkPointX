@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
@@ -129,12 +130,43 @@ bool decodeHtmlEntity(const std::string& name, std::string& outUtf8) {
   return true;
 }
 
+// Block-level tags whose open AND close both mark a paragraph/line boundary
+// in the source HTML -- stripping them without a trace (the old behavior)
+// ran unrelated paragraphs together. <p>...</p> yields two boundary hits
+// (open, then close) so consecutive paragraphs get a blank line between
+// them; a lone self-closing <br/> yields one hit, a soft line break.
+bool isBlockBoundaryTag(const std::string& lowerTagName) {
+  return lowerTagName == "p" || lowerTagName == "div" || lowerTagName == "li" || lowerTagName == "tr" ||
+         lowerTagName == "br" || lowerTagName == "blockquote" || lowerTagName == "h1" || lowerTagName == "h2" ||
+         lowerTagName == "h3" || lowerTagName == "h4" || lowerTagName == "h5" || lowerTagName == "h6";
+}
+
+bool isHeadingTag(const std::string& lowerTagName) {
+  return lowerTagName == "h1" || lowerTagName == "h2" || lowerTagName == "h3" || lowerTagName == "h4" ||
+         lowerTagName == "h5" || lowerTagName == "h6";
+}
+
+// Marks the very first character of a paragraph as a heading -- stripped
+// back out (and turned into a bold line instead of just plain text) by
+// wrapParagraphs() below. A raw SOH byte never occurs in real feed text, and
+// survives the round trip through the markdown cache file unaffected: only
+// '\n' is escaped there (see RssParser::writeItem/unescapeNewlines).
+constexpr char kMarkdownHeadingSentinel = '\x01';
+
 std::string cleanField(const std::string& input) {
   std::string clean;
   clean.reserve(input.length());
 
   bool lastWasSpace = true;
   bool inTag = false;
+  bool tagIsClosing = false;
+  std::string currentTagName;
+  // Some feeds (notably markdown-formatted ones, with no HTML tags at all)
+  // mark paragraph breaks with a blank line in the raw text instead of a
+  // block tag. Counts consecutive '\n' within the whitespace run currently
+  // being collapsed so a genuine blank line can be told apart from an
+  // incidental single line-wrap in the source XML.
+  int newlineRun = 0;
 
   size_t i = 0;
   while (i < input.length()) {
@@ -186,32 +218,191 @@ std::string cleanField(const std::string& input) {
     // Handle tag stripping
     if (c == '<') {
       inTag = true;
+      currentTagName.clear();
+      tagIsClosing = false;
       continue;
     } else if (c == '>') {
       inTag = false;
+      std::string lowerTagName = currentTagName;
+      for (char& tc : lowerTagName) tc = static_cast<char>(std::tolower(static_cast<unsigned char>(tc)));
+      if (isBlockBoundaryTag(lowerTagName)) {
+        if (!clean.empty() && clean.back() != '\n') {
+          clean += '\n';
+          lastWasSpace = true;
+        }
+        // Only on the opening tag, so the sentinel lands on the heading
+        // paragraph's first character rather than trailing its last one.
+        if (isHeadingTag(lowerTagName) && !tagIsClosing) clean += kMarkdownHeadingSentinel;
+      }
       continue;
     }
 
     if (inTag) {
+      // Collect the tag name (e.g. "p" from both "<p>" and "</p>" -- the
+      // leading '/' of a closing tag isn't alnum so it's simply skipped,
+      // just noted below) stopping at the first attribute space so
+      // "<p class=...>" still yields "p".
+      if (currentTagName.empty() && c == '/') {
+        tagIsClosing = true;
+      } else if (currentTagName.empty() ? std::isalpha(static_cast<unsigned char>(c))
+                                        : std::isalnum(static_cast<unsigned char>(c))) {
+        currentTagName += c;
+      }
       continue;
     }
 
     // Replace whitespace characters and collapse multiple spaces
     if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
+      if (c == '\n') newlineRun++;
       if (!lastWasSpace) {
         clean += ' ';
         lastWasSpace = true;
       }
     } else {
+      // A blank line (2+ newlines) in the run just collapsed to a single
+      // space is a real paragraph break, not a soft line-wrap -- upgrade it.
+      if (newlineRun >= 2 && !clean.empty() && clean.back() == ' ') {
+        clean.back() = '\n';
+      }
+      newlineRun = 0;
       clean += c;
       lastWasSpace = false;
     }
   }
 
-  if (!clean.empty() && clean.back() == ' ') {
+  while (!clean.empty() && (clean.back() == ' ' || clean.back() == '\n')) {
     clean.pop_back();
   }
   return clean;
+}
+
+// Some feeds emit the article body as literal Markdown instead of HTML, so
+// "### Heading" needs to be recognized before cleanField() collapses line
+// breaks -- an ATX header only means anything as the first thing on its own
+// RAW line. Many generators skip the blank line the markdown spec technically
+// wants around a heading, so this doesn't require one: it forces one itself
+// (cleanField()'s blank-line paragraph-break detection then reliably isolates
+// the heading either way) and marks the line with the same sentinel
+// cleanField() uses for HTML <h1>-<h6>, so wrapParagraphs() renders both the
+// same way -- as their own bold line, a real heading instead of just having
+// its "#"s deleted. Must run before cleanField() on the untouched field text.
+std::string promoteMarkdownHeaders(const std::string& raw) {
+  std::string result;
+  result.reserve(raw.length() + 16);
+  size_t lineStart = 0;
+  while (lineStart <= raw.length()) {
+    size_t lineEnd = raw.find('\n', lineStart);
+    const size_t contentEnd = (lineEnd == std::string::npos) ? raw.length() : lineEnd;
+
+    size_t contentStart = lineStart;
+    while (contentStart < contentEnd && (raw[contentStart] == ' ' || raw[contentStart] == '\t')) contentStart++;
+    size_t hashCount = 0;
+    while (hashCount < 6 && contentStart + hashCount < contentEnd && raw[contentStart + hashCount] == '#') {
+      hashCount++;
+    }
+    const bool isHeader = hashCount > 0 && contentStart + hashCount < contentEnd &&
+                          raw[contentStart + hashCount] == ' ';
+
+    if (isHeader) {
+      result += "\n\n";
+      result += kMarkdownHeadingSentinel;
+      result.append(raw, contentStart + hashCount + 1, contentEnd - (contentStart + hashCount + 1));
+      result += "\n\n";
+    } else {
+      result.append(raw, lineStart, contentEnd - lineStart);
+    }
+
+    if (lineEnd == std::string::npos) break;
+    result += '\n';
+    lineStart = lineEnd + 1;
+  }
+  return result;
+}
+
+// Cleans up the remaining markdown punctuation cleanField() leaves untouched
+// (it only strips HTML tags). Applied only to description/content -- title
+// and link are never markdown. Headers are already handled by
+// promoteMarkdownHeaders() above, before cleanField() ever runs.
+void stripMarkdownArtifacts(std::string& text) {
+  std::string result = text;
+
+  // Markdown links: [text](url) -> text. The exact "](" sequence essentially
+  // never appears in ordinary prose, so no paired-marker lookahead is needed.
+  size_t bracketOpen = 0;
+  while ((bracketOpen = result.find('[', bracketOpen)) != std::string::npos) {
+    size_t bracketClose = result.find(']', bracketOpen + 1);
+    if (bracketClose == std::string::npos) break;
+    if (bracketClose + 1 >= result.length() || result[bracketClose + 1] != '(') {
+      bracketOpen = bracketClose + 1;
+      continue;
+    }
+    size_t parenClose = result.find(')', bracketClose + 2);
+    if (parenClose == std::string::npos) break;
+    std::string linkText = result.substr(bracketOpen + 1, bracketClose - bracketOpen - 1);
+    result.replace(bracketOpen, parenClose - bracketOpen + 1, linkText);
+    bracketOpen += linkText.length();
+  }
+
+  // Bold markers only (** and __) -- not single */_ italics, which collide
+  // too often with ordinary prose (stray asterisks, math, informal emphasis)
+  // to safely guess a real pair. Only strips markers with a matching close,
+  // so an unpaired marker is left alone rather than eating the rest of the text.
+  auto stripPaired = [](std::string& s, const char* marker) {
+    const size_t markerLen = std::strlen(marker);
+    size_t pos = 0;
+    while ((pos = s.find(marker, pos)) != std::string::npos) {
+      size_t close = s.find(marker, pos + markerLen);
+      if (close == std::string::npos) break;
+      s.erase(close, markerLen);
+      s.erase(pos, markerLen);
+    }
+  };
+  stripPaired(result, "**");
+  stripPaired(result, "__");
+
+  text = std::move(result);
+}
+
+// A line of already-wrapped body text plus which font family it should draw
+// with -- currently just heading (bold) vs. regular, since GfxRenderer only
+// supports one style per drawText() call and has no inline mixed-run text.
+struct DetailLine {
+  std::string text;
+  bool bold;
+};
+
+// wrappedText() wraps by width only and has no concept of '\n' as a line
+// break -- it would render one embedded in the middle of a "word". This
+// splits on the paragraph breaks cleanField()/promoteMarkdownHeaders() leave
+// behind and wraps each paragraph independently, passing each the line
+// budget remaining out of maxLines so the overall cap (and wrappedText's own
+// "..." truncation on the line that hits it) still applies across
+// paragraphs, not just within one. A paragraph starting with the heading
+// sentinel wraps in bold instead of `style`, with the sentinel itself
+// stripped before it ever reaches wrappedText/drawText.
+std::vector<DetailLine> wrapParagraphs(const GfxRenderer& renderer, int fontId, const std::string& text, int maxWidth,
+                                       int maxLines, EpdFontFamily::Style style) {
+  std::vector<DetailLine> allLines;
+  size_t start = 0;
+  while (start <= text.length() && static_cast<int>(allLines.size()) < maxLines) {
+    size_t nl = text.find('\n', start);
+    std::string paragraph = (nl == std::string::npos) ? text.substr(start) : text.substr(start, nl - start);
+
+    const bool isHeading = !paragraph.empty() && paragraph.front() == kMarkdownHeadingSentinel;
+    if (isHeading) paragraph.erase(0, 1);
+
+    if (paragraph.empty()) {
+      allLines.push_back({"", false});
+    } else {
+      int budget = maxLines - static_cast<int>(allLines.size());
+      auto paragraphLines =
+          renderer.wrappedText(fontId, paragraph.c_str(), maxWidth, budget, isHeading ? EpdFontFamily::BOLD : style);
+      for (auto& line : paragraphLines) allLines.push_back({std::move(line), isHeading});
+    }
+    if (nl == std::string::npos) break;
+    start = nl + 1;
+  }
+  return allLines;
 }
 
 uint32_t parseRssDateToUnix(const std::string& dateStr) {
@@ -554,8 +745,10 @@ class RssParser {
       if (!self->currentItem.title.empty() && self->itemsParsed < 25) {
         self->currentItem.title = cleanField(self->currentItem.title);
         self->currentItem.link = cleanField(self->currentItem.link);
-        self->currentItem.description = cleanField(self->currentItem.description);
-        self->currentItem.content = cleanField(self->currentItem.content);
+        self->currentItem.description = cleanField(promoteMarkdownHeaders(self->currentItem.description));
+        stripMarkdownArtifacts(self->currentItem.description);
+        self->currentItem.content = cleanField(promoteMarkdownHeaders(self->currentItem.content));
+        stripMarkdownArtifacts(self->currentItem.content);
 
         self->writeItem(self->currentItem);
         self->itemsParsed++;
@@ -626,6 +819,12 @@ bool parseXmlFile(const std::string& xmlPath, const std::string& mdPath, const s
 
   inFile.close();
   outFile.close();
+  // A download that succeeds but yields zero items is otherwise silent about
+  // why -- this is the one line that tells the difference between "the XML
+  // parse itself failed partway" (see the parse-error LOG_DBG above) and "it
+  // parsed cleanly but nothing matched <item>/<entry>" (wrong content type,
+  // an unexpected feed schema, ...).
+  LOG_DBG("RSS", "Parsed %d item(s) from %s", parser.getItemsParsed(), xmlPath.c_str());
   return parser.getItemsParsed() > 0;
 }
 
@@ -758,7 +957,7 @@ bool RssActivity::parseFeedsFromMarkdown(const std::string& filepath, std::vecto
         currentItem.timestamp = line.substr(13);
       } else if (line.rfind("- Description: ", 0) == 0) {
         std::string rawDesc = unescapeNewlines(line.substr(15));
-        if (summaryOnly && rawDesc.length() > 150) rawDesc = rawDesc.substr(0, 150) + "...";
+        if (summaryOnly && rawDesc.length() > 225) rawDesc = rawDesc.substr(0, 225) + "...";
         currentItem.description = rawDesc;
       } else if (line.rfind("- Content: ", 0) == 0) {
         if (!summaryOnly) currentItem.content = unescapeNewlines(line.substr(11));
@@ -898,7 +1097,16 @@ void RssActivity::doFetch() {
   // happen unconditionally — on failure this is the only way to get the old
   // (still-good, untouched-on-disk) data back.
   loadOfflineFeeds();
-  errorMessage = allItems.empty() ? tr(STR_RSS_NO_DATA) : "";
+  // fetchSuccess but still empty means the download itself was fine and the
+  // problem is downstream -- the URL didn't point at readable RSS/Atom (wrong
+  // path, an HTML page, a JSON API, ...). That's a different, actionable
+  // problem from "no connection", so it gets its own message instead of the
+  // same generic offline text regardless of what actually happened.
+  if (allItems.empty()) {
+    errorMessage = fetchSuccess ? tr(STR_RSS_UNREADABLE) : tr(STR_RSS_NO_DATA);
+  } else {
+    errorMessage.clear();
+  }
   selectedItemIndex = 0;
   itemsScrollOffset = 0;
   state = RssState::FeedList;
@@ -1092,10 +1300,15 @@ void RssActivity::loop() {
       }
     } else if (mappedInput.wasReleased(Button::Down)) {
       if (selectedItemIndex < static_cast<int>(allItems.size()) - 1) {
-        selectedItemIndex++;
-        // render() grows itemsScrollOffset as needed -- card heights vary
-        // (title wraps 1-3 lines, description 0-2), so only it knows how many
-        // actually fit above the selected one.
+        if (selectedItemIndex >= lastVisibleItemIndex) {
+          // Already at the bottom of the current page -- jump the whole
+          // window to the next unseen item instead of scrolling by one card,
+          // so the page fully replaces and never re-shows an already-read item.
+          itemsScrollOffset = selectedItemIndex + 1;
+          selectedItemIndex = itemsScrollOffset;
+        } else {
+          selectedItemIndex++;
+        }
         requestUpdate();
       }
     } else if (mappedInput.wasReleased(Button::Left) || mappedInput.wasReleased(Button::Confirm)) {
@@ -1168,8 +1381,17 @@ void RssActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == RssState::FeedList) {
     if (!errorMessage.empty() && allItems.empty()) {
+      // These messages got noticeably longer once they started saying *why*
+      // the feed came up empty instead of one generic line -- drawCenteredText
+      // is single-line only, so a long one ran off the screen edge.
+      const int errWidth = pageWidth - 2 * metrics.contentSidePadding;
+      auto errorLines = renderer.wrappedText(UI_10_FONT_ID, errorMessage.c_str(), errWidth, 4, EpdFontFamily::BOLD);
+      const int errLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
       int errY = contentTop + 40;
-      renderer.drawCenteredText(UI_10_FONT_ID, errY, errorMessage.c_str(), true, EpdFontFamily::BOLD);
+      for (const auto& line : errorLines) {
+        renderer.drawCenteredText(UI_10_FONT_ID, errY, line.c_str(), true, EpdFontFamily::BOLD);
+        errY += errLineHeight;
+      }
     } else {
       const int cellX = metrics.contentSidePadding;
       const int cellW = pageWidth - 2 * metrics.contentSidePadding;
@@ -1178,11 +1400,11 @@ void RssActivity::render(RenderLock&&) {
       constexpr int kCardGap = 10;      // vertical gap between cards
       constexpr int kSectionGap = 6;
       constexpr int kMaxTitleLines = 3;
-      constexpr int kMaxDescLines = 2;
+      constexpr int kMaxDescLines = 3;
       constexpr int kTimeReserve = 70;  // room for the relative-time label beside the title's first line
 
       // Cards are sized to their own wrapped-text line count (title, up to 3
-      // lines, + description, up to 2) rather than a fixed height -- a fixed
+      // lines, + description, up to 3) rather than a fixed height -- a fixed
       // height either clipped longer titles against the time label or wasted
       // space on short ones. Same approach as OnThisDayActivity's cards.
       auto cardHeightFor = [&](const RssItem& item) {
@@ -1190,8 +1412,8 @@ void RssActivity::render(RenderLock&&) {
                                                kMaxTitleLines, EpdFontFamily::BOLD);
         int h = kCardPadding + static_cast<int>(titleLines.size()) * lineHeight;
         if (!item.description.empty()) {
-          auto descLines =
-              renderer.wrappedText(UI_10_FONT_ID, item.description.c_str(), cellW - 24, kMaxDescLines, EpdFontFamily::REGULAR);
+          auto descLines = wrapParagraphs(renderer, UI_10_FONT_ID, item.description, cellW - 24, kMaxDescLines,
+                                          EpdFontFamily::REGULAR);
           h += kSectionGap + static_cast<int>(descLines.size()) * lineHeight;
         }
         return h + kCardPadding + kCardGap;
@@ -1221,6 +1443,7 @@ void RssActivity::render(RenderLock&&) {
         const auto& item = allItems[idx];
         const int cardH = cardHeightFor(item);
         if (cellY + cardH > contentBottom) break;
+        lastVisibleItemIndex = idx;
 
         bool isSelected = (idx == selectedItemIndex);
         renderer.drawRoundedRect(cellX, cellY, cellW, cardH - kCardGap, isSelected ? 3 : 1, 8, true);
@@ -1248,10 +1471,11 @@ void RssActivity::render(RenderLock&&) {
         textY += kSectionGap;
 
         if (!item.description.empty()) {
-          auto descLines =
-              renderer.wrappedText(UI_10_FONT_ID, item.description.c_str(), cellW - 24, kMaxDescLines, EpdFontFamily::REGULAR);
-          for (size_t l = 0; l < descLines.size(); l++) {
-            renderer.drawText(UI_10_FONT_ID, cellX + 12, textY, descLines[l].c_str(), true, EpdFontFamily::REGULAR);
+          auto descLines = wrapParagraphs(renderer, UI_10_FONT_ID, item.description, cellW - 24, kMaxDescLines,
+                                          EpdFontFamily::REGULAR);
+          for (const auto& descLine : descLines) {
+            renderer.drawText(UI_10_FONT_ID, cellX + 12, textY, descLine.text.c_str(), true,
+                              descLine.bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
             textY += lineHeight;
           }
         }
@@ -1271,18 +1495,16 @@ void RssActivity::render(RenderLock&&) {
     }
     const auto& item = allItems[selectedItemIndex];
 
-    int contentY = contentTop;
     const int articleFontId = kRssArticleFontIds[articleFontSizeIndex];
+    const int lineHeight = renderer.getLineHeight(articleFontId);
+    const int wrapWidth = pageWidth - 2 * metrics.contentSidePadding;
 
-    auto titleLines = renderer.wrappedText(articleFontId, item.title.c_str(), pageWidth - 2 * metrics.contentSidePadding,
-                                           3, EpdFontFamily::BOLD);
-    for (size_t l = 0; l < titleLines.size(); l++) {
-      renderer.drawText(articleFontId, metrics.contentSidePadding,
-                        contentY + static_cast<int>(l) * renderer.getLineHeight(articleFontId), titleLines[l].c_str(),
-                        true, EpdFontFamily::BOLD);
-    }
-    int titleHeight = static_cast<int>(titleLines.size()) * renderer.getLineHeight(articleFontId);
-    contentY += titleHeight + 10;
+    // The title used to be drawn as its own fixed block capped at 3 lines,
+    // pinned above the scrollable body -- a longer title just lost its
+    // remaining lines with no way to read them. It's now the first (bold)
+    // lines of the same scrollable list as the body, uncapped, so it scrolls
+    // like everything else and nothing is ever truncated.
+    auto titleLines = renderer.wrappedText(articleFontId, item.title.c_str(), wrapWidth, 500, EpdFontFamily::BOLD);
 
     std::string fullText = item.description;
     if (!item.content.empty()) {
@@ -1306,10 +1528,18 @@ void RssActivity::render(RenderLock&&) {
       fullText += std::string(tr(STR_RSS_LINK_LABEL)) + " " + formattedUrl;
     }
 
-    auto lines = renderer.wrappedText(articleFontId, fullText.c_str(), pageWidth - 2 * metrics.contentSidePadding, 500,
-                                      EpdFontFamily::REGULAR);
+    auto bodyLines = wrapParagraphs(renderer, articleFontId, fullText, wrapWidth, 500, EpdFontFamily::REGULAR);
 
-    int maxLines = (contentHeight - (contentY - contentTop)) / renderer.getLineHeight(articleFontId);
+    // Title lines (bold) + a blank spacer + body lines (regular/bold per
+    // heading), as one scrollable list so Up/Down page through title and
+    // body together.
+    std::vector<DetailLine> lines;
+    lines.reserve(titleLines.size() + 1 + bodyLines.size());
+    for (auto& l : titleLines) lines.push_back({l, true});
+    lines.push_back({"", false});
+    for (auto& l : bodyLines) lines.push_back(std::move(l));
+
+    int maxLines = contentHeight / lineHeight;
     detailMaxLines = std::max(1, maxLines);
     if (detailScrollOffset > std::max(0, static_cast<int>(lines.size()) - maxLines)) {
       detailScrollOffset = std::max(0, static_cast<int>(lines.size()) - maxLines);
@@ -1318,8 +1548,9 @@ void RssActivity::render(RenderLock&&) {
     for (int i = 0; i < maxLines; i++) {
       int lineIdx = detailScrollOffset + i;
       if (lineIdx >= static_cast<int>(lines.size())) break;
-      renderer.drawText(articleFontId, metrics.contentSidePadding, contentY + i * renderer.getLineHeight(articleFontId),
-                        lines[lineIdx].c_str(), true, EpdFontFamily::REGULAR);
+      const auto& detailLine = lines[lineIdx];
+      renderer.drawText(articleFontId, metrics.contentSidePadding, contentTop + i * lineHeight, detailLine.text.c_str(),
+                        true, detailLine.bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     }
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RSS_SHOW_QR), "-", "+");

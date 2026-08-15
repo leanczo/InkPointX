@@ -17,7 +17,7 @@ struct SnakeCell {
 // applied on the next tick, same pattern as a normal Snake's input buffer.
 class SnakeActivity final : public Activity {
  private:
-  static constexpr int CELL_SIZE = 20;
+  static constexpr int CELL_SIZE = 32;
   static constexpr int MAX_CELLS = 1024;  // covers the largest grid this screen can show at CELL_SIZE
   static constexpr int SUBHEADER_HEIGHT = 30;
   static constexpr unsigned long TICK_MS = 900;

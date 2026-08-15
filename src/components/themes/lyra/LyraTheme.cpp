@@ -139,18 +139,12 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideCloudSun32;
       case UIIcon::WeatherCity:
         return LucideMapPin32;
-      case UIIcon::Wikipedia:
-        return LucideGlobe32;
       case UIIcon::HackerNews:
         return LucideFlame32;
       case UIIcon::Rss:
         return LucideRss32;
-      case UIIcon::DuckDuckGo:
-        return LucideSearch32;
       case UIIcon::OnThisDay:
         return LucideHistory32;
-      case UIIcon::Pokedex:
-        return LucideCircleDot32;
       default:
         return nullptr;
     }

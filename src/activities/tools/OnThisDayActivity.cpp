@@ -254,9 +254,8 @@ void OnThisDayActivity::changeDate(int deltaDays) {
 
 void OnThisDayActivity::showQrForSelected() {
   int cat = static_cast<int>(currentCategory);
-  int idx = selectedRow[cat] - 3;
-  if (idx < 0 || idx >= static_cast<int>(entries[cat].size())) return;
-  const std::string url = entries[cat][idx].pageUrl;
+  if (detailEntryIndex < 0 || detailEntryIndex >= static_cast<int>(entries[cat].size())) return;
+  const std::string url = entries[cat][detailEntryIndex].pageUrl;
   if (url.empty()) return;
   startActivityForResult(makeUniqueNoThrow<QrDisplayActivity>(renderer, mappedInput, url),
                          [this](const ActivityResult&) { requestUpdate(); });
@@ -297,6 +296,29 @@ void OnThisDayActivity::loop() {
   using Button = MappedInputManager::Button;
 
   if (state == OnThisDayState::Loading) return;  // owned by the blocking startFetch()/doFetch() call that triggered it
+
+  if (state == OnThisDayState::EntryDetail) {
+    if (mappedInput.wasReleased(Button::Back)) {
+      state = OnThisDayState::List;
+      requestUpdate();
+      return;
+    }
+    if (mappedInput.wasReleased(Button::Up)) {
+      if (detailScrollOffset > 0) {
+        detailScrollOffset = std::max(0, detailScrollOffset - detailMaxLines);
+        requestUpdate();
+      }
+    } else if (mappedInput.wasReleased(Button::Down)) {
+      // render() re-clamps this to the last valid page, so it's safe to
+      // overshoot here -- a full-page jump so the screen fully replaces
+      // instead of shifting by a single line each press.
+      detailScrollOffset += detailMaxLines;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(Button::Confirm)) {
+      showQrForSelected();
+    }
+    return;
+  }
 
   int cat = static_cast<int>(currentCategory);
   const int totalRows = 3 + static_cast<int>(entries[cat].size());  // 0=Refresh,1=PrevDay,2=NextDay
@@ -342,7 +364,13 @@ void OnThisDayActivity::loop() {
     } else if (selectedRow[cat] == 2) {
       changeDate(1);
     } else {
-      showQrForSelected();
+      const int idx = selectedRow[cat] - 3;
+      if (idx >= 0 && idx < static_cast<int>(entries[cat].size())) {
+        detailEntryIndex = idx;
+        detailScrollOffset = 0;
+        state = OnThisDayState::EntryDetail;
+        requestUpdate();
+      }
     }
   }
 }
@@ -371,6 +399,58 @@ void OnThisDayActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
+
+  if (state == OnThisDayState::EntryDetail) {
+    const int cat = static_cast<int>(currentCategory);
+    if (detailEntryIndex < 0 || detailEntryIndex >= static_cast<int>(entries[cat].size())) {
+      // Stale index (list shrunk from underneath this state) -- bail back to
+      // the list instead of an out-of-bounds vector access.
+      state = OnThisDayState::List;
+      renderer.displayBuffer();
+      return;
+    }
+    const auto& e = entries[cat][detailEntryIndex];
+
+    char yearBuf[16];
+    if (e.year < 0) {
+      snprintf(yearBuf, sizeof(yearBuf), tr(STR_OTD_YEAR_BC), -e.year);
+    } else {
+      snprintf(yearBuf, sizeof(yearBuf), "%d", e.year);
+    }
+    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_OTD_TITLE),
+                  yearBuf);
+
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    const int contentBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int sideX = metrics.contentSidePadding;
+    const int wrapWidth = pageWidth - 2 * sideX;
+    const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+
+    // Uncapped wrap (maxLines=500, same convention as RssActivity's
+    // PostDetail) -- the whole entry always ends up in `lines`, unlike the
+    // list cards which cap at kMaxBodyLines and truncate with an ellipsis.
+    auto lines = renderer.wrappedText(UI_12_FONT_ID, e.text.c_str(), wrapWidth, 500, EpdFontFamily::REGULAR);
+
+    const int maxLines = std::max(1, (contentBottom - contentTop) / lineHeight);
+    detailMaxLines = maxLines;
+    const int maxOffset = std::max(0, static_cast<int>(lines.size()) - maxLines);
+    if (detailScrollOffset > maxOffset) detailScrollOffset = maxOffset;
+
+    int textY = contentTop;
+    for (int i = 0; i < maxLines; i++) {
+      const int lineIdx = detailScrollOffset + i;
+      if (lineIdx >= static_cast<int>(lines.size())) break;
+      renderer.drawText(UI_12_FONT_ID, sideX, textY, lines[lineIdx].c_str(), true, EpdFontFamily::REGULAR);
+      textY += lineHeight;
+    }
+
+    const bool hasUrl = !e.pageUrl.empty();
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), hasUrl ? tr(STR_OTD_SHOW_QR) : nullptr, nullptr, nullptr);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+
+    renderer.displayBuffer();
+    return;
+  }
 
   const std::string dateStr = formattedHeaderDate();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_OTD_TITLE),

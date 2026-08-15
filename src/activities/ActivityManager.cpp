@@ -34,16 +34,13 @@
 #include "tools/CalculatorActivity.h"
 #include "tools/CalendarActivity.h"
 #include "tools/ClockActivity.h"
-#include "tools/DuckDuckGoActivity.h"
 #include "tools/FootballActivity.h"
 #include "tools/FormulaOneActivity.h"
 #include "tools/HackerNewsActivity.h"
 #include "tools/OnThisDayActivity.h"
-#include "tools/PokedexActivity.h"
 #include "tools/RemindersListActivity.h"
 #include "tools/RssActivity.h"
 #include "tools/WeatherActivity.h"
-#include "tools/WikipediaActivity.h"
 #include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
 
@@ -382,25 +379,15 @@ void ActivityManager::goToReminders() {
 
 void ActivityManager::goToWeather() { replaceActivity(makeUniqueNoThrow<WeatherActivity>(renderer, mappedInput)); }
 
-void ActivityManager::goToWikipedia() {
-  replaceActivity(makeUniqueNoThrow<WikipediaActivity>(renderer, mappedInput));
-}
-
 void ActivityManager::goToHackerNews() {
   replaceActivity(makeUniqueNoThrow<HackerNewsActivity>(renderer, mappedInput));
 }
 
 void ActivityManager::goToRss() { replaceActivity(makeUniqueNoThrow<RssActivity>(renderer, mappedInput)); }
 
-void ActivityManager::goToDuckDuckGo() {
-  replaceActivity(makeUniqueNoThrow<DuckDuckGoActivity>(renderer, mappedInput));
-}
-
 void ActivityManager::goToOnThisDay() {
   replaceActivity(makeUniqueNoThrow<OnThisDayActivity>(renderer, mappedInput));
 }
-
-void ActivityManager::goToPokedex() { replaceActivity(makeUniqueNoThrow<PokedexActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(makeUniqueNoThrow<FileBrowserActivity>(renderer, mappedInput, std::move(path)));

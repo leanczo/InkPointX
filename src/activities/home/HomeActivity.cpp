@@ -422,7 +422,7 @@ int HomeActivity::pageItemCount() const {
   if (pageIndex == 2) return 7;  // Games: Snake, Dice, TicTacToe, 2048, Minesweeper, Simon, Sudoku.
   if (pageIndex == 3) return 5;  // Herramientas: Calculator, Calendar, Clock, Reminders, Weather.
   if (pageIndex == 4)
-    return 8;  // Apps: Football, F1, Wikipedia, HackerNews, RSS, DuckDuckGo, On This Day, Pokedex.
+    return 5;  // Apps: Football, F1, HackerNews, RSS, On This Day.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -528,22 +528,13 @@ void HomeActivity::openSelection() {
         activityManager.goToFormulaOne();
         break;
       case 2:
-        activityManager.goToWikipedia();
-        break;
-      case 3:
         activityManager.goToHackerNews();
         break;
-      case 4:
+      case 3:
         activityManager.goToRss();
         break;
-      case 5:
-        activityManager.goToDuckDuckGo();
-        break;
-      case 6:
+      case 4:
         activityManager.goToOnThisDay();
-        break;
-      case 7:
-        activityManager.goToPokedex();
         break;
       default:
         break;
@@ -572,6 +563,18 @@ void HomeActivity::loop() {
   }
   if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
     changePage(-1);
+    return;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // Jumps straight to the first carousel page (Now Reading) from wherever
+    // the user currently is, rather than stepping through Left repeatedly.
+    if (pageIndex != 0) {
+      rememberedSelection[pageIndex] = selectedIndex;
+      pageIndex = 0;
+      selectedIndex = std::min(rememberedSelection[0], std::max(0, pageItemCount() - 1));
+      if (!recentDetailsLoaded) loadRecentBookDetails();
+      requestUpdate();
+    }
     return;
   }
 
@@ -854,12 +857,10 @@ void HomeActivity::render(RenderLock&&) {
                                                   UIIcon::Reminders, UIIcon::Weather};
     const std::array<const char*, 5> toolsLabels = {tr(STR_CALCULATOR), tr(STR_CALENDAR_TITLE), tr(STR_CLOCK),
                                                      tr(STR_REMINDERS_TITLE), tr(STR_WEATHER_TITLE)};
-    constexpr std::array<UIIcon, 8> appsIcons = {UIIcon::Football,   UIIcon::F1,        UIIcon::Wikipedia,
-                                                 UIIcon::HackerNews, UIIcon::Rss,       UIIcon::DuckDuckGo,
-                                                 UIIcon::OnThisDay,  UIIcon::Pokedex};
-    const std::array<const char*, 8> appsLabels = {
-        tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE),  tr(STR_WIKIPEDIA_TITLE), tr(STR_HN_TITLE),
-        tr(STR_RSS_TITLE),      tr(STR_DDG_TITLE), tr(STR_OTD_TITLE),       tr(STR_POKEDEX_TITLE)};
+    constexpr std::array<UIIcon, 5> appsIcons = {UIIcon::Football, UIIcon::F1,        UIIcon::HackerNews,
+                                                 UIIcon::Rss,      UIIcon::OnThisDay};
+    const std::array<const char*, 5> appsLabels = {tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE), tr(STR_HN_TITLE),
+                                                    tr(STR_RSS_TITLE),      tr(STR_OTD_TITLE)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,
@@ -927,7 +928,8 @@ void HomeActivity::render(RenderLock&&) {
   }
 
   GUI.drawPageDots(renderer, pageIndex, PAGE_COUNT);
-  const auto labels = mappedInput.mapLabels("", tr(STR_OPEN), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+  const auto labels =
+      mappedInput.mapLabels(pageIndex != 0 ? tr(STR_HOME) : "", tr(STR_OPEN), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

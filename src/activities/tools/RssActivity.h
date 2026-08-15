@@ -54,6 +54,10 @@ class RssActivity final : public Activity {
   int selectedItemIndex = 0;
   int selectedSubIndex = 0;
   int itemsScrollOffset = 0;
+  // Index of the last fully-visible card at the current itemsScrollOffset,
+  // computed by render() and reused by loop() so Down pages to a fresh set
+  // of items instead of scrolling one card at a time.
+  int lastVisibleItemIndex = 0;
   int detailScrollOffset = 0;
   int feedActionMenuIndex = 0;  // which item is highlighted in FeedActionMenu
   // Lines-per-screen for the article body at the current font size, computed

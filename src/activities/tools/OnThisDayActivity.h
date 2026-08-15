@@ -8,7 +8,7 @@
 
 #include "activities/Activity.h"
 
-enum class OnThisDayState { List, Loading };
+enum class OnThisDayState { List, Loading, EntryDetail };
 enum class OnThisDayCategory { Events = 0, Births = 1, Deaths = 2 };
 constexpr int OTD_CATEGORY_COUNT = 3;
 
@@ -41,6 +41,14 @@ class OnThisDayActivity final : public Activity {
   // 0=Refresh, 1=PrevDay, 2=NextDay, 3+ = entries[cat][selectedRow-3]
   int selectedRow[OTD_CATEGORY_COUNT] = {0, 0, 0};
   int scrollOffset[OTD_CATEGORY_COUNT] = {0, 0, 0};  // first visible entry index
+
+  // EntryDetail state: index into entries[currentCategory] for the entry
+  // being read in full, plus its own line-based scroll (paged by whatever
+  // detailMaxLines worked out to at last render, same pattern as
+  // RssActivity's PostDetail).
+  int detailEntryIndex = -1;
+  int detailScrollOffset = 0;
+  int detailMaxLines = 1;
 
   // Lowercased Wikipedia language code, e.g. "es"; may flip to "en" after a
   // 404 (see doFetch's one-time language-fallback probe).

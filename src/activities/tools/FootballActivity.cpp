@@ -156,9 +156,11 @@ std::string FootballActivity::apiUrl(int tab) const {
   }
   // Scoreboard defaults to "today" only, which is often empty/scheduled-only;
   // requesting a trailing window reliably surfaces recently completed matches.
+  // 7 days covers a full weekly round, since most leagues here play once a
+  // week (often on weekends) rather than every couple of days.
   const time_t now = time(nullptr);
   struct tm endTm, startTm;
-  const time_t startTime = now - 2 * 86400;
+  const time_t startTime = now - 7 * 86400;
   gmtime_r(&now, &endTm);
   gmtime_r(&startTime, &startTm);
   char endBuf[9], startBuf[9];

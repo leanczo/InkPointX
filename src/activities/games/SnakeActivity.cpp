@@ -23,7 +23,7 @@ void SnakeActivity::computeGrid() {
   if (cols < 1) cols = 1;
   if (rows < 1) rows = 1;
   if (cols * rows > MAX_CELLS) {
-    // Defensive only: CELL_SIZE=20 keeps cols*rows well under MAX_CELLS on
+    // Defensive only: CELL_SIZE keeps cols*rows well under MAX_CELLS on
     // this display, but never let a future metrics change overflow `body`.
     rows = MAX_CELLS / cols;
   }
