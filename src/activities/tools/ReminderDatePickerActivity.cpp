@@ -104,7 +104,7 @@ void ReminderDatePickerActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
                  tr(STR_REMINDER_DATE_REPEAT));
 
   // Date shown numerically (DD/MM/YYYY), not with month names, to avoid

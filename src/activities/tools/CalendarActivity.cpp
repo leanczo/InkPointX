@@ -395,7 +395,7 @@ void CalendarActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   if (state == CalendarState::HolidayList) {
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight},
                    tr(STR_CALENDAR_HOLIDAYS_TITLE));
 
     const int listTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
@@ -441,7 +441,7 @@ void CalendarActivity::render(RenderLock&&) {
     return;
   }
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CALENDAR_TITLE));
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CALENDAR_TITLE));
 
   char subBuf[32];
   snprintf(subBuf, sizeof(subBuf), "%s %d", I18N.get(kMonthKeys[viewMonth - 1]), viewYear);

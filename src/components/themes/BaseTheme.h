@@ -253,6 +253,11 @@ class BaseTheme {
                         const std::function<bool(int index)>& rowSection = nullptr) const;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                           const char* subtitle = nullptr) const;
+  // Same battery/rule chrome as drawHeader, but the title is set in the
+  // handwritten accent face used by the Home hub pages (Herramientas, Apps,
+  // Juegos) instead of the structural header font.
+  void drawScriptHeader(const GfxRenderer& renderer, Rect rect, const char* title,
+                        const char* subtitle = nullptr) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
                              const char* rightLabel = nullptr) const;
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,

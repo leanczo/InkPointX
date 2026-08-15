@@ -192,13 +192,13 @@ void CalculatorActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CALCULATOR));
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CALCULATOR));
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
 
   // 1. Draw Display Card
-  const int displayHeight = 70;
+  const int displayHeight = 80;
   const int displayCardY = contentTop;
   const int displayCardX = metrics.contentSidePadding;
   const int displayCardWidth = pageWidth - 2 * metrics.contentSidePadding;
@@ -211,11 +211,15 @@ void CalculatorActivity::render(RenderLock&&) {
     renderer.drawText(UI_10_FONT_ID, exprX, displayCardY + 10, inputExpr.c_str(), true);
   }
 
-  // Result text (bottom-right of display)
+  // Result text (bottom-right of display). Anchored off the card's own
+  // bottom edge, not a fixed offset from the top, so it keeps a clear
+  // margin above the border regardless of the font's line height.
   if (!resultText.empty()) {
     int resW = renderer.getTextWidth(UI_12_FONT_ID, resultText.c_str());
     int resX = displayCardX + displayCardWidth - 12 - resW;
-    renderer.drawText(UI_12_FONT_ID, resX, displayCardY + 40, resultText.c_str(), true, EpdFontFamily::BOLD);
+    int resH = renderer.getLineHeight(UI_12_FONT_ID);
+    int resY = displayCardY + displayHeight - resH - 10;
+    renderer.drawText(UI_12_FONT_ID, resX, resY, resultText.c_str(), true, EpdFontFamily::BOLD);
   }
 
   // 2. Draw Keyboard Grid
@@ -251,8 +255,10 @@ void CalculatorActivity::render(RenderLock&&) {
     }
   }
 
-  // 3. Draw Button Hints (standard Back button layout)
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), nullptr, nullptr);
+  // 3. Draw Button Hints (Back/Select plus the Left/Right keys that move the
+  // selection across the grid, matching the hint layout used by the other
+  // grid-navigated screens such as Sudoku and Tic-Tac-Toe).
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

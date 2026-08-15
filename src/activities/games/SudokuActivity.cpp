@@ -198,7 +198,7 @@ void SudokuActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SUDOKU_TITLE));
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SUDOKU_TITLE));
 
   // Draw Top Toolbar (New Game, Check)
   const int toolbarY = metrics.topPadding + metrics.headerHeight + 15;

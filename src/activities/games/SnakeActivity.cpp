@@ -1,13 +1,35 @@
 #include "SnakeActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <I18n.h>
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "MappedInputManager.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+
+namespace {
+constexpr char SNAKE_APPS_DIR[] = "/apps/snake";
+constexpr char SNAKE_HIGH_SCORE_FILE[] = "/apps/snake/highscore.txt";
+}  // namespace
+
+void SnakeActivity::loadHighScore() {
+  highScore = 0;
+  Storage.recoverInterruptedWrite(SNAKE_HIGH_SCORE_FILE);
+  if (!Storage.exists(SNAKE_HIGH_SCORE_FILE)) return;
+  const String content = Storage.readFile(SNAKE_HIGH_SCORE_FILE);
+  if (content.isEmpty()) return;
+  highScore = std::max(0, static_cast<int>(content.toInt()));
+}
+
+void SnakeActivity::saveHighScore() const {
+  Storage.mkdir(SNAKE_APPS_DIR);
+  Storage.writeFile(SNAKE_HIGH_SCORE_FILE, String(highScore));
+}
 
 void SnakeActivity::computeGrid() {
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -104,7 +126,7 @@ void SnakeActivity::tick() {
   }
 
   if (newHead.x < 0 || newHead.x >= cols || newHead.y < 0 || newHead.y >= rows) {
-    gameOver = true;
+    endGame();
     return;
   }
 
@@ -114,7 +136,7 @@ void SnakeActivity::tick() {
   // snake curl through its own former tail position.
   const int checkLen = willGrow ? snakeLength : snakeLength - 1;
   if (isOccupied(newHead.x, newHead.y, checkLen)) {
-    gameOver = true;
+    endGame();
     return;
   }
 
@@ -132,9 +154,18 @@ void SnakeActivity::tick() {
   }
 }
 
+void SnakeActivity::endGame() {
+  gameOver = true;
+  if (score > highScore) {
+    highScore = score;
+    saveHighScore();
+  }
+}
+
 void SnakeActivity::onEnter() {
   Activity::onEnter();
   srand(millis());
+  loadHighScore();
   resetGame();
   requestUpdate();
 }
@@ -149,6 +180,23 @@ void SnakeActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       resetGame();
       requestUpdate();
+      return;
+    }
+    // Reuses the Left slot, which moves the snake during play but does
+    // nothing once it's dead - the confirmation dialog protects the saved
+    // record from an accidental press.
+    if (highScore > 0 && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+      auto handler = [this](const ActivityResult& res) {
+        if (!res.isCancelled) {
+          highScore = 0;
+          saveHighScore();
+        }
+        requestUpdate();
+      };
+      startActivityForResult(
+          makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_SNAKE_RESET_RECORD_TITLE),
+                                                   tr(STR_SNAKE_RESET_RECORD_BODY)),
+          handler);
     }
     return;
   }
@@ -177,12 +225,14 @@ void SnakeActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SNAKE));
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SNAKE));
 
   char scoreBuf[32];
   snprintf(scoreBuf, sizeof(scoreBuf), "%s: %d", tr(STR_SCORE), score);
+  char recordBuf[32];
+  snprintf(recordBuf, sizeof(recordBuf), "%s: %d", tr(STR_SNAKE_HIGH_SCORE), highScore);
   const int subHeaderY = metrics.topPadding + metrics.headerHeight;
-  GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, SUBHEADER_HEIGHT}, scoreBuf, nullptr);
+  GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, SUBHEADER_HEIGHT}, scoreBuf, recordBuf);
 
   renderer.drawRect(gridOriginX, gridOriginY, cols * CELL_SIZE, rows * CELL_SIZE, 1, true);
 
@@ -210,7 +260,12 @@ void SnakeActivity::render(RenderLock&&) {
   }
 
   const char* confirmLabel = gameOver ? tr(STR_SNAKE_RESTART) : nullptr;
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, nullptr, nullptr);
+  // While playing, Left/Right move the snake, so they show as arrow hints.
+  // Once dead, movement no longer applies, and Left is repurposed for the
+  // record-reset shortcut (only offered once a record actually exists).
+  const char* leftLabel = gameOver ? (highScore > 0 ? tr(STR_SNAKE_RESET_RECORD) : nullptr) : tr(STR_DIR_LEFT);
+  const char* rightLabel = gameOver ? nullptr : tr(STR_DIR_RIGHT);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, leftLabel, rightLabel);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

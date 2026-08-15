@@ -1368,7 +1368,7 @@ void RssActivity::render(RenderLock&&) {
   if (state == RssState::FeedList || state == RssState::Loading) {
     headerTitle = displayNameForUrl(activeFeed);
   }
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, headerTitle.c_str());
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, headerTitle.c_str());
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
@@ -1559,7 +1559,7 @@ void RssActivity::render(RenderLock&&) {
     const std::string feedTitle = (selectedSubIndex >= 0 && selectedSubIndex < static_cast<int>(subscriptions.size()))
                                        ? displayNameForUrl(subscriptions[selectedSubIndex].url)
                                        : tr(STR_RSS_TITLE);
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, feedTitle.c_str());
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, feedTitle.c_str());
 
     constexpr int kFeedActionCount = 3;
     GUI.drawButtonMenu(

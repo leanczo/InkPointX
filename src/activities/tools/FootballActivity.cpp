@@ -732,7 +732,7 @@ void FootballActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   if (state == FootballState::LeagueSelection) {
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FOOTBALL_TITLE));
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FOOTBALL_TITLE));
 
     const int totalItems = static_cast<int>(subscriptions.size()) + 1;
     GUI.drawButtonMenu(
@@ -751,7 +751,7 @@ void FootballActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), nullptr, rightAction);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FootballState::AddLeague) {
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FOOTBALL_ADD_LEAGUE));
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FOOTBALL_ADD_LEAGUE));
 
     const int totalAvailable = static_cast<int>(addLeagueAvailableIndices.size());
     if (totalAvailable == 0) {
@@ -771,7 +771,7 @@ void FootballActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {
     const std::string title = subscriptions[activeLeagueIndex].displayName;
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
 
     const int tabBarY = metrics.topPadding + metrics.headerHeight;
 

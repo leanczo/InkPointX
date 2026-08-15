@@ -189,7 +189,7 @@ void ReminderEditActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   const char* header = isNewReminder ? tr(STR_ADD_REMINDER) : tr(STR_REMINDERS_TITLE);
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, header);
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, header);
 
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;

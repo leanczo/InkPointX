@@ -154,7 +154,7 @@ void SimonActivity::render(RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SIMON_TITLE));
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SIMON_TITLE));
 
   const int subHeaderY = metrics.topPadding + metrics.headerHeight;
   char subBuf[32];

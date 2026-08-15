@@ -605,7 +605,7 @@ void HackerNewsActivity::render(RenderLock&&) {
   if (state == HNState::StoryDetail) {
     const HNStory* story = selectedStory();
     const std::string title = story ? story->title : "";
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, title.c_str());
 
     const int menuTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
     const int menuBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
@@ -631,7 +631,7 @@ void HackerNewsActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), nullptr, nullptr);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == HNState::Loading) {
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_HN_TITLE));
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_HN_TITLE));
 
     const int tabBarY = metrics.topPadding + metrics.headerHeight;
     const int tab = static_cast<int>(currentTab);
@@ -647,7 +647,7 @@ void HackerNewsActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), nullptr, nullptr, nullptr);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_HN_TITLE));
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_HN_TITLE));
 
     const int tabBarY = metrics.topPadding + metrics.headerHeight;
     const int tab = static_cast<int>(currentTab);

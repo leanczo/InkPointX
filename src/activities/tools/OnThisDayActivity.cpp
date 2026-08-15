@@ -417,7 +417,7 @@ void OnThisDayActivity::render(RenderLock&&) {
     } else {
       snprintf(yearBuf, sizeof(yearBuf), "%d", e.year);
     }
-    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_OTD_TITLE),
+    GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_OTD_TITLE),
                   yearBuf);
 
     const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
@@ -453,7 +453,7 @@ void OnThisDayActivity::render(RenderLock&&) {
   }
 
   const std::string dateStr = formattedHeaderDate();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_OTD_TITLE),
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_OTD_TITLE),
                 dateStr.c_str());
 
   const int tabBarY = metrics.topPadding + metrics.headerHeight;

@@ -527,6 +527,18 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   }
 }
 
+void BaseTheme::drawScriptHeader(const GfxRenderer& renderer, Rect rect, const char* title,
+                                 const char* subtitle) const {
+  // Delegates to the active theme's own drawHeader for the battery cluster,
+  // rule and subtitle (title omitted), then paints the title itself in the
+  // same handwritten face the Home hub uses for its own page headers.
+  drawHeader(renderer, rect, nullptr, subtitle);
+  if (title) {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    renderer.drawText(SCRIPT_FONT_ID, rect.x + metrics.contentSidePadding, rect.y + 4, title);
+  }
+}
+
 void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label, const char* rightLabel) const {
   constexpr int maxListValueWidth = 200;
 

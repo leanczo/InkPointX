@@ -19,7 +19,9 @@ class SnakeActivity final : public Activity {
  private:
   static constexpr int CELL_SIZE = 32;
   static constexpr int MAX_CELLS = 1024;  // covers the largest grid this screen can show at CELL_SIZE
-  static constexpr int SUBHEADER_HEIGHT = 30;
+  // 30 px left the descender of "Puntaje" (the 'j') colliding with the
+  // subheader's bottom hairline; 40 px gives it clearance.
+  static constexpr int SUBHEADER_HEIGHT = 40;
   static constexpr unsigned long TICK_MS = 900;
 
   SnakeCell body[MAX_CELLS];
@@ -34,6 +36,7 @@ class SnakeActivity final : public Activity {
 
   SnakeCell food{0, 0};
   int score = 0;
+  int highScore = 0;
   bool gameOver = false;
   unsigned long lastTickMs = 0;
 
@@ -42,6 +45,9 @@ class SnakeActivity final : public Activity {
   void placeFood();
   bool isOccupied(int x, int y, int checkLen) const;
   void tick();
+  void endGame();
+  void loadHighScore();
+  void saveHighScore() const;
 
  public:
   explicit SnakeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

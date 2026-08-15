@@ -130,7 +130,7 @@ void TicTacToeActivity::render(RenderLock&&) {
   renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
   (void)viewTop;  // header chrome already clears the top bezel margin by a wide margin
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_TICTACTOE_TITLE));
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_TICTACTOE_TITLE));
 
   // Toolbar: single "New Game" pill, reached via cursorRow == -1
   const int toolbarY = metrics.topPadding + metrics.headerHeight + 20;

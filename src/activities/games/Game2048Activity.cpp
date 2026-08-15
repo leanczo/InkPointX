@@ -198,7 +198,7 @@ void Game2048Activity::render(RenderLock&&) {
   renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
   (void)viewTop;  // header chrome already clears the top bezel margin by a wide margin
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_2048_TITLE));
+  GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_2048_TITLE));
 
   // Score line
   char scoreBuf[32];
@@ -249,7 +249,7 @@ void Game2048Activity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_12_FONT_ID, footerY, overBuf, true, EpdFontFamily::REGULAR);
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_2048_NEW_GAME), nullptr, nullptr);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_2048_NEW_GAME), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
