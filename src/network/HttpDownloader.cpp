@@ -369,6 +369,32 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
 }
 #endif
 
+// mbedTLS needs a contiguous ~32KB (16KB in + 16KB out) buffer for the TLS
+// handshake on this PSRAM-less C3; free heap alone can look fine while
+// fragmentation leaves no block that large. Mirrors OtaUpdater.cpp's
+// hasTlsHeadroom(), scoped here since every HTTPS caller of runGet() shares
+// the same handshake, not just OTA.
+constexpr size_t MIN_TLS_FREE_HEAP = 64 * 1024;
+constexpr size_t MIN_TLS_LARGEST_BLOCK = 32 * 1024;
+bool hasTlsHeadroom() {
+  const size_t freeHeap = ESP.getFreeHeap();
+  const size_t largestBlock = ESP.getMaxAllocHeap();
+  LOG_INF("HTTP", "TLS preflight: free=%u largest=%u", (unsigned)freeHeap, (unsigned)largestBlock);
+  return freeHeap >= MIN_TLS_FREE_HEAP && largestBlock >= MIN_TLS_LARGEST_BLOCK;
+}
+
+// Shared by the TLS-headroom wait and the between-attempts retry backoff.
+// Returns false if cancelled mid-wait.
+bool waitOrCancel(unsigned ms, bool* cancelFlag) {
+  const unsigned started = millis();
+  while (millis() - started < ms) {
+    if (cancelFlag && *cancelFlag) return false;
+    esp_task_wdt_reset();
+    delay(25);
+  }
+  return true;
+}
+
 // Streams a GET body through sink.write in READ_CHUNK pieces. Uses the manual
 // open/fetch_headers/read path rather than esp_http_client_perform(): perform()
 // pushes the whole body through an event callback and reports a chunked body
@@ -417,7 +443,8 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
 
     const esp_err_t openResult = esp_http_client_open(client, 0);
     if (openResult != ESP_OK) {
-      LOG_ERR("HTTP", "open failed: %s", esp_err_to_name(openResult));
+      LOG_ERR("HTTP", "open failed: %d (%s), heap free=%u largest=%u", openResult, esp_err_to_name(openResult),
+               (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
       return false;
     }
 
@@ -492,7 +519,8 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
     }
     const int read = esp_http_client_read(client, buf.get(), READ_CHUNK);
     if (read < 0) {
-      LOG_ERR("HTTP", "read error after %zu bytes", sink.downloaded);
+      LOG_ERR("HTTP", "read error after %zu bytes, heap free=%u largest=%u", sink.downloaded,
+               (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
       esp_http_client_cleanup(client);
       return HttpDownloader::HTTP_ERROR;
     }
@@ -508,7 +536,8 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
   const bool complete = esp_http_client_is_complete_data_received(client);
   esp_http_client_cleanup(client);
   if (!complete) {
-    LOG_ERR("HTTP", "incomplete: got %zu of %zu bytes", sink.downloaded, sink.total);
+    LOG_ERR("HTTP", "incomplete: got %zu of %zu bytes, heap free=%u largest=%u", sink.downloaded, sink.total,
+             (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
     return HttpDownloader::HTTP_ERROR;
   }
   return HttpDownloader::OK;
@@ -659,6 +688,19 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   for (int attempt = 0; attempt < maxAttempts; ++attempt) {
     if (cancelFlag && *cancelFlag) return ABORTED;
 
+    if (!hasTlsHeadroom()) {
+      const unsigned headroomBackoffMs = 250u << attempt;
+      LOG_INF("HTTP", "Waiting %u ms for TLS heap headroom before attempt %d/%d", headroomBackoffMs, attempt + 1,
+              maxAttempts);
+      if (!waitOrCancel(headroomBackoffMs, cancelFlag)) return ABORTED;
+      if (!hasTlsHeadroom()) {
+        LOG_ERR("HTTP", "Skipping attempt %d/%d: insufficient TLS heap headroom", attempt + 1, maxAttempts);
+        continue;
+      }
+    }
+    LOG_DBG("HTTP", "Attempt %d/%d: heap free=%u largest=%u", attempt + 1, maxAttempts, (unsigned)ESP.getFreeHeap(),
+            (unsigned)ESP.getMaxAllocHeap());
+
     String tempPath;
     if (!NetworkFileTransaction::prepare(finalPath, ".http-tmp", "HTTP", tempPath)) {
       LOG_ERR("HTTP", "Failed to prepare transactional download");
@@ -725,12 +767,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
     const unsigned backoffMs = 250u << attempt;
     LOG_INF("HTTP", "Retrying complete download (%d/%d) after %u ms", attempt + 2, maxAttempts, backoffMs);
-    const unsigned started = millis();
-    while (millis() - started < backoffMs) {
-      if (cancelFlag && *cancelFlag) return ABORTED;
-      esp_task_wdt_reset();
-      delay(25);
-    }
+    if (!waitOrCancel(backoffMs, cancelFlag)) return ABORTED;
   }
 
   return HTTP_ERROR;

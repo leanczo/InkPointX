@@ -146,6 +146,7 @@ enum UIIcon {
   WeatherCity,
   Rss,
   OnThisDay,
+  Sismos,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

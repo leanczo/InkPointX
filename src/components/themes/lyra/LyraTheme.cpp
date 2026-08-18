@@ -143,6 +143,8 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideRss32;
       case UIIcon::OnThisDay:
         return LucideHistory32;
+      case UIIcon::Sismos:
+        return LucideActivity32;
       default:
         return nullptr;
     }

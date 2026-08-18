@@ -47,6 +47,13 @@ constexpr AvailableLeague AVAILABLE_LEAGUES[] = {
 };
 constexpr int NUM_AVAILABLE_LEAGUES = sizeof(AVAILABLE_LEAGUES) / sizeof(AVAILABLE_LEAGUES[0]);
 
+// Matches HttpDownloader's own MIN_TLS_LARGEST_BLOCK: below this, TLS
+// handshakes on this PSRAM-less C3 start failing outright. onExit() already
+// clears fragmentation via silentRestart() when the user leaves, but a long
+// session of day-by-day browsing without leaving can cross this line first -
+// check proactively after every fetch instead of waiting for that exit.
+constexpr size_t kCriticalLargestFreeBlock = 32 * 1024;
+
 std::string sanitizeSlug(const std::string& slug) {
   std::string s = slug;
   for (char& c : s) {
@@ -248,8 +255,12 @@ std::string FootballActivity::resultsDateYYYYMMDD() const {
 
 std::string FootballActivity::apiUrl(int tab) const {
   const std::string& slug = subscriptions[activeLeagueIndex].slug;
+  // site.web.api.espn.com serves the identical site-API JSON (same paths,
+  // same payload) but isn't behind the Akamai WAF guarding site.api.espn.com,
+  // which 403s a non-browser client regardless of User-Agent - verified live
+  // against both endpoints, repeatedly, with the device's own UA.
   if (tab == static_cast<int>(FootballTab::Standings)) {
-    return "https://site.api.espn.com/apis/v2/sports/soccer/" + slug + "/standings";
+    return "https://site.web.api.espn.com/apis/v2/sports/soccer/" + slug + "/standings";
   }
   // Single-day query only: a multi-day window's filtered JsonDocument still
   // retains every event in range (the ArduinoJson Filter's [0] wildcard
@@ -257,7 +268,8 @@ std::string FootballActivity::apiUrl(int tab) const {
   // exhaust heap on busy leagues/rounds. Older matches are reached by
   // stepping resultsDayOffset (see changeResultsDay) instead of widening the
   // window.
-  return "https://site.api.espn.com/apis/site/v2/sports/soccer/" + slug + "/scoreboard?dates=" + resultsDateYYYYMMDD();
+  return "https://site.web.api.espn.com/apis/site/v2/sports/soccer/" + slug +
+         "/scoreboard?dates=" + resultsDateYYYYMMDD();
 }
 
 void FootballActivity::loadSubscriptions() {
@@ -375,12 +387,32 @@ void FootballActivity::doFetch(int tab) {
   requestUpdateAndWait();  // paint the "Refreshing..." state before the blocking call below
   wifiWasUsed = true;
 
+  LOG_DBG("FOOTBALL", "Pre-fetch tab %d: heap free=%u largest=%u", tab, (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
   const auto result = HttpDownloader::downloadToFile(apiUrl(tab), tmpPath(tab));
+  LOG_DBG("FOOTBALL", "Post-fetch tab %d: result=%d heap free=%u largest=%u", tab, static_cast<int>(result),
+          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
   refreshing[tab] = false;
 
   if (result == HttpDownloader::OK) {
     Storage.remove(cachePath(tab).c_str());
     Storage.rename(tmpPath(tab).c_str(), cachePath(tab).c_str());
+  } else {
+    // getLastLogs() grows a std::string via repeated append() calls (up to
+    // ~4KB across its 16 ring-buffer lines); under -fno-exceptions a failed
+    // grow calls abort() instead of throwing, and that fired here in the
+    // field. A bounded, stack-only line is the safe way to persist this -
+    // read /apps/football/debug.log from the SD card (no USB needed).
+    char debugLine[128];
+    const int len = snprintf(debugLine, sizeof(debugLine), "tab=%d result=%d heap free=%u largest=%u\n", tab,
+                              static_cast<int>(result), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    if (len > 0) {
+      HalFile debugFile = Storage.open("/apps/football/debug.log", O_WRITE | O_CREAT | O_APPEND);
+      if (debugFile) {
+        debugFile.write(debugLine, static_cast<size_t>(std::min(len, static_cast<int>(sizeof(debugLine)) - 1)));
+        debugFile.close();
+      }
+    }
   }
 
   // The vector for this tab was cleared before the fetch started, so the
@@ -393,6 +425,15 @@ void FootballActivity::doFetch(int tab) {
     refreshFailed[tab] = true;
   }
   requestUpdate();
+
+  // silentRestart() never returns (ESP.restart()); nothing below it in this
+  // call runs, which is fine - the cache rename/reload above already landed
+  // on disk, and it reboots straight back to Home (see SilentRestart.h).
+  if (ESP.getMaxAllocHeap() < kCriticalLargestFreeBlock) {
+    LOG_INF("FOOTBALL", "Largest free block %u below %u, clearing fragmentation early",
+            (unsigned)ESP.getMaxAllocHeap(), (unsigned)kCriticalLargestFreeBlock);
+    silentRestart();
+  }
 }
 
 namespace {
@@ -466,10 +507,15 @@ void FootballActivity::parseAndStore(int tab, HalFile& file) {
   // limit of 10 (broadcast/venue/link metadata we filter out still counts
   // toward nesting while being scanned) - raised, or every parse fails with
   // "TooDeep" regardless of how small the filtered-down result is.
+  LOG_DBG("FOOTBALL", "Pre-parse tab %d: heap free=%u largest=%u", tab, (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
   DeserializationError err =
       deserializeJson(doc, reader, DeserializationOption::Filter(filter), DeserializationOption::NestingLimit(20));
+  LOG_DBG("FOOTBALL", "Post-parse tab %d: heap free=%u largest=%u", tab, (unsigned)ESP.getFreeHeap(),
+          (unsigned)ESP.getMaxAllocHeap());
   if (err) {
-    LOG_ERR("FOOTBALL", "JSON parse failed for tab %d: %s", tab, err.c_str());
+    LOG_ERR("FOOTBALL", "JSON parse failed for tab %d: %s, heap free=%u largest=%u", tab, err.c_str(),
+            (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
     errorMessage[tab] = tr(STR_FOOTBALL_NO_DATA);
     return;
   }
@@ -588,7 +634,8 @@ void FootballActivity::parseAndStore(int tab, HalFile& file) {
       errorMessage[tab].clear();
       return;
     }
-    LOG_ERR("FOOTBALL", "Parsed JSON for tab %d but found 0 rows (unexpected shape?)", tab);
+    LOG_ERR("FOOTBALL", "Parsed JSON for tab %d but found 0 rows (unexpected shape?), heap free=%u largest=%u", tab,
+            (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
     errorMessage[tab] = tr(STR_FOOTBALL_NO_DATA);
     return;
   }
@@ -994,9 +1041,17 @@ void FootballActivity::render(RenderLock&&) {
       const int textY = listTop + (listBottom - listTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
       renderer.drawCenteredText(UI_12_FONT_ID, textY, tr(STR_FOOTBALL_REFRESHING));
     } else if (!loaded[tab]) {
-      const int textY = listTop + (listBottom - listTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
       const char* msg = !errorMessage[tab].empty() ? errorMessage[tab].c_str() : tr(STR_FOOTBALL_LOADING);
-      renderer.drawCenteredText(UI_12_FONT_ID, textY, msg);
+      // drawCenteredText is single-line only; wrap long error text (e.g.
+      // STR_FOOTBALL_NO_DATA) instead of letting it overflow the screen edge.
+      const int errWidth = pageWidth - 2 * metrics.contentSidePadding;
+      auto errLines = renderer.wrappedText(UI_12_FONT_ID, msg, errWidth, 2, EpdFontFamily::REGULAR);
+      const int errLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+      int errY = listTop + (listBottom - listTop) / 2 - (static_cast<int>(errLines.size()) * errLineHeight) / 2;
+      for (const auto& line : errLines) {
+        renderer.drawCenteredText(UI_12_FONT_ID, errY, line.c_str());
+        errY += errLineHeight;
+      }
     } else if (currentTab == FootballTab::Standings) {
       if (!standingsGroups.empty()) {
         const auto& tabRows = standingsGroups[selectedGroupIndex].rows;
@@ -1013,6 +1068,11 @@ void FootballActivity::render(RenderLock&&) {
       // leaving the list area blank.
       const int textY = listTop + (listBottom - listTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
       renderer.drawCenteredText(UI_12_FONT_ID, textY, tr(STR_FOOTBALL_NO_MATCHES_DAY));
+      // Small/subtle on purpose - only relevant here, where the list is
+      // genuinely empty; it must not compete with the main message or show
+      // up once real matches are on screen.
+      const int hintY = textY + renderer.getLineHeight(UI_12_FONT_ID) + 6;
+      renderer.drawCenteredText(SMALL_FONT_ID, hintY, tr(STR_FOOTBALL_CHANGE_DAY_HINT));
     } else {
       drawResultsList(listRect.x, listRect.y, listRect.width, listRect.height);
     }

@@ -73,6 +73,7 @@ ICONS = (
     ("LucideSearch32", "search", 32),
     ("LucideHistory32", "history", 32),
     ("LucideCircleDot32", "circle-dot", 32),
+    ("LucideActivity32", "activity", 32),
 )
 
 

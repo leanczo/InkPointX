@@ -39,6 +39,7 @@
 #include "tools/OnThisDayActivity.h"
 #include "tools/RemindersListActivity.h"
 #include "tools/RssActivity.h"
+#include "tools/SismosActivity.h"
 #include "tools/WeatherActivity.h"
 #include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
@@ -383,6 +384,8 @@ void ActivityManager::goToRss() { replaceActivity(makeUniqueNoThrow<RssActivity>
 void ActivityManager::goToOnThisDay() {
   replaceActivity(makeUniqueNoThrow<OnThisDayActivity>(renderer, mappedInput));
 }
+
+void ActivityManager::goToSismos() { replaceActivity(makeUniqueNoThrow<SismosActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(makeUniqueNoThrow<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
