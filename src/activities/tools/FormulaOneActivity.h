@@ -70,6 +70,10 @@ class FormulaOneActivity final : public Activity {
   // scrolling. Doesn't fight the user's own scrolling on later visits.
   bool calendarCursorPositioned = false;
   void positionCalendarCursorOnLastPastRace();
+
+  // Set once a fetch actually reaches HttpDownloader, so onExit() only pays
+  // for a heap-defrag reboot when this session actually used WiFi.
+  bool wifiWasUsed = false;
   // Builds rows[SessionSchedule] from calendarWeekends[calendarIdx] and
   // switches currentTab to it — synchronous, no fetch involved.
   void showSessionSchedule(int calendarIdx);
@@ -92,6 +96,7 @@ class FormulaOneActivity final : public Activity {
       : Activity("FormulaOne", renderer, mappedInput) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
 };

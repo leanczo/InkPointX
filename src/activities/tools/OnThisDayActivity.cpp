@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -10,13 +11,17 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/reader/QrDisplayActivity.h"
+#include "activities/settings/ClockSyncActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "util/ButtonNavigator.h"
+#include "util/HoldGestures.h"
 
 namespace {
 
@@ -42,11 +47,6 @@ const char* wikiLangCode(Language lang) {
       return "en";
   }
 }
-
-constexpr StrId kMonthKeys[12] = {StrId::STR_MONTH_JANUARY,   StrId::STR_MONTH_FEBRUARY, StrId::STR_MONTH_MARCH,
-                                  StrId::STR_MONTH_APRIL,     StrId::STR_MONTH_MAY,      StrId::STR_MONTH_JUNE,
-                                  StrId::STR_MONTH_JULY,      StrId::STR_MONTH_AUGUST,   StrId::STR_MONTH_SEPTEMBER,
-                                  StrId::STR_MONTH_OCTOBER,   StrId::STR_MONTH_NOVEMBER, StrId::STR_MONTH_DECEMBER};
 
 }  // namespace
 
@@ -118,6 +118,7 @@ void OnThisDayActivity::startFetch(int category) {
 
 void OnThisDayActivity::doFetch(int category) {
   requestUpdateAndWait();  // paint the "Loading"/"Refreshing" state before the blocking calls below
+  wifiWasUsed = true;
 
   bool success = false;
 
@@ -237,7 +238,10 @@ void OnThisDayActivity::parseAndStore(int category, HalFile& file) {
 void OnThisDayActivity::changeDate(int deltaDays) {
   const int64_t days = DateMath::daysSinceEpoch(viewedDate) + deltaDays;
   viewedDate = DateMath::civilFromDays(days);  // year may now differ; never displayed/sent to the API
+  reloadAllCategoriesForNewDate();
+}
 
+void OnThisDayActivity::reloadAllCategoriesForNewDate() {
   for (int c = 0; c < OTD_CATEGORY_COUNT; c++) {
     entries[c].clear();
     entries[c].shrink_to_fit();
@@ -262,15 +266,9 @@ void OnThisDayActivity::showQrForSelected() {
 }
 
 std::string OnThisDayActivity::formattedHeaderDate() const {
-  std::string monthName = I18N.get(kMonthKeys[viewedDate.month - 1]);
-  std::string dayStr = std::to_string(viewedDate.day);
-
-  std::string result = tr(STR_OTD_DATE_FORMAT);
-  size_t pos = result.find("{MONTH}");
-  if (pos != std::string::npos) result.replace(pos, 7, monthName);
-  pos = result.find("{DAY}");
-  if (pos != std::string::npos) result.replace(pos, 5, dayStr);
-  return result;
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%02d/%02d", viewedDate.day, viewedDate.month);
+  return buf;
 }
 
 void OnThisDayActivity::onEnter() {
@@ -278,18 +276,36 @@ void OnThisDayActivity::onEnter() {
   langFallbackProbed = false;
   activeLangCode = wikiLangCode(I18N.getLanguage());
 
-  time_t now = time(nullptr);
-  struct tm tmNow;
-  gmtime_r(&now, &tmNow);
-  viewedDate.year = static_cast<int16_t>(tmNow.tm_year + 1900);
-  viewedDate.month = static_cast<uint8_t>(tmNow.tm_mon + 1);
-  viewedDate.day = static_cast<uint8_t>(tmNow.tm_mday);
+  // Same clock read as CalendarActivity::getToday(): only trust the RTC once
+  // it reports a valid sync, and fall back to a fixed date otherwise instead
+  // of silently showing whatever the unsynced system clock happens to hold.
+  struct tm t {};
+  if (halClock.hasValidTime() && halClock.getDateTime(t, SETTINGS.clockUtcOffsetQ)) {
+    viewedDate.year = static_cast<int16_t>(t.tm_year + 1900);
+    viewedDate.month = static_cast<uint8_t>(t.tm_mon + 1);
+    viewedDate.day = static_cast<uint8_t>(t.tm_mday);
+  } else {
+    viewedDate.year = 1970;
+    viewedDate.month = 1;
+    viewedDate.day = 1;
+  }
 
   int cat = static_cast<int>(currentCategory);
   if (!loadCacheFromSd(cat)) {
     startFetch(cat);
   }
   requestUpdate();
+}
+
+void OnThisDayActivity::onExit() {
+  Activity::onExit();
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(false);
+    delay(30);
+  }
+  if (wifiWasUsed) {
+    silentRestart();
+  }
 }
 
 void OnThisDayActivity::loop() {
@@ -322,6 +338,24 @@ void OnThisDayActivity::loop() {
 
   int cat = static_cast<int>(currentCategory);
   const int totalRows = 3 + static_cast<int>(entries[cat].size());  // 0=Refresh,1=PrevDay,2=NextDay
+
+  // Long-press Back: force an NTP resync via ClockSyncActivity, same gesture
+  // and entry point as ClockActivity::syncClock() / CalendarActivity. Not
+  // gated on any "unconfirmed" flag -- a present-but-wrong time needs this
+  // just as much as a missing one.
+  if (mappedInput.isPressed(Button::Back) && mappedInput.getHeldTime() >= HoldGestures::LONG_MS) {
+    startActivityForResult(makeUniqueNoThrow<ClockSyncActivity>(renderer, mappedInput),
+                            [this](const ActivityResult&) {
+                              struct tm t {};
+                              if (halClock.hasValidTime() && halClock.getDateTime(t, SETTINGS.clockUtcOffsetQ)) {
+                                viewedDate.year = static_cast<int16_t>(t.tm_year + 1900);
+                                viewedDate.month = static_cast<uint8_t>(t.tm_mon + 1);
+                                viewedDate.day = static_cast<uint8_t>(t.tm_mday);
+                              }
+                              reloadAllCategoriesForNewDate();
+                            });
+    return;
+  }
 
   if (mappedInput.wasReleased(Button::Back)) {
     onGoHome(HomeMenuItem::APPS_MENU);
@@ -377,19 +411,21 @@ void OnThisDayActivity::loop() {
 
 void OnThisDayActivity::drawTabStrip(int y, int selectedTab) const {
   constexpr int kTabCount = OTD_CATEGORY_COUNT;
+  constexpr int kTabHeight = 30;
   const auto pageWidth = renderer.getScreenWidth();
   const char* labels[kTabCount] = {tr(STR_OTD_TAB_EVENTS), tr(STR_OTD_TAB_BIRTHS), tr(STR_OTD_TAB_DEATHS)};
   const int tabW = (pageWidth - 40) / kTabCount;
+  const int textH = renderer.getLineHeight(SMALL_FONT_ID);
   for (int i = 0; i < kTabCount; i++) {
     const bool active = (i == selectedTab);
     const int tx = 20 + i * tabW;
-    renderer.drawRoundedRect(tx + 2, y, tabW - 4, 30, 1, 5, true);
+    renderer.drawRoundedRect(tx + 2, y, tabW - 4, kTabHeight, 1, 5, true);
     if (active) {
-      renderer.fillRoundedRect(tx + 2, y, tabW - 4, 30, 5, Color::Black);
+      renderer.fillRoundedRect(tx + 2, y, tabW - 4, kTabHeight, 5, Color::Black);
     }
     const auto truncated = renderer.truncatedText(SMALL_FONT_ID, labels[i], tabW - 8);
     const int textW = renderer.getTextWidth(SMALL_FONT_ID, truncated.c_str());
-    renderer.drawText(SMALL_FONT_ID, tx + (tabW - textW) / 2, y + 7, truncated.c_str(), !active);
+    renderer.drawText(SMALL_FONT_ID, tx + (tabW - textW) / 2, y + (kTabHeight - textH) / 2, truncated.c_str(), !active);
   }
 }
 
@@ -476,23 +512,37 @@ void OnThisDayActivity::render(RenderLock&&) {
   const int rowWidth = pageWidth - 2 * sideX;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 
-  // 3 synthetic rows: Refresh / Previous Day / Next Day, extending the
-  // single-synthetic-row-for-Refresh convention used elsewhere to also cover
-  // date navigation, since no dedicated button pair is free for it.
-  constexpr int kSyntheticRowHeight = 30;
+  // Refresh / Previous Day / Next Day as one row of compact buttons rather
+  // than three stacked full-width rows -- same synthetic row indices (0,1,2)
+  // and Up/Down/Confirm handling as before in loop(), just laid out
+  // side-by-side so the row costs a third of the vertical space it used to.
+  constexpr int kActionRowHeight = 30;
+  constexpr int kActionGap = 8;
   const char* syntheticLabels[3] = {tr(STR_OTD_REFRESH), tr(STR_OTD_PREV_DAY), tr(STR_OTD_NEXT_DAY)};
+  const int actionBtnW = (rowWidth - kActionGap * 2) / 3;
+  const int actionTextH = renderer.getLineHeight(UI_10_FONT_ID);
   int y = contentTop;
   for (int i = 0; i < 3; i++) {
     const bool isSelected = (selectedRow[cat] == i);
-    if (isSelected) renderer.fillRect(sideX, y, rowWidth, kSyntheticRowHeight);
-    renderer.drawText(UI_10_FONT_ID, sideX + 8, y + 6, syntheticLabels[i], !isSelected);
-    y += kSyntheticRowHeight;
+    const int bx = sideX + i * (actionBtnW + kActionGap);
+    renderer.drawRoundedRect(bx, y, actionBtnW, kActionRowHeight, 1, 6, true);
+    if (isSelected) renderer.fillRoundedRect(bx, y, actionBtnW, kActionRowHeight, 6, Color::Black);
+    const auto label = renderer.truncatedText(UI_10_FONT_ID, syntheticLabels[i], actionBtnW - 8);
+    const int textW = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
+    renderer.drawText(UI_10_FONT_ID, bx + (actionBtnW - textW) / 2, y + (kActionRowHeight - actionTextH) / 2,
+                      label.c_str(), !isSelected);
   }
-  y += 6;
+  y += kActionRowHeight + 6;
 
   if (entries[cat].empty()) {
     if (!errorMessage[cat].empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, y + 20, errorMessage[cat].c_str(), true, EpdFontFamily::BOLD);
+      const int wrapWidth = rowWidth - 40;  // margin so wrapped lines don't hug the screen edges
+      auto errLines = renderer.wrappedText(UI_10_FONT_ID, errorMessage[cat].c_str(), wrapWidth, 4, EpdFontFamily::BOLD);
+      int textY = y + 20;
+      for (const auto& line : errLines) {
+        renderer.drawCenteredText(UI_10_FONT_ID, textY, line.c_str(), true, EpdFontFamily::BOLD);
+        textY += lineHeight;
+      }
     }
   } else {
     // Cards are sized to their own wrapped-text line count (year row + up to

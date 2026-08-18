@@ -14,7 +14,9 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/settings/ClockSyncActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -244,6 +246,7 @@ void CalendarActivity::startHolidaysFetch(int year, bool promptWifi) {
 
 void CalendarActivity::doHolidaysFetch(int year) {
   requestUpdateAndWait();  // paint the "Loading..." state before the blocking call below
+  wifiWasUsed = true;
 
   const auto result = HttpDownloader::downloadToFile(holidaysApiUrl(year), holidaysTmpPath(year));
   holidaysRefreshing = false;
@@ -285,6 +288,41 @@ bool CalendarActivity::isHoliday(int month, int day, std::string* outName) const
     }
   }
   return false;
+}
+
+// Indices into `holidays`, ordered by (month, day), without mutating storage
+// order. Shared by the Holiday List's row layout and by nextHolidayRow() so
+// the two can't drift apart.
+std::vector<int> CalendarActivity::sortedHolidayOrder() const {
+  std::vector<int> order(holidays.size());
+  for (size_t i = 0; i < order.size(); i++) order[i] = static_cast<int>(i);
+  std::sort(order.begin(), order.end(), [this](int a, int b) {
+    const auto& ha = holidays[a];
+    const auto& hb = holidays[b];
+    return ha.month != hb.month ? ha.month < hb.month : ha.day < hb.day;
+  });
+  return order;
+}
+
+// Row to land on when opening the Holiday List, so it opens already scrolled
+// to the next upcoming holiday instead of always starting at the Refresh row
+// -- that's the one thing this screen exists to answer, and the day grid
+// only ever holds `holidays` for the year currently being browsed (viewYear).
+// Falls back to the first holiday in the list (row 1, right after Refresh)
+// when browsing a year other than today's, or once every holiday still in
+// `viewYear` has already passed.
+int CalendarActivity::nextHolidayRow() const {
+  if (holidays.empty()) return 0;
+  if (viewYear == todayYear) {
+    const auto order = sortedHolidayOrder();
+    for (size_t i = 0; i < order.size(); i++) {
+      const auto& h = holidays[order[i]];
+      if (h.month > todayMonth || (h.month == todayMonth && h.day >= todayDay)) {
+        return static_cast<int>(i) + 1;  // +1: row 0 is the synthetic Refresh row
+      }
+    }
+  }
+  return 1;
 }
 
 void CalendarActivity::goToMonth(int year, int month) {
@@ -353,6 +391,17 @@ void CalendarActivity::onEnter() {
   requestUpdate();
 }
 
+void CalendarActivity::onExit() {
+  Activity::onExit();
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(false);
+    delay(30);
+  }
+  if (wifiWasUsed) {
+    silentRestart();
+  }
+}
+
 void CalendarActivity::loop() {
   using Button = MappedInputManager::Button;
 
@@ -400,9 +449,25 @@ void CalendarActivity::loop() {
 
   if (mappedInput.isPressed(Button::Confirm) && mappedInput.getHeldTime() >= HOLIDAYS_HOLD_MS) {
     holidayHoldFired = true;
-    holidayListSelectedRow = 0;
+    holidayListSelectedRow = nextHolidayRow();
     state = CalendarState::HolidayList;
     requestUpdate();
+    return;
+  }
+
+  // Long-press Back: force an NTP resync via ClockSyncActivity, same gesture
+  // and entry point as ClockActivity::syncClock(). Not gated on
+  // dateUnconfirmed -- a present-but-wrong time (RTC drift, bad initial
+  // sync) needs this just as much as a missing one, and hasValidTime() can't
+  // tell the two apart.
+  if (mappedInput.isPressed(Button::Back) && mappedInput.getHeldTime() >= HoldGestures::LONG_MS) {
+    startActivityForResult(makeUniqueNoThrow<ClockSyncActivity>(renderer, mappedInput),
+                            [this](const ActivityResult&) {
+                              getToday(todayYear, todayMonth, todayDay);
+                              dateUnconfirmed = !halClock.hasValidTime();
+                              if (viewYear == todayYear && viewMonth == todayMonth) selectedDay = todayDay;
+                              requestUpdate();
+                            });
     return;
   }
 
@@ -464,14 +529,7 @@ void CalendarActivity::render(RenderLock&&) {
       renderer.drawCenteredText(UI_12_FONT_ID, textY, tr(STR_CALENDAR_HOLIDAYS_LOADING));
     } else {
       const int totalRows = 1 + static_cast<int>(holidays.size());
-      // Sorted view over `holidays` by (month, day) without mutating storage order.
-      std::vector<int> order(holidays.size());
-      for (size_t i = 0; i < order.size(); i++) order[i] = static_cast<int>(i);
-      std::sort(order.begin(), order.end(), [this](int a, int b) {
-        const auto& ha = holidays[a];
-        const auto& hb = holidays[b];
-        return ha.month != hb.month ? ha.month < hb.month : ha.day < hb.day;
-      });
+      const std::vector<int> order = sortedHolidayOrder();
 
       GUI.drawList(
           renderer, Rect{0, listTop, pageWidth, listBottom - listTop}, totalRows, holidayListSelectedRow,

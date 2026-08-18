@@ -13,7 +13,7 @@ class MinesweeperActivity final : public Activity {
   static constexpr int MAX_CELLS = 256;  // covers the largest grid this screen can show at CELL_SIZE
   static constexpr float MINE_DENSITY = 0.15f;
   static constexpr int SUBHEADER_HEIGHT = 30;
-  static constexpr int TOOLBAR_HEIGHT = 30;
+  static constexpr int TOOLBAR_BTN_HEIGHT = 22;  // pill height, inline within the subheader row
 
   bool mine[MAX_CELLS]{};
   bool revealed[MAX_CELLS]{};

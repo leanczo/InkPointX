@@ -163,17 +163,22 @@ void SimonActivity::render(RenderLock&&) {
   } else {
     snprintf(subBuf, sizeof(subBuf), "%s %d", tr(STR_SIMON_ROUND_LABEL), sequenceLength);
   }
-  GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, SUBHEADER_HEIGHT}, subBuf, nullptr);
+  GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, metrics.subHeaderHeight}, subBuf, nullptr);
 
   // Plus-shaped D-pad layout: Up/Right/Down/Left quadrants around an empty
   // center, so the on-screen buttons sit in the same relative positions as
-  // the physical D-pad (no separate mapping for the player to learn).
-  const int contentTop = subHeaderY + SUBHEADER_HEIGHT + metrics.verticalSpacing;
+  // the physical D-pad (no separate mapping for the player to learn). Inset
+  // from the screen edges by the same side padding the rest of the UI uses,
+  // so the grid doesn't run flush to the bezel; cell size is derived from
+  // that narrower width, so the quadrants stay square instead of just
+  // shrinking one axis.
+  const int contentTop = subHeaderY + metrics.subHeaderHeight + metrics.verticalSpacing;
   const int contentBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
   const int availH = contentBottom - contentTop;
-  const int side = std::min(pageWidth, availH);
+  const int usableWidth = pageWidth - 2 * metrics.contentSidePadding;
+  const int side = std::min(usableWidth, availH);
   const int cell = side / 3;
-  const int originX = (pageWidth - cell * 3) / 2;
+  const int originX = metrics.contentSidePadding + (usableWidth - cell * 3) / 2;
   const int originY = contentTop + (availH - cell * 3) / 2;
 
   const int upX = originX + cell, upY = originY;
@@ -202,12 +207,67 @@ void SimonActivity::render(RenderLock&&) {
       {leftX, leftY, 3, tr(STR_SIMON_COLOR_BLUE)},
   };
 
+  // Small arrowhead near each quadrant's outward edge, pointing the same way
+  // as the physical D-pad button it corresponds to — the color name alone
+  // didn't make the Up/Right/Down/Left mapping obvious at a glance.
+  constexpr int kArrowHalf = 7;
+  constexpr int kArrowInset = 18;
+  auto drawDirectionArrow = [&](const QuadrantDef& q, bool black) {
+    const int cx = q.x + cell / 2;
+    const int cy = q.y + cell / 2;
+    int ax[3], ay[3];
+    switch (q.idx) {
+      case 0: {  // Up
+        const int apexY = q.y + kArrowInset;
+        ax[0] = cx;
+        ay[0] = apexY;
+        ax[1] = cx - kArrowHalf;
+        ay[1] = apexY + kArrowHalf * 2;
+        ax[2] = cx + kArrowHalf;
+        ay[2] = apexY + kArrowHalf * 2;
+        break;
+      }
+      case 1: {  // Right
+        const int apexX = q.x + cell - kArrowInset;
+        ax[0] = apexX;
+        ay[0] = cy;
+        ax[1] = apexX - kArrowHalf * 2;
+        ay[1] = cy - kArrowHalf;
+        ax[2] = apexX - kArrowHalf * 2;
+        ay[2] = cy + kArrowHalf;
+        break;
+      }
+      case 2: {  // Down
+        const int apexY = q.y + cell - kArrowInset;
+        ax[0] = cx;
+        ay[0] = apexY;
+        ax[1] = cx - kArrowHalf;
+        ay[1] = apexY - kArrowHalf * 2;
+        ax[2] = cx + kArrowHalf;
+        ay[2] = apexY - kArrowHalf * 2;
+        break;
+      }
+      default: {  // Left
+        const int apexX = q.x + kArrowInset;
+        ax[0] = apexX;
+        ay[0] = cy;
+        ax[1] = apexX + kArrowHalf * 2;
+        ay[1] = cy - kArrowHalf;
+        ax[2] = apexX + kArrowHalf * 2;
+        ay[2] = cy + kArrowHalf;
+        break;
+      }
+    }
+    renderer.fillPolygon(ax, ay, 3, black);
+  };
+
   for (const auto& q : quads) {
     const bool lit = isLit(q.idx);
     renderer.drawRoundedRect(q.x, q.y, cell, cell, 2, 10, true);
     if (lit) {
       renderer.fillRoundedRect(q.x, q.y, cell, cell, 10, Color::Black);
     }
+    drawDirectionArrow(q, !lit);
     const int textW = renderer.getTextWidth(UI_12_FONT_ID, q.label, EpdFontFamily::BOLD);
     const int textH = renderer.getLineHeight(UI_12_FONT_ID);
     const int textX = q.x + (cell - textW) / 2;

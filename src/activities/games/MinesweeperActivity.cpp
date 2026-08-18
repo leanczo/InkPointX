@@ -14,8 +14,7 @@ void MinesweeperActivity::computeGrid() {
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + SUBHEADER_HEIGHT + metrics.verticalSpacing +
-                          TOOLBAR_HEIGHT + metrics.verticalSpacing;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + SUBHEADER_HEIGHT + metrics.verticalSpacing;
   const int contentBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
   const int contentHeight = contentBottom - contentTop;
 
@@ -237,42 +236,54 @@ void MinesweeperActivity::render(RenderLock&&) {
   const int subHeaderY = metrics.topPadding + metrics.headerHeight;
   GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, SUBHEADER_HEIGHT}, minesBuf, nullptr);
 
-  // Toolbar: two pills, "New Game" and the Reveal/Flag mode toggle.
-  const int toolbarY = subHeaderY + SUBHEADER_HEIGHT + metrics.verticalSpacing;
-  const int toolbarBtnW = 140;
-  const int toolbarBtnH = TOOLBAR_HEIGHT;
-  const int toolbarGap = 20;
-  const int toolbarTotalW = toolbarBtnW * 2 + toolbarGap;
-  const int toolbarStartX = (pageWidth - toolbarTotalW) / 2;
+  // Toolbar: two pills, "New" and the Reveal/Flag mode toggle, right-aligned
+  // inline within the same subheader row as the mine count (rather than a
+  // separate row below it, which used to collide with the subheader's bottom
+  // hairline). Each pill is sized to its own label plus padding, so short
+  // translations don't leave an oversized button; the mode pill uses the
+  // wider of its two labels so it doesn't resize when the mode toggles.
+  const int toolbarBtnH = TOOLBAR_BTN_HEIGHT;
+  const int toolbarY = subHeaderY + (SUBHEADER_HEIGHT - toolbarBtnH) / 2;
+  const int toolbarGap = 12;
+  const int toolbarPadX = 14;
+
+  const char* newGameLabel = tr(STR_MINESWEEPER_NEW_GAME);
+  const char* revealLabel = tr(STR_MINESWEEPER_MODE_REVEAL);
+  const char* flagLabel = tr(STR_MINESWEEPER_MODE_FLAG);
+  const char* modeLabel = flagMode ? flagLabel : revealLabel;
+
+  const int revealTextW = renderer.getTextWidth(SMALL_FONT_ID, revealLabel);
+  const int flagTextW = renderer.getTextWidth(SMALL_FONT_ID, flagLabel);
+  const int newGameBtnW = renderer.getTextWidth(SMALL_FONT_ID, newGameLabel) + toolbarPadX * 2;
+  const int modeBtnW = (revealTextW > flagTextW ? revealTextW : flagTextW) + toolbarPadX * 2;
+
+  const int modeX = pageWidth - metrics.contentSidePadding - modeBtnW;
+  const int newGameX = modeX - toolbarGap - newGameBtnW;
 
   const bool onToolbar = (cursorRow == -1);
   const bool newGameSelected = onToolbar && cursorCol == 0;
   const bool modeSelected = onToolbar && cursorCol == 1;
 
-  const int newGameX = toolbarStartX;
-  renderer.drawRoundedRect(newGameX, toolbarY, toolbarBtnW, toolbarBtnH, 1, 6, true);
+  renderer.drawRoundedRect(newGameX, toolbarY, newGameBtnW, toolbarBtnH, 1, 6, true);
   if (newGameSelected) {
-    renderer.fillRoundedRect(newGameX, toolbarY, toolbarBtnW, toolbarBtnH, 6, Color::Black);
+    renderer.fillRoundedRect(newGameX, toolbarY, newGameBtnW, toolbarBtnH, 6, Color::Black);
   }
   {
-    const char* label = tr(STR_MINESWEEPER_NEW_GAME);
-    const int textW = renderer.getTextWidth(SMALL_FONT_ID, label);
-    const int textX = newGameX + (toolbarBtnW - textW) / 2;
+    const int textW = renderer.getTextWidth(SMALL_FONT_ID, newGameLabel);
+    const int textX = newGameX + (newGameBtnW - textW) / 2;
     const int textY = toolbarY + (toolbarBtnH - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
-    renderer.drawText(SMALL_FONT_ID, textX, textY, label, !newGameSelected);
+    renderer.drawText(SMALL_FONT_ID, textX, textY, newGameLabel, !newGameSelected);
   }
 
-  const int modeX = newGameX + toolbarBtnW + toolbarGap;
-  renderer.drawRoundedRect(modeX, toolbarY, toolbarBtnW, toolbarBtnH, 1, 6, true);
+  renderer.drawRoundedRect(modeX, toolbarY, modeBtnW, toolbarBtnH, 1, 6, true);
   if (modeSelected) {
-    renderer.fillRoundedRect(modeX, toolbarY, toolbarBtnW, toolbarBtnH, 6, Color::Black);
+    renderer.fillRoundedRect(modeX, toolbarY, modeBtnW, toolbarBtnH, 6, Color::Black);
   }
   {
-    const char* label = flagMode ? tr(STR_MINESWEEPER_MODE_FLAG) : tr(STR_MINESWEEPER_MODE_REVEAL);
-    const int textW = renderer.getTextWidth(SMALL_FONT_ID, label);
-    const int textX = modeX + (toolbarBtnW - textW) / 2;
+    const int textW = renderer.getTextWidth(SMALL_FONT_ID, modeLabel);
+    const int textX = modeX + (modeBtnW - textW) / 2;
     const int textY = toolbarY + (toolbarBtnH - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
-    renderer.drawText(SMALL_FONT_ID, textX, textY, label, !modeSelected);
+    renderer.drawText(SMALL_FONT_ID, textX, textY, modeLabel, !modeSelected);
   }
 
   // Grid border + internal lines
@@ -293,8 +304,11 @@ void MinesweeperActivity::render(RenderLock&&) {
       const int cx = gridOriginX + c * CELL_SIZE;
       const int cy = gridOriginY + r * CELL_SIZE;
 
-      if (!gameOver && !won && r == cursorRow && c == cursorCol) {
-        renderer.drawRect(cx + 3, cy + 3, CELL_SIZE - 6, CELL_SIZE - 6, 2, true);
+      // Shade every opened cell so a reveal with zero adjacent mines is
+      // visibly different from an untouched cell (otherwise it looks like
+      // the button press did nothing).
+      if (revealed[idx] && !mine[idx]) {
+        renderer.fillRectDither(cx + 2, cy + 2, CELL_SIZE - 4, CELL_SIZE - 4, Color::LightGray);
       }
 
       if (flagged[idx]) {
@@ -317,6 +331,11 @@ void MinesweeperActivity::render(RenderLock&&) {
       } else if (gameOver && mine[idx]) {
         const int pad = CELL_SIZE / 4;
         renderer.fillRect(cx + pad, cy + pad, CELL_SIZE - 2 * pad, CELL_SIZE - 2 * pad, true);
+      }
+
+      // Cursor border drawn last so it stays visible over the reveal shading.
+      if (!gameOver && !won && r == cursorRow && c == cursorCol) {
+        renderer.drawRect(cx + 3, cy + 3, CELL_SIZE - 6, CELL_SIZE - 6, 2, true);
       }
     }
   }

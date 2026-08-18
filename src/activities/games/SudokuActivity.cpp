@@ -14,6 +14,7 @@ void SudokuActivity::onEnter() {
   Activity::onEnter();
   srand(millis());
   generateNewPuzzle();
+  requestUpdate();
 }
 
 void SudokuActivity::generateNewPuzzle() {
@@ -235,8 +236,13 @@ void SudokuActivity::render(RenderLock&&) {
   // the bottom of the screen (barY); the grid stops short of that band with
   // a gap, and the win popup is drawn on top via GUI.drawPopup instead of a
   // custom card below the grid, so it can never run off the bottom edge.
+  // The selector is laid out as two rows of 5 items (Clear+1-4, 5-9) since a
+  // single row of 10 didn't fit legibly on screen.
   const int gridTop = toolbarY + toolbarBtnH + 15;
-  const int barY = pageHeight - metrics.buttonHintsHeight - 65;
+  const int barRowH = 36;
+  const int barRowGap = 6;
+  const int barTotalH = 2 * barRowH + barRowGap;
+  const int barY = pageHeight - metrics.buttonHintsHeight - 25 - barTotalH;
   const int gridBottomLimit = barY - 20;
   const int availW = pageWidth - 2 * metrics.contentSidePadding;
   const int availH = gridBottomLimit - gridTop;
@@ -304,22 +310,25 @@ void SudokuActivity::render(RenderLock&&) {
     // is tall.
     GUI.drawPopup(renderer, tr(STR_SUDOKU_SOLVED));
   } else if (isEditingValue) {
-    // Value selector bar: item width tracks the grid's cell size (capped so
-    // 10 items + spacing never exceeds the screen width) so it stays visually
-    // consistent with the bigger grid instead of looking small next to it.
-    const int barH = 40;
+    // Value selector: two rows of 5 items (Clear+1-4, then 5-9). Item width
+    // tracks the grid's cell size (capped so 5 items + spacing never exceeds
+    // the screen width) so it stays visually consistent with the bigger grid
+    // instead of looking small next to it.
     const int itemW = std::min(cellSize, 44);
     const int spacing = 6;
-    const int totalW = 10 * itemW + 9 * spacing;
+    const int totalW = 5 * itemW + 4 * spacing;
     const int barX = (pageWidth - totalW) / 2;
 
     for (int i = 0; i < 10; i++) {
-      int itemX = barX + i * (itemW + spacing);
+      int row = i / 5;
+      int col = i % 5;
+      int itemX = barX + col * (itemW + spacing);
+      int itemY = barY + row * (barRowH + barRowGap);
       bool selected = (i == selectedValIndex);
 
-      renderer.drawRoundedRect(itemX, barY, itemW, barH, 1, 6, true);
+      renderer.drawRoundedRect(itemX, itemY, itemW, barRowH, 1, 6, true);
       if (selected) {
-        renderer.fillRoundedRect(itemX, barY, itemW, barH, 6, Color::Black);
+        renderer.fillRoundedRect(itemX, itemY, itemW, barRowH, 6, Color::Black);
       }
 
       char buf[2] = {'\0', '\0'};
@@ -332,20 +341,15 @@ void SudokuActivity::render(RenderLock&&) {
       int textWidth = renderer.getTextWidth(UI_12_FONT_ID, buf, EpdFontFamily::BOLD);
       int textHeight = renderer.getLineHeight(UI_12_FONT_ID);
       int textX = itemX + (itemW - textWidth) / 2;
-      int textY = barY + (barH - textHeight) / 2;
+      int textY = itemY + (barRowH - textHeight) / 2;
 
       renderer.drawText(UI_12_FONT_ID, textX, textY, buf, !selected, EpdFontFamily::BOLD);
     }
   }
 
   // Draw Button Hints
-  if (isEditingValue) {
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  } else {
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), nullptr, nullptr);
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  }
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
 }

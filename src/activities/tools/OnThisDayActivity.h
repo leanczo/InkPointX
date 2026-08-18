@@ -55,6 +55,10 @@ class OnThisDayActivity final : public Activity {
   std::string activeLangCode;
   bool langFallbackProbed = false;
 
+  // Set once a fetch actually reaches HttpDownloader, so onExit() only pays
+  // for a heap-defrag reboot when this session actually used WiFi.
+  bool wifiWasUsed = false;
+
   void startFetch(int category);
   void doFetch(int category);
   bool loadCacheFromSd(int category);
@@ -64,6 +68,10 @@ class OnThisDayActivity final : public Activity {
   std::string apiUrl(int category) const;
 
   void changeDate(int deltaDays);
+  // Clears every category's cached entries and (re)loads/fetches the
+  // currently active one -- shared by changeDate() and the force-resync
+  // gesture, which both need this after viewedDate changes underneath them.
+  void reloadAllCategoriesForNewDate();
   void showQrForSelected();
   std::string formattedHeaderDate() const;
   void drawTabStrip(int y, int selectedTab) const;
@@ -73,6 +81,7 @@ class OnThisDayActivity final : public Activity {
       : Activity("OnThisDay", renderer, mappedInput) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
 };

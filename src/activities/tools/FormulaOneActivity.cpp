@@ -12,6 +12,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -164,6 +165,7 @@ void FormulaOneActivity::startFetch(int tab) {
 
 void FormulaOneActivity::doFetch(int tab) {
   requestUpdateAndWait();  // paint the "Refreshing..." state before the blocking call below
+  wifiWasUsed = true;
 
   const auto result = HttpDownloader::downloadToFile(apiUrl(tab), tmpPath(tab));
   refreshing[tab] = false;
@@ -412,6 +414,17 @@ void FormulaOneActivity::onEnter() {
   }
 
   requestUpdate();
+}
+
+void FormulaOneActivity::onExit() {
+  Activity::onExit();
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(false);
+    delay(30);
+  }
+  if (wifiWasUsed) {
+    silentRestart();
+  }
 }
 
 void FormulaOneActivity::loop() {

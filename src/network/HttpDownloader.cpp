@@ -640,13 +640,21 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   // GitHub release downloads cross two TLS connections and large font assets
   // take long enough for a marginal Wi-Fi link or CDN edge to occasionally
-  // drop one. Retry the complete transaction, not the socket read: every
-  // attempt gets an empty hidden sibling, so a partial response can never be
-  // appended to or promoted over a working font.
+  // drop one, so they get extra attempts. Every other HTTPS download still
+  // goes through runGet()'s esp_http_client + esp_crt_bundle_attach path,
+  // where the TLS handshake is the largest transient allocation on the C3
+  // (see RESPONSE_HEADER_RESERVE above): a fragmented heap can reject one
+  // handshake even though the failed attempt's allocations are released
+  // afterward, and a single retry then has a clean arena. One extra attempt
+  // covers that case for larger JSON/API responses (e.g. Football) without
+  // the GitHub path's four-attempt CDN-hop budget. Retry the complete
+  // transaction, not the socket read: every attempt gets an empty hidden
+  // sibling, so a partial response can never be appended to or promoted over
+  // good data.
 #if defined(FREEINK_NET_WOLFSSL)
-  const int maxAttempts = isGitHubDownloadUrl(url) ? 4 : 1;
+  const int maxAttempts = isGitHubDownloadUrl(url) ? 4 : 2;
 #else
-  constexpr int maxAttempts = 1;
+  constexpr int maxAttempts = 2;
 #endif
   for (int attempt = 0; attempt < maxAttempts; ++attempt) {
     if (cancelFlag && *cancelFlag) return ABORTED;

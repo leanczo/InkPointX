@@ -76,6 +76,10 @@ class FootballActivity final : public Activity {
   int selectedGroupIndex = 0;  // which group tab is active within Standings
   int selectedGroupRow = 0;    // selected row within the active group
 
+  // Set once a fetch actually reaches HttpDownloader, so onExit() only pays
+  // for a heap-defrag reboot when this session actually used WiFi.
+  bool wifiWasUsed = false;
+
   void loadSubscriptions();
   void saveSubscriptions();
   void rebuildAddLeagueList();
@@ -102,6 +106,7 @@ class FootballActivity final : public Activity {
       : Activity("Football", renderer, mappedInput) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
 };

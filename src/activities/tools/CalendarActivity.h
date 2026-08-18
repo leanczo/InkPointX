@@ -55,6 +55,10 @@ class CalendarActivity final : public Activity {
   // longPressFired for the same firmware-wide hold-to-act pattern).
   bool holidayHoldFired = false;
 
+  // Set once a holidays fetch actually reaches HttpDownloader, so onExit()
+  // only pays for a heap-defrag reboot when this session actually used WiFi.
+  bool wifiWasUsed = false;
+
   static int daysInMonth(int year, int month);
   static int firstWeekdayOfMonth(int year, int month);  // 0=Monday..6=Sunday
   void getToday(int& year, int& month, int& day) const;
@@ -77,12 +81,15 @@ class CalendarActivity final : public Activity {
   void startHolidaysFetch(int year, bool promptWifi);
   void doHolidaysFetch(int year);
   bool isHoliday(int month, int day, std::string* outName) const;
+  std::vector<int> sortedHolidayOrder() const;
+  int nextHolidayRow() const;
 
  public:
   explicit CalendarActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("Calendar", renderer, mappedInput) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
 };

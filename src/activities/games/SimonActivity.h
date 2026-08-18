@@ -17,7 +17,6 @@ class SimonActivity final : public Activity {
   static constexpr unsigned long SEQ_ON_MS = 900;
   static constexpr unsigned long SEQ_OFF_MS = 500;
   static constexpr unsigned long ROUND_CORRECT_MS = 1800;  // time the "Correct!" popup stays up before the next round
-  static constexpr int SUBHEADER_HEIGHT = 30;
 
   int8_t sequence[MAX_SEQUENCE]{};  // each entry is a quadrant index 0-3
   int sequenceLength = 0;

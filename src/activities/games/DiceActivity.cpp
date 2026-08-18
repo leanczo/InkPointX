@@ -284,15 +284,17 @@ void DiceActivity::render(RenderLock&&) {
   const std::string tabNames[5] = {tr(STR_DICE_TAB_D6), tr(STR_DICE_TAB_ARROW), tr(STR_DICE_TAB_D20),
                                     tr(STR_DICE_TAB_MAGIC8), tr(STR_DICE_TAB_COIN)};
 
+  const int tabH = 30;
+  const int tabTextY = tabsY + (tabH - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
   for (int i = 0; i < 5; i++) {
     bool active = (currentMode == static_cast<DiceMode>(i));
     int tx = 20 + i * tabW;
-    renderer.drawRoundedRect(tx + 2, tabsY, tabW - 4, 30, 1, 5, true);
+    renderer.drawRoundedRect(tx + 2, tabsY, tabW - 4, tabH, 1, 5, true);
     if (active) {
-      renderer.fillRoundedRect(tx + 2, tabsY, tabW - 4, 30, 5, Color::Black);
+      renderer.fillRoundedRect(tx + 2, tabsY, tabW - 4, tabH, 5, Color::Black);
     }
     renderer.drawText(SMALL_FONT_ID, tx + (tabW - renderer.getTextWidth(SMALL_FONT_ID, tabNames[i].c_str())) / 2,
-                       tabsY + 7, tabNames[i].c_str(), !active);
+                       tabTextY, tabNames[i].c_str(), !active);
   }
 
   // Draw main card

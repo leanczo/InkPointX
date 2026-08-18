@@ -12,6 +12,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
@@ -282,6 +283,7 @@ void FootballActivity::startFetch(int tab) {
 
 void FootballActivity::doFetch(int tab) {
   requestUpdateAndWait();  // paint the "Refreshing..." state before the blocking call below
+  wifiWasUsed = true;
 
   const auto result = HttpDownloader::downloadToFile(apiUrl(tab), tmpPath(tab));
   refreshing[tab] = false;
@@ -462,6 +464,17 @@ void FootballActivity::onEnter() {
   loadSubscriptions();
   rebuildAddLeagueList();
   requestUpdate();
+}
+
+void FootballActivity::onExit() {
+  Activity::onExit();
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(false);
+    delay(30);
+  }
+  if (wifiWasUsed) {
+    silentRestart();
+  }
 }
 
 void FootballActivity::loop() {
@@ -709,18 +722,20 @@ void FootballActivity::drawTabStrip(int y, const std::vector<std::string>& label
   windowStart = std::max(0, std::min(windowStart, totalTabs - windowSize));
 
   const int tabW = (pageWidth - 40) / windowSize;
+  constexpr int kTabH = 30;
+  const int tabTextY = y + (kTabH - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
   for (int i = 0; i < windowSize; i++) {
     const int labelIndex = windowStart + i;
     const bool active = (labelIndex == selectedFlatIndex);
     const int tx = 20 + i * tabW;
-    renderer.drawRoundedRect(tx + 2, y, tabW - 4, 30, 1, 5, true);
+    renderer.drawRoundedRect(tx + 2, y, tabW - 4, kTabH, 1, 5, true);
     if (active) {
-      renderer.fillRoundedRect(tx + 2, y, tabW - 4, 30, 5, Color::Black);
+      renderer.fillRoundedRect(tx + 2, y, tabW - 4, kTabH, 5, Color::Black);
     }
     const std::string& label = labels[labelIndex];
     const auto truncated = renderer.truncatedText(SMALL_FONT_ID, label.c_str(), tabW - 8);
     const int textW = renderer.getTextWidth(SMALL_FONT_ID, truncated.c_str());
-    renderer.drawText(SMALL_FONT_ID, tx + (tabW - textW) / 2, y + 7, truncated.c_str(), !active);
+    renderer.drawText(SMALL_FONT_ID, tx + (tabW - textW) / 2, tabTextY, truncated.c_str(), !active);
   }
 }
 
