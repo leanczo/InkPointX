@@ -430,17 +430,16 @@ void FormulaOneActivity::onExit() {
 void FormulaOneActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     // Drilled into a past race from the Calendar tab: Back returns to the
-    // calendar instead of exiting.
+    // calendar instead of exiting. Nothing here needs reloading - Results
+    // isn't on screen once we're back on Calendar, so there's no reason to
+    // fetch anything (that used to eagerly reload "last race" into the
+    // shared raceName/raceDate members, which then stuck around and got
+    // shown as a stale subheader the next time a *different* round's fetch
+    // was slow or failed - looking like results were always for one fixed
+    // race no matter which one got picked).
     if (currentTab == F1Tab::Results && selectedRound >= 0) {
       selectedRound = -1;
       currentTab = F1Tab::Calendar;
-      const int resultsTab = static_cast<int>(F1Tab::Results);
-      loaded[resultsTab] = false;
-      rows[resultsTab].clear();
-      errorMessage[resultsTab].clear();
-      if (!loadCacheFromSd(resultsTab)) {
-        startFetch(resultsTab);
-      }
       requestUpdate();
       return;
     }
@@ -514,6 +513,12 @@ void FormulaOneActivity::loop() {
           loaded[resultsTab] = false;
           rows[resultsTab].clear();
           errorMessage[resultsTab].clear();
+          // raceName/raceDate are shared (not per-tab) subheader state, so
+          // clear them along with rows[resultsTab] - otherwise a failed or
+          // slow fetch for this round would leave the previous round's name
+          // showing above an empty/error body.
+          raceName.clear();
+          raceDate.clear();
           if (!loadCacheFromSd(resultsTab)) {
             startFetch(resultsTab);
           }
@@ -535,15 +540,20 @@ void FormulaOneActivity::drawTabStrip(int y, const std::vector<std::string>& lab
   const auto pageWidth = renderer.getScreenWidth();
   const int count = static_cast<int>(labels.size());
   const int tabW = (pageWidth - 40) / count;
+  constexpr int kTabH = 30;
+  // A fixed "y + 7" offset assumed a specific line height; centering on the
+  // font's actual line height (same as FootballActivity::drawTabStrip) keeps
+  // the label vertically centered regardless of font metrics.
+  const int tabTextY = y + (kTabH - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
   for (int i = 0; i < count; i++) {
     const bool active = (i == selectedIndex);
     const int tx = 20 + i * tabW;
-    renderer.drawRoundedRect(tx + 2, y, tabW - 4, 30, 1, 5, true);
+    renderer.drawRoundedRect(tx + 2, y, tabW - 4, kTabH, 1, 5, true);
     if (active) {
-      renderer.fillRoundedRect(tx + 2, y, tabW - 4, 30, 5, Color::Black);
+      renderer.fillRoundedRect(tx + 2, y, tabW - 4, kTabH, 5, Color::Black);
     }
     const int textW = renderer.getTextWidth(SMALL_FONT_ID, labels[i].c_str());
-    renderer.drawText(SMALL_FONT_ID, tx + (tabW - textW) / 2, y + 7, labels[i].c_str(), !active);
+    renderer.drawText(SMALL_FONT_ID, tx + (tabW - textW) / 2, tabTextY, labels[i].c_str(), !active);
   }
 }
 

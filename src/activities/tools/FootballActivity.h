@@ -71,6 +71,10 @@ class FootballActivity final : public Activity {
 
   std::vector<FootballMatch> resultsMatches;
   int selectedResultsRow = 0;
+  // 0 = today, 1 = yesterday, etc. Results only ever fetch a single day (see
+  // apiUrl()) to keep the filtered JsonDocument small; stepping through days
+  // is how the user reaches older matches instead of one big multi-day pull.
+  int resultsDayOffset = 0;
 
   std::vector<FootballGroup> standingsGroups;
   int selectedGroupIndex = 0;  // which group tab is active within Standings
@@ -91,6 +95,11 @@ class FootballActivity final : public Activity {
   std::string cachePath(int tab) const;
   std::string tmpPath(int tab) const;
   std::string apiUrl(int tab) const;
+  std::string resultsDateYYYYMMDD() const;
+  std::string resultsDayLabel() const;
+  // Steps resultsDayOffset by `delta` (clamped) and reloads the Results tab
+  // from cache or network for the new day. No-op if already at the boundary.
+  void changeResultsDay(int delta);
 
   // Hand-rolled row rendering for Results (team names + a centered
   // score/kickoff-time box + a divider between matches) — GUI.drawList only

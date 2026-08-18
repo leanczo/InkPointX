@@ -137,17 +137,113 @@ std::string translateMatchStatus(const std::string& desc) {
   return desc;
 }
 
+// Scans `file` from its current position for every "rank"/"points" stat
+// value, appending each to the matching output vector in the order
+// encountered (the same order ArduinoJson's own entries iteration sees,
+// since both just walk the file front to back). Reads in fixed-size chunks
+// and keeps only a small trailing window, so memory use stays flat no
+// matter how many teams the file lists - unlike filtering the "stats" array
+// through ArduinoJson, which would keep all ~14 categories for every team
+// just to get at these two.
+//
+// Matches on the literal bytes ESPN sends, e.g.:
+//   {"name":"rank",...,"displayValue":"10"}
+//   {"name":"points",...,"displayValue":"6"}
+// The trailing `"` in each needle is what keeps "rank" from matching inside
+// "rankChange", and "points" from matching inside "pointsFor"/"pointsAgainst"
+// (verified against live responses for two unrelated leagues).
+void extractRankAndPoints(HalFile& file, std::vector<int>& ranks, std::vector<int>& points) {
+  static constexpr char kRankNeedle[] = "\"name\":\"rank\"";
+  static constexpr char kPointsNeedle[] = "\"name\":\"points\"";
+  static constexpr char kValueNeedle[] = "\"displayValue\":\"";
+  constexpr size_t kChunkSize = 1024;
+  // Comfortably longer than any needle plus the digits that follow it, so a
+  // match split across a chunk boundary is never lost when trimming below.
+  constexpr size_t kKeepMargin = 48;
+
+  std::string window;
+  bool eof = false;
+  size_t pos = 0;
+
+  auto refill = [&]() {
+    if (eof) return false;
+    char chunk[kChunkSize];
+    const int n = file.read(chunk, kChunkSize);
+    if (n <= 0) {
+      eof = true;
+      return false;
+    }
+    window.append(chunk, static_cast<size_t>(n));
+    return true;
+  };
+
+  auto valueAfter = [&](size_t fromPos) -> int {
+    for (;;) {
+      const size_t valuePos = window.find(kValueNeedle, fromPos);
+      if (valuePos == std::string::npos) {
+        if (!refill()) return 0;
+        continue;
+      }
+      const size_t digitsStart = valuePos + sizeof(kValueNeedle) - 1;
+      const size_t digitsEnd = window.find('"', digitsStart);
+      if (digitsEnd == std::string::npos) {
+        if (!refill()) return 0;
+        continue;
+      }
+      return atoi(window.substr(digitsStart, digitsEnd - digitsStart).c_str());
+    }
+  };
+
+  for (;;) {
+    const size_t rankPos = window.find(kRankNeedle, pos);
+    const size_t pointsPos = window.find(kPointsNeedle, pos);
+    if (rankPos == std::string::npos && pointsPos == std::string::npos) {
+      if (!refill()) break;
+      continue;
+    }
+    if (pointsPos != std::string::npos && (rankPos == std::string::npos || pointsPos < rankPos)) {
+      points.push_back(valueAfter(pointsPos));
+      pos = pointsPos + sizeof(kPointsNeedle) - 1;
+    } else {
+      ranks.push_back(valueAfter(rankPos));
+      pos = rankPos + sizeof(kRankNeedle) - 1;
+    }
+
+    if (pos > kKeepMargin) {
+      window.erase(0, pos - kKeepMargin);
+      pos = kKeepMargin;
+    }
+  }
+}
+
 }  // namespace
 
 std::string FootballActivity::cachePath(int tab) const {
   const std::string slug = sanitizeSlug(subscriptions[activeLeagueIndex].slug);
-  return "/apps/football/" + slug + (tab == static_cast<int>(FootballTab::Standings) ? "_standings.json" : "_results.json");
+  if (tab == static_cast<int>(FootballTab::Standings)) return "/apps/football/" + slug + "_standings.json";
+  return "/apps/football/" + slug + "_results_" + resultsDateYYYYMMDD() + ".json";
 }
 
 std::string FootballActivity::tmpPath(int tab) const {
   const std::string slug = sanitizeSlug(subscriptions[activeLeagueIndex].slug);
-  return "/apps/football/" + slug +
-         (tab == static_cast<int>(FootballTab::Standings) ? "_standings.tmp.json" : "_results.tmp.json");
+  if (tab == static_cast<int>(FootballTab::Standings)) return "/apps/football/" + slug + "_standings.tmp.json";
+  return "/apps/football/" + slug + "_results_" + resultsDateYYYYMMDD() + ".tmp.json";
+}
+
+std::string FootballActivity::resultsDateYYYYMMDD() const {
+  const time_t target = time(nullptr) - static_cast<time_t>(resultsDayOffset) * 86400;
+  struct tm t;
+  gmtime_r(&target, &t);
+  // GCC can't see gmtime_r's actual output range, so -Wformat-truncation
+  // assumes each field could be a signed 11-digit extreme; the modulo gives
+  // it a provable bound (year: 4 digits + sign, month/day: 2 + sign) instead
+  // of growing the buffer to match the unbounded worst case.
+  const int year = (t.tm_year + 1900) % 10000;
+  const int month = (t.tm_mon + 1) % 100;
+  const int day = t.tm_mday % 100;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%04d%02d%02d", year, month, day);
+  return buf;
 }
 
 std::string FootballActivity::apiUrl(int tab) const {
@@ -155,19 +251,13 @@ std::string FootballActivity::apiUrl(int tab) const {
   if (tab == static_cast<int>(FootballTab::Standings)) {
     return "https://site.api.espn.com/apis/v2/sports/soccer/" + slug + "/standings";
   }
-  // Scoreboard defaults to "today" only, which is often empty/scheduled-only;
-  // requesting a trailing window reliably surfaces recently completed matches.
-  // 7 days covers a full weekly round, since most leagues here play once a
-  // week (often on weekends) rather than every couple of days.
-  const time_t now = time(nullptr);
-  struct tm endTm, startTm;
-  const time_t startTime = now - 7 * 86400;
-  gmtime_r(&now, &endTm);
-  gmtime_r(&startTime, &startTm);
-  char endBuf[9], startBuf[9];
-  snprintf(endBuf, sizeof(endBuf), "%04d%02d%02d", endTm.tm_year + 1900, endTm.tm_mon + 1, endTm.tm_mday);
-  snprintf(startBuf, sizeof(startBuf), "%04d%02d%02d", startTm.tm_year + 1900, startTm.tm_mon + 1, startTm.tm_mday);
-  return "https://site.api.espn.com/apis/site/v2/sports/soccer/" + slug + "/scoreboard?dates=" + startBuf + "-" + endBuf;
+  // Single-day query only: a multi-day window's filtered JsonDocument still
+  // retains every event in range (the ArduinoJson Filter's [0] wildcard
+  // applies to every array element, not just the first), which was enough to
+  // exhaust heap on busy leagues/rounds. Older matches are reached by
+  // stepping resultsDayOffset (see changeResultsDay) instead of widening the
+  // window.
+  return "https://site.api.espn.com/apis/site/v2/sports/soccer/" + slug + "/scoreboard?dates=" + resultsDateYYYYMMDD();
 }
 
 void FootballActivity::loadSubscriptions() {
@@ -305,6 +395,29 @@ void FootballActivity::doFetch(int tab) {
   requestUpdate();
 }
 
+namespace {
+// Bounds how far back a user can page. Beyond this, cached per-day result
+// files would accumulate indefinitely and the browsing is no longer useful
+// for a live-scores app anyway.
+constexpr int kMaxResultsDayOffset = 14;
+}  // namespace
+
+void FootballActivity::changeResultsDay(int delta) {
+  const int newOffset = std::clamp(resultsDayOffset + delta, 0, kMaxResultsDayOffset);
+  if (newOffset == resultsDayOffset) return;
+  resultsDayOffset = newOffset;
+
+  const int tab = static_cast<int>(FootballTab::Results);
+  loaded[tab] = false;
+  errorMessage[tab].clear();
+  resultsMatches.clear();
+  resultsMatches.shrink_to_fit();
+  selectedResultsRow = 0;
+
+  if (!loadCacheFromSd(tab)) startFetch(tab);
+  requestUpdate();
+}
+
 bool FootballActivity::loadCacheFromSd(int tab) {
   HalFile file;
   if (!Storage.openFileForRead("FOOTBALL", cachePath(tab).c_str(), file)) {
@@ -317,8 +430,7 @@ bool FootballActivity::loadCacheFromSd(int tab) {
 void FootballActivity::parseAndStore(int tab, HalFile& file) {
   // Feeding the open file straight to ArduinoJson lets it scan the raw bytes
   // a chunk at a time; only the small *filtered* result tree is kept, rather
-  // than holding the whole (up to ~300KB for a multi-day scoreboard window)
-  // response in RAM first.
+  // than holding the whole response in RAM first.
   struct HalFileJsonReader {
     HalFile& f;
     int read() { return f.read(); }
@@ -339,8 +451,14 @@ void FootballActivity::parseAndStore(int tab, HalFile& file) {
   } else {
     filter["children"][0]["name"] = true;
     filter["children"][0]["standings"]["entries"][0]["team"]["displayName"] = true;
-    filter["children"][0]["standings"]["entries"][0]["stats"][0]["name"] = true;
-    filter["children"][0]["standings"]["entries"][0]["stats"][0]["displayValue"] = true;
+    // "stats" deliberately excluded: ArduinoJson's Filter can only keep a
+    // field on every element of an array or on none of them (it always
+    // checks filter index 0 and reuses that one decision for every element -
+    // see parseArray() in ArduinoJson/Json/JsonDeserializer.hpp), and each
+    // entry's stats array has ~14 categories. Asking for just "rank" and
+    // "points" here would still retain all 14 x every team. Those two values
+    // are pulled separately via extractRankAndPoints(), which scans the raw
+    // file text instead of materializing the JSON tree for it.
   }
 
   JsonDocument doc;
@@ -390,15 +508,23 @@ void FootballActivity::parseAndStore(int tab, HalFile& file) {
     // order from ESPN, so just reverse rather than re-sorting.
     std::reverse(newMatches.begin(), newMatches.end());
   } else {
+    // rank/points for every team come from extractRankAndPoints() scanning
+    // the raw file (see its comment above for why), in the same left-to-
+    // right order this loop visits entries in - so team #i's values are
+    // simply ranks[i]/points[i] read off a running counter below.
+    std::vector<int> ranks, points;
+    file.seek(0);
+    extractRankAndPoints(file, ranks, points);
+    size_t statIndex = 0;
+
     // ESPN doesn't return entries pre-sorted by rank, so sort each group
     // (zone) separately by rank before appending; groups themselves stay in
     // ESPN's own order and are kept as separate FootballGroups so the UI can
     // show one group's table at a time instead of one long merged list.
     struct StandingRow {
       int rank;
-      std::string rankDisplay;
       std::string team;
-      std::string points;
+      int points;
     };
 
     JsonArray children = doc["children"];
@@ -411,16 +537,10 @@ void FootballActivity::parseAndStore(int tab, HalFile& file) {
       groupRows.reserve(entries.size());
       for (JsonObject entry : entries) {
         std::string team = entry["team"]["displayName"] | "";
-        std::string rankDisplay, points;
-        for (JsonObject stat : entry["stats"].as<JsonArray>()) {
-          std::string statName = stat["name"] | "";
-          if (statName == "rank") {
-            rankDisplay = stat["displayValue"] | "";
-          } else if (statName == "points") {
-            points = stat["displayValue"] | "";
-          }
-        }
-        groupRows.push_back(StandingRow{atoi(rankDisplay.c_str()), rankDisplay, team, points});
+        const int rank = statIndex < ranks.size() ? ranks[statIndex] : 0;
+        const int pts = statIndex < points.size() ? points[statIndex] : 0;
+        statIndex++;
+        groupRows.push_back(StandingRow{rank, team, pts});
       }
       std::sort(groupRows.begin(), groupRows.end(),
                 [](const StandingRow& a, const StandingRow& b) { return a.rank < b.rank; });
@@ -429,9 +549,24 @@ void FootballActivity::parseAndStore(int tab, HalFile& file) {
       group.name = groupName;
       group.rows.reserve(groupRows.size());
       for (const auto& row : groupRows) {
-        group.rows.push_back(FootballRow{row.rankDisplay + ". " + row.team, "", row.points + " pts"});
+        group.rows.push_back(
+            FootballRow{std::to_string(row.rank) + ". " + row.team, "", std::to_string(row.points) + " pts"});
       }
       newGroups.push_back(std::move(group));
+    }
+
+    // If any entry were missing a "rank" or "points" stat, the scan would
+    // have found fewer values than there are teams, and every team after the
+    // gap would silently show some other team's numbers (statIndex just
+    // keeps counting). Bail out to the normal "no data" state instead of
+    // risking that - this has held for every league checked so far, but
+    // it's cheap to verify on every parse rather than assume it forever.
+    if (statIndex != ranks.size() || statIndex != points.size()) {
+      LOG_ERR("FOOTBALL", "Standings rank/points count mismatch: %u teams, %u ranks, %u points",
+              static_cast<unsigned>(statIndex), static_cast<unsigned>(ranks.size()),
+              static_cast<unsigned>(points.size()));
+      errorMessage[tab] = tr(STR_FOOTBALL_NO_DATA);
+      return;
     }
   }
 
@@ -442,6 +577,17 @@ void FootballActivity::parseAndStore(int tab, HalFile& file) {
   }
 
   if (totalRows == 0) {
+    if (isResults) {
+      // Results only ever queries one day now (see apiUrl), and most
+      // leagues don't play every day - zero matches is the normal case, not
+      // a failure. Mark the tab loaded (with an empty list) so render()
+      // shows "no matches" instead of the generic "couldn't load" error.
+      resultsMatches.clear();
+      selectedResultsRow = 0;
+      loaded[tab] = true;
+      errorMessage[tab].clear();
+      return;
+    }
     LOG_ERR("FOOTBALL", "Parsed JSON for tab %d but found 0 rows (unexpected shape?)", tab);
     errorMessage[tab] = tr(STR_FOOTBALL_NO_DATA);
     return;
@@ -504,6 +650,7 @@ void FootballActivity::loop() {
         }
         resultsMatches.clear();
         selectedResultsRow = 0;
+        resultsDayOffset = 0;
         standingsGroups.clear();
         selectedGroupIndex = 0;
         selectedGroupRow = 0;
@@ -526,8 +673,16 @@ void FootballActivity::loop() {
             saveSubscriptions();
             selectedSubIndex = 0;
             const std::string slug = sanitizeSlug(toDelete.slug);
-            Storage.remove(("/apps/football/" + slug + "_results.json").c_str());
             Storage.remove(("/apps/football/" + slug + "_standings.json").c_str());
+            // Results are cached per day (see cachePath), so sweep the whole
+            // directory for this league's files instead of one fixed name.
+            const std::string prefix = slug + "_results_";
+            for (const auto& entry : Storage.listFiles("/apps/football")) {
+              const std::string name = entry.c_str();
+              if (name.rfind(prefix, 0) == 0) {
+                Storage.remove(("/apps/football/" + name).c_str());
+              }
+            }
           }
           requestUpdate();
         };
@@ -607,10 +762,14 @@ void FootballActivity::loop() {
             requestUpdate();
           }
         }
-      } else if (!resultsMatches.empty()) {
-        selectedResultsRow =
-            static_cast<int>((selectedResultsRow - 1 + resultsMatches.size()) % resultsMatches.size());
+      } else if (!resultsMatches.empty() && selectedResultsRow > 0) {
+        selectedResultsRow--;
         requestUpdate();
+      } else {
+        // Top of the (possibly empty) list: step to the previous day instead
+        // of wrapping, same boundary-then-fallthrough shape Left/Right use
+        // for standings groups above.
+        changeResultsDay(+1);
       }
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
       if (currentTab == FootballTab::Standings) {
@@ -621,9 +780,11 @@ void FootballActivity::loop() {
             requestUpdate();
           }
         }
-      } else if (!resultsMatches.empty()) {
-        selectedResultsRow = static_cast<int>((selectedResultsRow + 1) % resultsMatches.size());
+      } else if (!resultsMatches.empty() && selectedResultsRow < static_cast<int>(resultsMatches.size()) - 1) {
+        selectedResultsRow++;
         requestUpdate();
+      } else {
+        changeResultsDay(-1);
       }
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       startFetch(static_cast<int>(currentTab));
@@ -711,6 +872,14 @@ void FootballActivity::drawResultsList(int x, int y, int width, int height) {
       renderer.drawLine(x + kSidePadding, lineY, x + width - kSidePadding, lineY, 1, true);
     }
   }
+}
+
+std::string FootballActivity::resultsDayLabel() const {
+  if (resultsDayOffset == 0) return tr(STR_FOOTBALL_DAY_TODAY);
+  if (resultsDayOffset == 1) return tr(STR_FOOTBALL_DAY_YESTERDAY);
+  char buf[32];
+  snprintf(buf, sizeof(buf), tr(STR_FOOTBALL_DAY_N_AGO), resultsDayOffset);
+  return buf;
 }
 
 void FootballActivity::drawTabStrip(int y, const std::vector<std::string>& labels, int selectedFlatIndex) {
@@ -808,13 +977,24 @@ void FootballActivity::render(RenderLock&&) {
     const int contentTop = tabBarY + 20 + 30 + metrics.verticalSpacing;
     const int tab = static_cast<int>(currentTab);
     const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
-    const Rect listRect{0, contentTop, pageWidth, listBottom - contentTop};
+
+    // Results only ever shows one day at a time (see apiUrl/changeResultsDay),
+    // so surface which day that is - otherwise an empty/single-match day looks
+    // identical to every other day.
+    int listTop = contentTop;
+    if (currentTab == FootballTab::Results) {
+      const std::string dayLabel = resultsDayLabel();
+      const int dayLabelW = renderer.getTextWidth(SMALL_FONT_ID, dayLabel.c_str());
+      renderer.drawText(SMALL_FONT_ID, (pageWidth - dayLabelW) / 2, contentTop, dayLabel.c_str(), true);
+      listTop = contentTop + renderer.getLineHeight(SMALL_FONT_ID) + 6;
+    }
+    const Rect listRect{0, listTop, pageWidth, listBottom - listTop};
 
     if (refreshing[tab]) {
-      const int textY = contentTop + (listBottom - contentTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
+      const int textY = listTop + (listBottom - listTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
       renderer.drawCenteredText(UI_12_FONT_ID, textY, tr(STR_FOOTBALL_REFRESHING));
     } else if (!loaded[tab]) {
-      const int textY = contentTop + (listBottom - contentTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
+      const int textY = listTop + (listBottom - listTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
       const char* msg = !errorMessage[tab].empty() ? errorMessage[tab].c_str() : tr(STR_FOOTBALL_LOADING);
       renderer.drawCenteredText(UI_12_FONT_ID, textY, msg);
     } else if (currentTab == FootballTab::Standings) {
@@ -825,6 +1005,14 @@ void FootballActivity::render(RenderLock&&) {
             [&tabRows](int i) { return tabRows[i].title; }, nullptr, nullptr,
             [&tabRows](int i) { return tabRows[i].value; }, true);
       }
+    } else if (resultsMatches.empty()) {
+      // A single day legitimately having no matches for this league is the
+      // common case (most leagues don't play daily) - parseAndStore marks
+      // this tab loaded rather than erroring, so this is not the same
+      // "couldn't load" state above; say so explicitly instead of just
+      // leaving the list area blank.
+      const int textY = listTop + (listBottom - listTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
+      renderer.drawCenteredText(UI_12_FONT_ID, textY, tr(STR_FOOTBALL_NO_MATCHES_DAY));
     } else {
       drawResultsList(listRect.x, listRect.y, listRect.width, listRect.height);
     }
