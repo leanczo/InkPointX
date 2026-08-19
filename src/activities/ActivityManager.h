@@ -139,6 +139,7 @@ class ActivityManager {
   void goToRss();
   void goToOnThisDay();
   void goToSismos();
+  void goToPersonalTracker();
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToBrowser();

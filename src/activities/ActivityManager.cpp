@@ -37,6 +37,7 @@
 #include "tools/FootballActivity.h"
 #include "tools/FormulaOneActivity.h"
 #include "tools/OnThisDayActivity.h"
+#include "tools/PersonalTrackerActivity.h"
 #include "tools/RemindersListActivity.h"
 #include "tools/RssActivity.h"
 #include "tools/SismosActivity.h"
@@ -386,6 +387,10 @@ void ActivityManager::goToOnThisDay() {
 }
 
 void ActivityManager::goToSismos() { replaceActivity(makeUniqueNoThrow<SismosActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToPersonalTracker() {
+  replaceActivity(makeUniqueNoThrow<PersonalTrackerActivity>(renderer, mappedInput));
+}
 
 void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(makeUniqueNoThrow<FileBrowserActivity>(renderer, mappedInput, std::move(path)));

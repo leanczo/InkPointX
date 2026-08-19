@@ -147,6 +147,7 @@ enum UIIcon {
   Rss,
   OnThisDay,
   Sismos,
+  Tracker,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

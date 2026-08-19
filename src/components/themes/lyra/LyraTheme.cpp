@@ -145,6 +145,8 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideHistory32;
       case UIIcon::Sismos:
         return LucideActivity32;
+      case UIIcon::Tracker:
+        return LucideCircleDot32;
       default:
         return nullptr;
     }

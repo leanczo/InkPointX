@@ -422,7 +422,7 @@ int HomeActivity::pageItemCount() const {
   if (pageIndex == 2) return 7;  // Games: Snake, Dice, TicTacToe, 2048, Minesweeper, Simon, Sudoku.
   if (pageIndex == 3) return 5;  // Herramientas: Calculator, Calendar, Clock, Reminders, Weather.
   if (pageIndex == 4)
-    return 5;  // Apps: Football, F1, RSS, On This Day, Sismos.
+    return 6;  // Apps: Football, F1, RSS, On This Day, Sismos, Personal Tracker.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -535,6 +535,9 @@ void HomeActivity::openSelection() {
         break;
       case 4:
         activityManager.goToSismos();
+        break;
+      case 5:
+        activityManager.goToPersonalTracker();
         break;
       default:
         break;
@@ -857,10 +860,11 @@ void HomeActivity::render(RenderLock&&) {
                                                   UIIcon::Reminders, UIIcon::Weather};
     const std::array<const char*, 5> toolsLabels = {tr(STR_CALCULATOR), tr(STR_CALENDAR_TITLE), tr(STR_CLOCK),
                                                      tr(STR_REMINDERS_TITLE), tr(STR_WEATHER_TITLE)};
-    constexpr std::array<UIIcon, 5> appsIcons = {UIIcon::Football, UIIcon::F1, UIIcon::Rss, UIIcon::OnThisDay,
-                                                 UIIcon::Sismos};
-    const std::array<const char*, 5> appsLabels = {tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE), tr(STR_RSS_TITLE),
-                                                    tr(STR_OTD_TITLE), tr(STR_SISMOS_TITLE)};
+    constexpr std::array<UIIcon, 6> appsIcons = {UIIcon::Football, UIIcon::F1, UIIcon::Rss, UIIcon::OnThisDay,
+                                                 UIIcon::Sismos,   UIIcon::Tracker};
+    const std::array<const char*, 6> appsLabels = {tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE), tr(STR_RSS_TITLE),
+                                                    tr(STR_OTD_TITLE),      tr(STR_SISMOS_TITLE),
+                                                    tr(STR_TRACKER_TITLE)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,
