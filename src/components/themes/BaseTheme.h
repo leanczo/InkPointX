@@ -148,6 +148,7 @@ enum UIIcon {
   OnThisDay,
   Sismos,
   Tracker,
+  Cartelera,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

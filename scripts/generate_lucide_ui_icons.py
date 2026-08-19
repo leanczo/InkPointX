@@ -74,6 +74,7 @@ ICONS = (
     ("LucideHistory32", "history", 32),
     ("LucideCircleDot32", "circle-dot", 32),
     ("LucideActivity32", "activity", 32),
+    ("LucideClapperboard32", "clapperboard", 32),
 )
 
 

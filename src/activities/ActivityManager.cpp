@@ -33,6 +33,7 @@
 #include "settings/SettingsActivity.h"
 #include "tools/CalculatorActivity.h"
 #include "tools/CalendarActivity.h"
+#include "tools/CarteleraActivity.h"
 #include "tools/ClockActivity.h"
 #include "tools/FootballActivity.h"
 #include "tools/FormulaOneActivity.h"
@@ -387,6 +388,10 @@ void ActivityManager::goToOnThisDay() {
 }
 
 void ActivityManager::goToSismos() { replaceActivity(makeUniqueNoThrow<SismosActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToCartelera() {
+  replaceActivity(makeUniqueNoThrow<CarteleraActivity>(renderer, mappedInput));
+}
 
 void ActivityManager::goToPersonalTracker() {
   replaceActivity(makeUniqueNoThrow<PersonalTrackerActivity>(renderer, mappedInput));

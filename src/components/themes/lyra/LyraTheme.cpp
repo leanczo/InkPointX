@@ -147,6 +147,8 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideActivity32;
       case UIIcon::Tracker:
         return LucideCircleDot32;
+      case UIIcon::Cartelera:
+        return LucideClapperboard32;
       default:
         return nullptr;
     }
