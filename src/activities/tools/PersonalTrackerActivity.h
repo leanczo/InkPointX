@@ -6,6 +6,7 @@
 #include "activities/Activity.h"
 
 struct TrackedReview {
+  std::string id;          // Firebase push key, e.g. "-NxAbCdEf123" - used to fetch this review's full text on demand.
   std::string title;
   std::string category;   // Raw lean-reviews category, e.g. "book", "videogame".
   std::string createdAt;  // "YYYY-MM-DD" - lexicographically sortable as-is.
@@ -33,6 +34,19 @@ class PersonalTrackerActivity final : public Activity {
   // for a heap-defrag reboot when this session actually used WiFi.
   bool wifiWasUsed = false;
 
+  // Full-review "detail" view, entered by pressing Confirm/Left on the
+  // selected row (still `selectedRow` - the list is never mutated while this
+  // is open). summary/content are deliberately excluded from the list fetch
+  // above to save RAM (see parseAndStore()), so opening a review fetches
+  // just that one review's summary+content on demand.
+  bool detailOpen = false;
+  bool detailLoading = false;
+  std::string detailError;
+  std::string detailSummary;
+  std::string detailContent;
+  int detailScrollOffset = 0;
+  int detailMaxLines = 1;
+
   void startFetch();
   void doFetch();
   bool loadCacheFromSd();
@@ -40,6 +54,12 @@ class PersonalTrackerActivity final : public Activity {
   static std::string cachePath();
   static std::string tmpPath();
   static std::string apiUrl();
+
+  void openDetail(int index);
+  void doFetchDetail(const std::string& id);
+  bool parseDetailJson(const std::string& json, std::string& outSummary, std::string& outContent);
+  static std::string detailApiUrl(const std::string& id);
+  static std::string detailTmpPath();
 
  public:
   explicit PersonalTrackerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

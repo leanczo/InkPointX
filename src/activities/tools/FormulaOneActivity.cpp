@@ -7,16 +7,20 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
+#include <functional>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/reader/QrDisplayActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
+#include "util/HoldGestures.h"
 
 namespace {
 
@@ -26,6 +30,13 @@ namespace {
 std::string shortDate(const std::string& isoDate) {
   if (isoDate.size() < 10) return isoDate;  // unexpected shape: show as-is rather than mangle it
   return isoDate.substr(8, 2) + "/" + isoDate.substr(5, 2);
+}
+
+// Same DD/MM reordering as shortDate, but keeping the year — needed for a
+// birth date, where the year is the point (unlike a same-season race date).
+std::string fullDate(const std::string& isoDate) {
+  if (isoDate.size() < 10) return isoDate;
+  return isoDate.substr(8, 2) + "/" + isoDate.substr(5, 2) + "/" + isoDate.substr(0, 4);
 }
 
 // ISO "YYYY-MM-DD" strings compare correctly with plain string comparison, so
@@ -94,6 +105,28 @@ std::string formatSessionLocal(const std::string& isoDate, const std::string& is
   snprintf(buf, sizeof(buf), "%02d/%02d %02d:%02d", mo, d, totalMinutes / 60, totalMinutes % 60);
   return buf;
 }
+
+// A driver's meaningful qualifying time is their last set lap — Q3 if they
+// made it that far, else Q2, else Q1. Earlier segments aren't shown once a
+// later one exists, same as how qualifying results are read on any timing
+// screen.
+std::string bestQualifyingTime(JsonObjectConst item) {
+  std::string q3 = item["Q3"] | "";
+  if (!q3.empty()) return q3;
+  std::string q2 = item["Q2"] | "";
+  if (!q2.empty()) return q2;
+  return item["Q1"] | "";
+}
+
+// Ergast/Jolpica's Driver.url is always an English Wikipedia article
+// (e.g. "https://en.wikipedia.org/wiki/Lewis_Hamilton"); the REST summary
+// endpoint just wants the "Lewis_Hamilton" part, same on every language's
+// Wikipedia.
+std::string wikipediaTitleFromUrl(const std::string& url) {
+  const auto pos = url.find("/wiki/");
+  if (pos == std::string::npos) return "";
+  return url.substr(pos + 6);
+}
 }  // namespace
 
 // Results normally means "the latest race" (selectedRound == -1), but
@@ -111,6 +144,12 @@ std::string FormulaOneActivity::apiUrl(int tab) const {
         return "https://api.jolpi.ca/ergast/f1/current/last/results/";
       }
       return "https://api.jolpi.ca/ergast/f1/current/" + std::to_string(selectedRound) + "/results/";
+    case F1Tab::Qualifying:
+      // Only ever reached with selectedRound already set by the Calendar
+      // drill-in, unlike Results — no "last" fallback needed.
+      return "https://api.jolpi.ca/ergast/f1/current/" + std::to_string(selectedRound) + "/qualifying/";
+    case F1Tab::Sprint:
+      return "https://api.jolpi.ca/ergast/f1/current/" + std::to_string(selectedRound) + "/sprint/";
     case F1Tab::Calendar:
     default:
       return "https://api.jolpi.ca/ergast/f1/current/races/";
@@ -126,13 +165,15 @@ std::string FormulaOneActivity::cachePath(int tab) const {
     case F1Tab::Results:
       if (selectedRound < 0) return "/apps/f1/results_last.json";
       return "/apps/f1/results_r" + std::to_string(selectedRound) + ".json";
+    case F1Tab::Qualifying:
+      return "/apps/f1/qualifying_r" + std::to_string(selectedRound) + ".json";
+    case F1Tab::Sprint:
+      return "/apps/f1/sprint_r" + std::to_string(selectedRound) + ".json";
     case F1Tab::Calendar:
     default:
       return "/apps/f1/calendar.json";
   }
 }
-
-std::string FormulaOneActivity::tmpPath(int tab) const { return cachePath(tab) + ".tmp"; }
 
 void FormulaOneActivity::startFetch(int tab) {
   refreshing[tab] = true;
@@ -167,14 +208,16 @@ void FormulaOneActivity::doFetch(int tab) {
   requestUpdateAndWait();  // paint the "Refreshing..." state before the blocking call below
   wifiWasUsed = true;
 
-  const auto result = HttpDownloader::downloadToFile(apiUrl(tab), tmpPath(tab));
+  // downloadToFile already writes destPath transactionally (hidden temp file,
+  // verified size, atomic replace only on full success — see
+  // NetworkFileTransaction in HttpDownloader.cpp) so the previous cache
+  // survives untouched if this fails partway through. Downloading straight to
+  // cachePath() avoids a second, unchecked manual rename on top of that,
+  // which could silently leave stale data in place if it ever failed.
+  const auto result = HttpDownloader::downloadToFile(apiUrl(tab), cachePath(tab));
   refreshing[tab] = false;
 
   if (result == HttpDownloader::OK) {
-    // Only replace the existing cache once the fresh download is fully on
-    // disk, so a failed refresh never destroys a previously-working cache.
-    Storage.remove(cachePath(tab).c_str());
-    Storage.rename(tmpPath(tab).c_str(), cachePath(tab).c_str());
     loadCacheFromSd(tab);
     if (!loaded[tab] && errorMessage[tab].empty()) {
       errorMessage[tab] = tr(STR_F1_NO_DATA);
@@ -207,6 +250,11 @@ void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
     filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["points"] = true;
     filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Driver"]["givenName"] = true;
     filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Driver"]["familyName"] = true;
+    filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Driver"]["permanentNumber"] = true;
+    filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Driver"]["code"] = true;
+    filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Driver"]["url"] = true;
+    filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Driver"]["dateOfBirth"] = true;
+    filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Driver"]["nationality"] = true;
     filter["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"][0]["Constructors"][0]["name"] = true;
   } else if (tab == static_cast<int>(F1Tab::Constructors)) {
     filter["MRData"]["StandingsTable"]["StandingsLists"][0]["ConstructorStandings"][0]["position"] = true;
@@ -220,6 +268,20 @@ void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
     filter["MRData"]["RaceTable"]["Races"][0]["Results"][0]["points"] = true;
     filter["MRData"]["RaceTable"]["Races"][0]["Results"][0]["Driver"]["familyName"] = true;
     filter["MRData"]["RaceTable"]["Races"][0]["Results"][0]["Constructor"]["name"] = true;
+  } else if (tab == static_cast<int>(F1Tab::Qualifying)) {
+    filter["MRData"]["RaceTable"]["Races"][0]["raceName"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["date"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["QualifyingResults"][0]["position"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["QualifyingResults"][0]["Driver"]["familyName"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["QualifyingResults"][0]["Q1"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["QualifyingResults"][0]["Q2"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["QualifyingResults"][0]["Q3"] = true;
+  } else if (tab == static_cast<int>(F1Tab::Sprint)) {
+    filter["MRData"]["RaceTable"]["Races"][0]["raceName"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["date"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["SprintResults"][0]["position"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["SprintResults"][0]["points"] = true;
+    filter["MRData"]["RaceTable"]["Races"][0]["SprintResults"][0]["Driver"]["familyName"] = true;
   } else {
     // Calendar: the [0] index below is an ArduinoJson filter wildcard — it
     // applies to every entry in Races[], not just the first one, since we
@@ -261,10 +323,12 @@ void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
   std::vector<int> newCalendarRounds;               // only populated for tab == Calendar
   std::vector<std::string> newCalendarDatesIso;      // same, parallel to newCalendarRounds
   std::vector<F1RaceWeekend> newCalendarWeekends;    // same
+  std::vector<F1DriverBio> newDriverBios;            // only populated for tab == Drivers
 
   if (tab == static_cast<int>(F1Tab::Drivers)) {
     JsonArray standings = doc["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"];
     newRows.reserve(standings.size());
+    newDriverBios.reserve(standings.size());
     for (JsonObject item : standings) {
       std::string pos = item["position"] | "";
       std::string given = item["Driver"]["givenName"] | "";
@@ -272,6 +336,9 @@ void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
       std::string team = item["Constructors"][0]["name"] | "";
       std::string points = item["points"] | "0";
       newRows.push_back(F1Row{pos + ". " + given + " " + family, team, points});
+      newDriverBios.push_back(F1DriverBio{item["Driver"]["permanentNumber"] | "", item["Driver"]["code"] | "",
+                                          item["Driver"]["nationality"] | "", item["Driver"]["dateOfBirth"] | "",
+                                          item["Driver"]["url"] | ""});
     }
   } else if (tab == static_cast<int>(F1Tab::Constructors)) {
     JsonArray standings = doc["MRData"]["StandingsTable"]["StandingsLists"][0]["ConstructorStandings"];
@@ -295,6 +362,29 @@ void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
       std::string team = item["Constructor"]["name"] | "";
       std::string points = item["points"] | "0";
       newRows.push_back(F1Row{pos + ". " + family, team, points});
+    }
+  } else if (tab == static_cast<int>(F1Tab::Qualifying)) {
+    JsonObject race = doc["MRData"]["RaceTable"]["Races"][0];
+    raceName = race["raceName"] | "";
+    raceDate = race["date"] | "";
+    JsonArray results = race["QualifyingResults"];
+    newRows.reserve(results.size());
+    for (JsonObject item : results) {
+      std::string pos = item["position"] | "";
+      std::string family = item["Driver"]["familyName"] | "";
+      newRows.push_back(F1Row{pos + ". " + family, "", bestQualifyingTime(item)});
+    }
+  } else if (tab == static_cast<int>(F1Tab::Sprint)) {
+    JsonObject race = doc["MRData"]["RaceTable"]["Races"][0];
+    raceName = race["raceName"] | "";
+    raceDate = race["date"] | "";
+    JsonArray results = race["SprintResults"];
+    newRows.reserve(results.size());
+    for (JsonObject item : results) {
+      std::string pos = item["position"] | "";
+      std::string family = item["Driver"]["familyName"] | "";
+      std::string points = item["points"] | "0";
+      newRows.push_back(F1Row{pos + ". " + family, "", points});
     }
   } else {
     JsonArray races = doc["MRData"]["RaceTable"]["Races"];
@@ -340,7 +430,9 @@ void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
   rows[tab] = std::move(newRows);
   loaded[tab] = true;
   errorMessage[tab].clear();
-  if (tab == static_cast<int>(F1Tab::Calendar)) {
+  if (tab == static_cast<int>(F1Tab::Drivers)) {
+    driverBios = std::move(newDriverBios);
+  } else if (tab == static_cast<int>(F1Tab::Calendar)) {
     calendarRounds = std::move(newCalendarRounds);
     calendarDatesIso = std::move(newCalendarDatesIso);
     calendarWeekends = std::move(newCalendarWeekends);
@@ -363,6 +455,86 @@ void FormulaOneActivity::positionCalendarCursorOnLastPastRace() {
 
   selectedRow[static_cast<int>(F1Tab::Calendar)] = idx;
   calendarCursorPositioned = true;
+}
+
+std::vector<F1Tab> FormulaOneActivity::detailSessionTabs() const {
+  std::vector<F1Tab> tabs{F1Tab::Results, F1Tab::Qualifying};
+  if (selectedRoundHasSprint) tabs.push_back(F1Tab::Sprint);
+  return tabs;
+}
+
+void FormulaOneActivity::openDriverDetail(int index) {
+  const auto& driverRows = rows[static_cast<int>(F1Tab::Drivers)];
+  if (index < 0 || index >= static_cast<int>(driverRows.size()) || index >= static_cast<int>(driverBios.size())) {
+    return;
+  }
+  detailDriverIndex = index;
+  showingDriverDetail = true;
+  driverBioSummary.clear();  // discard whatever the previously-viewed driver's summary was
+  startBioSummaryFetch();
+}
+
+void FormulaOneActivity::startBioSummaryFetch() {
+  bioSummaryLoading = true;
+  bioSummaryFetchFailed = false;
+  requestUpdate();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.mode(WIFI_STA);
+    startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
+                            [this](const ActivityResult& result) {
+                              if (result.isCancelled) {
+                                bioSummaryLoading = false;
+                                bioSummaryFetchFailed = true;
+                                requestUpdate();
+                              } else {
+                                doFetchBioSummary();
+                              }
+                            });
+    return;
+  }
+
+  doFetchBioSummary();
+}
+
+// Wikipedia's REST summary endpoint returns a small, clean JSON document with
+// a plain-text "extract" field — no wikitext/HTML to strip, unlike
+// CarteleraActivity's synopsis scrape. Spanish is tried first per the user's
+// language; some articles (disambiguated English titles especially, e.g.
+// ".../George_Russell_(racing_driver)") don't exist under that exact title on
+// es.wikipedia.org, so English is the fallback rather than a second guess at
+// the Spanish title.
+void FormulaOneActivity::doFetchBioSummary() {
+  if (detailDriverIndex < 0 || detailDriverIndex >= static_cast<int>(driverBios.size())) return;
+  requestUpdateAndWait();  // paint the "Loading bio..." state before the blocking calls below
+  wifiWasUsed = true;
+
+  const std::string title = wikipediaTitleFromUrl(driverBios[detailDriverIndex].wikiUrl);
+  if (!title.empty()) {
+    for (const char* lang : {"es", "en"}) {
+      std::string content;
+      if (!HttpDownloader::fetchUrl("https://" + std::string(lang) + ".wikipedia.org/api/rest_v1/page/summary/" + title,
+                                    content)) {
+        continue;
+      }
+      JsonDocument filter;
+      filter["extract"] = true;
+      JsonDocument doc;
+      if (deserializeJson(doc, content, DeserializationOption::Filter(filter))) continue;
+      std::string extract = doc["extract"] | "";
+      if (!extract.empty()) {
+        bioSummaryLoading = false;
+        driverBioSummary = std::move(extract);
+        bioSummaryFetchFailed = false;
+        requestUpdate();
+        return;
+      }
+    }
+  }
+
+  bioSummaryLoading = false;
+  bioSummaryFetchFailed = true;
+  requestUpdate();
 }
 
 // Chronological order for a normal weekend: FP1, FP2, FP3, Qualifying. On a
@@ -428,6 +600,44 @@ void FormulaOneActivity::onExit() {
 }
 
 void FormulaOneActivity::loop() {
+  // Driver detail is a small overlay on top of the Drivers tab, not a real
+  // F1Tab — it owns Back/Confirm outright while open and nothing below this
+  // block runs, same as how QrDisplayActivity itself takes over the screen.
+  if (showingDriverDetail) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      showingDriverDetail = false;
+      requestUpdate();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && detailDriverIndex >= 0 &&
+        detailDriverIndex < static_cast<int>(driverBios.size()) && !driverBios[detailDriverIndex].wikiUrl.empty()) {
+      startActivityForResult(
+          makeUniqueNoThrow<QrDisplayActivity>(renderer, mappedInput, driverBios[detailDriverIndex].wikiUrl),
+          [this](const ActivityResult&) { requestUpdate(); });
+    }
+    return;
+  }
+
+  // Drivers: hold Confirm to refresh. Every other button on this tab is
+  // already spoken for (Left/Right switch tabs, Up/Down scroll, and a plain
+  // tap of Confirm now opens the selected driver's detail below), so the
+  // manual refresh moves to a hold instead of a dedicated key — same idiom
+  // as CalendarActivity's hold-for-Holidays. The "fired" flag swallows the
+  // release that ends the hold so it doesn't also open the detail view for
+  // whatever row is under the cursor.
+  if (driverRefreshHoldFired) {
+    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+      driverRefreshHoldFired = false;
+    }
+    return;
+  }
+  if (currentTab == F1Tab::Drivers && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+      mappedInput.getHeldTime() >= HoldGestures::SHORT_MS) {
+    driverRefreshHoldFired = true;
+    startFetch(static_cast<int>(F1Tab::Drivers));
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     // Drilled into a past race from the Calendar tab: Back returns to the
     // calendar instead of exiting. Nothing here needs reloading - Results
@@ -437,7 +647,8 @@ void FormulaOneActivity::loop() {
     // shown as a stale subheader the next time a *different* round's fetch
     // was slow or failed - looking like results were always for one fixed
     // race no matter which one got picked).
-    if (currentTab == F1Tab::Results && selectedRound >= 0) {
+    if ((currentTab == F1Tab::Results || currentTab == F1Tab::Qualifying || currentTab == F1Tab::Sprint) &&
+        selectedRound >= 0) {
       selectedRound = -1;
       currentTab = F1Tab::Calendar;
       requestUpdate();
@@ -455,11 +666,16 @@ void FormulaOneActivity::loop() {
     return;
   }
 
-  // Results/SessionSchedule aren't real tabs — they're only reached by
-  // drilling into a Calendar row — so Left/Right only cycle the 3 tabs
-  // actually in the bar, and do nothing while viewing a drilled-in race
-  // (Back is the way out).
-  const bool inDetailView = (currentTab == F1Tab::Results || currentTab == F1Tab::SessionSchedule);
+  // Results/Qualifying/Sprint/SessionSchedule aren't real tabs — they're only
+  // reached by drilling into a Calendar row — so Left/Right on the main bar
+  // only cycle the 3 tabs actually in it. Within Results/Qualifying/Sprint,
+  // Left/Right instead cycle the sessions available for that weekend (see
+  // below); SessionSchedule has nothing to cycle since it's just a static
+  // list of times.
+  const bool inDetailView = (currentTab == F1Tab::Results || currentTab == F1Tab::Qualifying ||
+                              currentTab == F1Tab::Sprint || currentTab == F1Tab::SessionSchedule);
+  const bool inSessionResultsView =
+      (currentTab == F1Tab::Results || currentTab == F1Tab::Qualifying || currentTab == F1Tab::Sprint);
   if (mappedInput.wasReleased(MappedInputManager::Button::Left) && !inDetailView) {
     if (currentTab == F1Tab::Drivers) {
       currentTab = F1Tab::Calendar;
@@ -486,6 +702,26 @@ void FormulaOneActivity::loop() {
       startFetch(tab);
     }
     requestUpdate();
+  } else if (mappedInput.wasReleased(MappedInputManager::Button::Left) && inSessionResultsView) {
+    const auto sessions = detailSessionTabs();
+    const auto it = std::find(sessions.begin(), sessions.end(), currentTab);
+    const size_t i = it - sessions.begin();
+    currentTab = sessions[(i + sessions.size() - 1) % sessions.size()];
+    const int tab = static_cast<int>(currentTab);
+    if (!loaded[tab] && errorMessage[tab].empty() && !loadCacheFromSd(tab)) {
+      startFetch(tab);
+    }
+    requestUpdate();
+  } else if (mappedInput.wasReleased(MappedInputManager::Button::Right) && inSessionResultsView) {
+    const auto sessions = detailSessionTabs();
+    const auto it = std::find(sessions.begin(), sessions.end(), currentTab);
+    const size_t i = it - sessions.begin();
+    currentTab = sessions[(i + 1) % sessions.size()];
+    const int tab = static_cast<int>(currentTab);
+    if (!loaded[tab] && errorMessage[tab].empty() && !loadCacheFromSd(tab)) {
+      startFetch(tab);
+    }
+    requestUpdate();
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
     int tab = static_cast<int>(currentTab);
     if (!rows[tab].empty()) {
@@ -509,16 +745,26 @@ void FormulaOneActivity::loop() {
         if (isOnOrBeforeToday(calendarDatesIso[idx])) {
           selectedRound = round;
           currentTab = F1Tab::Results;
-          const int resultsTab = static_cast<int>(F1Tab::Results);
-          loaded[resultsTab] = false;
-          rows[resultsTab].clear();
-          errorMessage[resultsTab].clear();
+          selectedRoundHasSprint =
+              idx < static_cast<int>(calendarWeekends.size()) && !calendarWeekends[idx].sprintDate.empty();
+          // Qualifying/Sprint aren't fetched here — only Results, the default
+          // landing session, loads eagerly. The other two load lazily the
+          // first time the user cycles to them (see Left/Right below), same
+          // "only while actively viewing that screen" rule as every other F1
+          // fetch in this activity.
+          for (F1Tab detailTab : {F1Tab::Results, F1Tab::Qualifying, F1Tab::Sprint}) {
+            const int t = static_cast<int>(detailTab);
+            loaded[t] = false;
+            rows[t].clear();
+            errorMessage[t].clear();
+          }
           // raceName/raceDate are shared (not per-tab) subheader state, so
           // clear them along with rows[resultsTab] - otherwise a failed or
           // slow fetch for this round would leave the previous round's name
           // showing above an empty/error body.
           raceName.clear();
           raceDate.clear();
+          const int resultsTab = static_cast<int>(F1Tab::Results);
           if (!loadCacheFromSd(resultsTab)) {
             startFetch(resultsTab);
           }
@@ -528,6 +774,8 @@ void FormulaOneActivity::loop() {
           requestUpdate();
         }
       }
+    } else if (currentTab == F1Tab::Drivers) {
+      openDriverDetail(selectedRow[static_cast<int>(F1Tab::Drivers)]);
     } else if (currentTab != F1Tab::SessionSchedule) {
       // SessionSchedule has nothing to fetch — its data already lives in
       // memory from the Calendar's own fetch (see showSessionSchedule()).
@@ -566,21 +814,93 @@ void FormulaOneActivity::render(RenderLock&&) {
 
   GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_F1_TITLE));
 
-  // Results/SessionSchedule aren't in the tab bar — they're detail views
-  // reached by drilling into a Calendar row, so both keep Calendar
-  // highlighted as their parent.
-  const bool inDetailView = (currentTab == F1Tab::Results || currentTab == F1Tab::SessionSchedule);
+  if (showingDriverDetail && detailDriverIndex >= 0 &&
+      detailDriverIndex < static_cast<int>(rows[static_cast<int>(F1Tab::Drivers)].size()) &&
+      detailDriverIndex < static_cast<int>(driverBios.size())) {
+    const auto& driverRow = rows[static_cast<int>(F1Tab::Drivers)][detailDriverIndex];
+    const auto& bio = driverBios[detailDriverIndex];
+
+    const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, driverRow.title.c_str(),
+                       driverRow.subtitle.c_str());
+
+    int textY = contentTop + metrics.subHeaderHeight + metrics.verticalSpacing;
+    const int textLeft = metrics.contentSidePadding;
+    const int wrapWidth = pageWidth - 2 * metrics.contentSidePadding;
+    const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    const int infoLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+
+    // Number/code/nationality/DOB/points as one compact line — bio.number and
+    // bio.code can each independently be empty (some historical/reserve
+    // entries lack a permanent number or three-letter code).
+    std::string infoLine;
+    if (!bio.number.empty()) infoLine += "#" + bio.number + " ";
+    if (!bio.code.empty()) infoLine += bio.code + " · ";
+    if (!bio.nationality.empty()) infoLine += bio.nationality + " · ";
+    if (!bio.dateOfBirth.empty()) infoLine += fullDate(bio.dateOfBirth) + " · ";
+    infoLine += driverRow.value + " pts";
+    renderer.drawText(UI_10_FONT_ID, textLeft, textY, infoLine.c_str(), true);
+    textY += infoLineHeight + metrics.verticalSpacing;
+
+    if (bioSummaryLoading) {
+      const int y = textY + (listBottom - textY) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
+      renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_F1_BIO_LOADING));
+    } else if (bioSummaryFetchFailed || driverBioSummary.empty()) {
+      const int y = textY + (listBottom - textY) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
+      renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_F1_BIO_UNAVAILABLE));
+    } else {
+      const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+      const int maxLines = std::max(1, (listBottom - textY) / lineHeight);
+      auto lines = renderer.wrappedText(UI_10_FONT_ID, driverBioSummary.c_str(), wrapWidth, maxLines, EpdFontFamily::REGULAR);
+      for (const auto& line : lines) {
+        renderer.drawText(UI_10_FONT_ID, textLeft, textY, line.c_str(), true, EpdFontFamily::REGULAR);
+        textY += lineHeight;
+      }
+    }
+
+    const char* qrHint = bio.wikiUrl.empty() ? nullptr : tr(STR_F1_SHOW_QR);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), qrHint, nullptr, nullptr);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  // Results/Qualifying/Sprint/SessionSchedule aren't in the main tab bar —
+  // they're detail views reached by drilling into a Calendar row.
+  // SessionSchedule keeps the main bar frozen on Calendar (its parent);
+  // Results/Qualifying/Sprint instead swap it for a mini strip of the
+  // sessions available for that weekend, since Left/Right cycle between
+  // those there (see loop()).
+  const bool inSessionResultsView =
+      (currentTab == F1Tab::Results || currentTab == F1Tab::Qualifying || currentTab == F1Tab::Sprint);
   const int tabBarY = metrics.topPadding + metrics.headerHeight + 20;
-  const std::vector<std::string> tabLabels = {tr(STR_F1_TAB_DRIVERS), tr(STR_F1_TAB_CONSTRUCTORS),
-                                               tr(STR_F1_TAB_CALENDAR)};
-  int selectedTabIndex = 2;  // Calendar
-  if (currentTab == F1Tab::Drivers) selectedTabIndex = 0;
-  else if (currentTab == F1Tab::Constructors) selectedTabIndex = 1;
-  drawTabStrip(tabBarY, tabLabels, selectedTabIndex);
+  if (inSessionResultsView) {
+    const auto sessions = detailSessionTabs();
+    std::vector<std::string> sessionLabels;
+    int selectedSessionIndex = 0;
+    for (size_t i = 0; i < sessions.size(); i++) {
+      if (sessions[i] == currentTab) selectedSessionIndex = static_cast<int>(i);
+      // tr() textually substitutes "StrId::" in front of its argument, so it
+      // can't take a ternary directly (that would only prefix the first
+      // operand) — resolve the StrId first, then look it up.
+      const StrId labelId = sessions[i] == F1Tab::Qualifying ? StrId::STR_F1_SESSION_QUALIFYING
+                            : sessions[i] == F1Tab::Sprint    ? StrId::STR_F1_SESSION_SPRINT
+                                                               : StrId::STR_F1_SESSION_RACE;
+      sessionLabels.push_back(I18n::getInstance().get(labelId));
+    }
+    drawTabStrip(tabBarY, sessionLabels, selectedSessionIndex);
+  } else {
+    const std::vector<std::string> tabLabels = {tr(STR_F1_TAB_DRIVERS), tr(STR_F1_TAB_CONSTRUCTORS),
+                                                 tr(STR_F1_TAB_CALENDAR)};
+    int selectedTabIndex = 2;  // Calendar
+    if (currentTab == F1Tab::Drivers) selectedTabIndex = 0;
+    else if (currentTab == F1Tab::Constructors) selectedTabIndex = 1;
+    drawTabStrip(tabBarY, tabLabels, selectedTabIndex);
+  }
 
   int contentTop = tabBarY + 30 + metrics.verticalSpacing;
 
-  if (currentTab == F1Tab::Results && !raceName.empty()) {
+  if (inSessionResultsView && !raceName.empty()) {
     const std::string displayDate = shortDate(raceDate);
     GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, raceName.c_str(),
                        displayDate.c_str());
@@ -601,10 +921,17 @@ void FormulaOneActivity::render(RenderLock&&) {
   } else {
     const auto& tabRows = rows[tab];
     const bool isCalendar = (currentTab == F1Tab::Calendar);
+    // Results/Qualifying/Sprint skip the team subtitle so rows use the
+    // shorter row height and more drivers fit on screen at once; team name
+    // isn't essential there since it's already shown in the Drivers
+    // standings tab.
+    std::function<std::string(int)> subtitleFn;
+    if (!inSessionResultsView) {
+      subtitleFn = [&tabRows](int i) { return tabRows[i].subtitle; };
+    }
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, listBottom - contentTop}, static_cast<int>(tabRows.size()),
-        selectedRow[tab], [&tabRows](int i) { return tabRows[i].title; },
-        [&tabRows](int i) { return tabRows[i].subtitle; }, nullptr,
+        selectedRow[tab], [&tabRows](int i) { return tabRows[i].title; }, subtitleFn, nullptr,
         [this, &tabRows, isCalendar](int i) {
           // Checked against today's date live (not baked in at parse time) so
           // a race happening today doesn't need the whole calendar list
@@ -628,11 +955,18 @@ void FormulaOneActivity::render(RenderLock&&) {
     confirmHint = tr(STR_SELECT);
   } else if (currentTab == F1Tab::SessionSchedule) {
     confirmHint = nullptr;  // static data already sitting in memory — nothing to refresh
+  } else if (currentTab == F1Tab::Drivers) {
+    // Tap opens the selected driver's detail; refresh moved to a hold (see
+    // loop()), so the hint reflects the tap action instead of STR_F1_REFRESH.
+    confirmHint = rows[tab].empty() ? nullptr : tr(STR_F1_DRIVER_DETAILS);
   } else {
     confirmHint = tr(STR_F1_REFRESH);
   }
-  const char* leftHint = inDetailView ? nullptr : tr(STR_DIR_LEFT);
-  const char* rightHint = inDetailView ? nullptr : tr(STR_DIR_RIGHT);
+  // SessionSchedule has nothing to cycle (static list of times); every other
+  // tab, including the session-results detail views, has a working Left/Right.
+  const bool showLeftRightHints = (currentTab != F1Tab::SessionSchedule);
+  const char* leftHint = showLeftRightHints ? tr(STR_DIR_LEFT) : nullptr;
+  const char* rightHint = showLeftRightHints ? tr(STR_DIR_RIGHT) : nullptr;
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmHint, leftHint, rightHint);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

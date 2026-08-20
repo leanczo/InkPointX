@@ -45,6 +45,13 @@ constexpr FraseCategory kFraseCategories[] = {
 };
 constexpr int kFraseCategoryCount = sizeof(kFraseCategories) / sizeof(kFraseCategories[0]);
 
+// Calligraphy/font choices for the result screen, cycled with Left -- purely
+// cosmetic (not persisted, resets to the script default every visit, same as
+// the category selection) so a photo/screenshot can use a different look
+// than daily reading. Mirrors RssActivity's kRssArticleFontIds pattern.
+constexpr int kPhraseFontIds[] = {SCRIPT_FONT_ID, NOTOSERIF_18_FONT_ID, NOTOSANS_18_FONT_ID};
+constexpr int kPhraseFontCount = sizeof(kPhraseFontIds) / sizeof(kPhraseFontIds[0]);
+
 // Bounds how much of a single decoded entity/title this ever holds -- a
 // misbehaving or unexpectedly large response from a third-party server must
 // not grow these without limit (see heap-discipline: every accumulation
@@ -158,6 +165,8 @@ void FraseDelDiaActivity::onEnter() {
   Activity::onEnter();
   state = FraseState::CategoryPicker;
   selectedCategoryIndex = 0;
+  fontChoiceIndex = 0;
+  colorsInverted = false;
   loaded = false;
   refreshing = false;
   refreshFailed = false;
@@ -207,7 +216,17 @@ void FraseDelDiaActivity::doFetch() {
   wifiWasUsed = true;
 
   std::string response;
-  const bool ok = HttpDownloader::fetchUrl(apiUrl(kFraseCategories[selectedCategoryIndex].jarName), response);
+  // fetchUrl() (unlike HttpDownloader::downloadToFile()) makes a single
+  // attempt with no TLS-heap-headroom check or retry. On this PSRAM-less C3
+  // the TLS handshake is the largest transient allocation, and a fragmented
+  // heap can reject one handshake even though every allocation from that
+  // failed attempt is released right after (see HttpDownloader.cpp's runGet()
+  // comment on this) -- a fresh attempt then has a clean arena and usually
+  // succeeds. That's the "occasionally on refresh" failure users see; one
+  // immediate retry covers it without the complexity of a full backoff loop.
+  const std::string url = apiUrl(kFraseCategories[selectedCategoryIndex].jarName);
+  bool ok = HttpDownloader::fetchUrl(url, response);
+  if (!ok) ok = HttpDownloader::fetchUrl(url, response);
   refreshing = false;
 
   std::string text;
@@ -260,6 +279,12 @@ void FraseDelDiaActivity::loop() {
   if (state == FraseState::Result) {
     if (mappedInput.wasReleased(Button::Right) || mappedInput.wasReleased(Button::Confirm)) {
       startFetch();  // another random phrase from the same category
+    } else if (mappedInput.wasReleased(Button::Left)) {
+      fontChoiceIndex = (fontChoiceIndex + 1) % kPhraseFontCount;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(Button::Down)) {
+      colorsInverted = !colorsInverted;
+      requestUpdate();
     }
   }
 }
@@ -293,26 +318,37 @@ void FraseDelDiaActivity::render(RenderLock&&) {
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), nullptr, nullptr, nullptr);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {  // Result
-    // No subheader with the category name here -- the quote itself, set in
-    // the same handwritten script face as the screen titles instead of the
-    // plain body sans, is the whole point of this screen; a minimalist,
-    // single-focus layout suits that better than an extra structural label.
+    // No subheader with the category name here -- the quote itself, defaulting
+    // to the same handwritten script face as the screen titles instead of the
+    // plain body sans (Left cycles kPhraseFontIds for a different look, e.g.
+    // for a photo/screenshot), is the whole point of this screen; a
+    // minimalist, single-focus layout suits that better than an extra
+    // structural label.
+    const int phraseFontId = kPhraseFontIds[fontChoiceIndex];
     const int wrapWidth = pageWidth - 2 * metrics.contentSidePadding - 20;
-    auto lines = renderer.wrappedText(SCRIPT_FONT_ID, phraseText.c_str(), wrapWidth, 10, EpdFontFamily::REGULAR);
-    const int lineHeight = renderer.getLineHeight(SCRIPT_FONT_ID);
+    auto lines = renderer.wrappedText(phraseFontId, phraseText.c_str(), wrapWidth, 10, EpdFontFamily::REGULAR);
+    const int lineHeight = renderer.getLineHeight(phraseFontId);
     const int blockHeight = static_cast<int>(lines.size()) * lineHeight;
     int textY = contentTop + std::max(0, (contentBottom - contentTop - blockHeight) / 2);
     for (const auto& line : lines) {
-      renderer.drawCenteredText(SCRIPT_FONT_ID, textY, line.c_str());
+      renderer.drawCenteredText(phraseFontId, textY, line.c_str());
       textY += lineHeight;
     }
 
     if (refreshFailed) {
       GUI.drawPopup(renderer, tr(STR_FRASE_REFRESH_FAILED));
     }
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), nullptr, nullptr, tr(STR_FRASE_REFRESH));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), nullptr, tr(STR_FRASE_FONT), tr(STR_FRASE_REFRESH));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   }
+
+  // Same primitive the reader's night mode uses (SETTINGS.readerInvertColors
+  // + renderer.invertScreen()) -- a bitwise NOT of the whole framebuffer after
+  // every draw call above, so header and button hints invert along with the
+  // quote. Down toggles it; kept local to this activity rather than the
+  // persisted reader setting since it's for a one-off photo, not a standing
+  // reading preference.
+  if (state == FraseState::Result && colorsInverted) renderer.invertScreen();
 
   renderer.displayBuffer();
 }

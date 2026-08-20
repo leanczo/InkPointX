@@ -7,9 +7,12 @@
 
 // SessionSchedule, like Results, isn't a real tab in the bar — it's a detail
 // view reached only by confirming a Calendar row for a race that hasn't run
-// yet (Results is for one that already has).
-enum class F1Tab { Drivers = 0, Constructors = 1, Results = 2, Calendar = 3, SessionSchedule = 4 };
-constexpr int F1_TAB_COUNT = 5;
+// yet (Results is for one that already has). Qualifying/Sprint are likewise
+// drill-in only, reached by cycling Left/Right within a past race's detail
+// view (see detailSessionTabs()) rather than from the bar or the Calendar
+// directly.
+enum class F1Tab { Drivers = 0, Constructors = 1, Results = 2, Calendar = 3, SessionSchedule = 4, Qualifying = 5, Sprint = 6 };
+constexpr int F1_TAB_COUNT = 7;
 
 struct F1Row {
   std::string title;
@@ -31,6 +34,18 @@ struct F1RaceWeekend {
   std::string qualDate, qualTime;
 };
 
+// Bio fields for one driver, parallel to rows[Drivers] (same order/index).
+// Pulled from the same driverstandings response already fetched for that
+// tab — Ergast/Jolpica's Driver object already carries all of these, so no
+// extra network request is needed to have them on hand.
+struct F1DriverBio {
+  std::string number;
+  std::string code;
+  std::string nationality;
+  std::string dateOfBirth;
+  std::string wikiUrl;
+};
+
 // Network fetches are synchronous (block the main loop behind a "Loading"/
 // "Refreshing" state, same as FontDownloadActivity) instead of the
 // background-FreeRTOS-task pattern the source app used — activities in this
@@ -40,23 +55,54 @@ struct F1RaceWeekend {
 class FormulaOneActivity final : public Activity {
  private:
   F1Tab currentTab = F1Tab::Drivers;
-  int selectedRow[F1_TAB_COUNT] = {0, 0, 0, 0, 0};  // remembered scroll position per tab
-  bool loaded[F1_TAB_COUNT] = {false, false, false, false, false};
+  int selectedRow[F1_TAB_COUNT] = {0, 0, 0, 0, 0, 0, 0};  // remembered scroll position per tab
+  bool loaded[F1_TAB_COUNT] = {false, false, false, false, false, false, false};
   std::string errorMessage[F1_TAB_COUNT];
-  bool refreshing[F1_TAB_COUNT] = {false, false, false, false, false};
+  bool refreshing[F1_TAB_COUNT] = {false, false, false, false, false, false, false};
   // Set when a manual refresh fails while `loaded[tab]` was already true, so
   // the old data stays on screen but the user still sees that it didn't
   // update, instead of the refresh failing in total silence.
-  bool refreshFailed[F1_TAB_COUNT] = {false, false, false, false, false};
+  bool refreshFailed[F1_TAB_COUNT] = {false, false, false, false, false, false, false};
   std::vector<F1Row> rows[F1_TAB_COUNT];
   std::string raceName;  // Results tab sub-header (data from the API, not i18n)
   std::string raceDate;
+
+  // Bio fields for rows[Drivers], same order/index — see F1DriverBio.
+  std::vector<F1DriverBio> driverBios;
+
+  // Driver detail view, reached by tapping (not holding) Confirm on a Drivers
+  // row. Not modeled as another F1Tab like Results/Qualifying/Sprint are:
+  // it's a single record, not a fetchable list, so it gets its own small
+  // state instead of a slot in the per-tab arrays above.
+  bool showingDriverDetail = false;
+  int detailDriverIndex = -1;
+  // Wikipedia summary fetched on demand for the driver currently open in
+  // detail — mirrors CarteleraActivity's synopsis state/flow exactly.
+  std::string driverBioSummary;
+  bool bioSummaryLoading = false;
+  bool bioSummaryFetchFailed = false;
+  // Swallows the Confirm release that ends a hold-to-refresh, so it doesn't
+  // also open the detail view for the row under the cursor — same idiom as
+  // CalendarActivity's holidayHoldFired.
+  bool driverRefreshHoldFired = false;
+  void openDriverDetail(int index);
+  void startBioSummaryFetch();
+  void doFetchBioSummary();
 
   // Results normally shows the latest race ("current/last/results/", the
   // -1 case). Confirming a past race from the Calendar tab instead drills
   // into that specific round, reusing the same Results slot/cache mechanism
   // parameterized by round number.
   int selectedRound = -1;
+  // Whether the currently drilled-into weekend (selectedRound) had a sprint
+  // session, decided once at drill-in time from calendarWeekends. Drives
+  // whether Sprint shows up as a cyclable session in detailSessionTabs().
+  bool selectedRoundHasSprint = false;
+
+  // Results/Qualifying/Sprint sessions available for the weekend currently
+  // drilled into, in display order. Shared by loop()'s Left/Right cycling and
+  // render()'s mini tab-strip so the two never drift apart.
+  std::vector<F1Tab> detailSessionTabs() const;
 
   // Round number and raw ISO date per row in rows[Calendar], same order/index
   // — round lets Confirm know which round to fetch; date is what decides
@@ -83,7 +129,6 @@ class FormulaOneActivity final : public Activity {
   bool loadCacheFromSd(int tab);
   void parseAndStore(int tab, const std::string& json);
   std::string cachePath(int tab) const;
-  std::string tmpPath(int tab) const;
   std::string apiUrl(int tab) const;
 
   // No GUI.drawTabBar in this theme (the source app's theme grew one this
