@@ -48,15 +48,10 @@ class NotesChecklistActivity final : public Activity {
   int detailScrollOffset = 0;
   int detailMaxLines = 1;
 
-  // Shows a one-render confirmation popup after arming the sleep override
-  // below, cleared on the next unrelated input.
-  bool sleepOverrideJustArmed = false;
-
   bool loadFile();
   void saveFile();
   void toggleSelected();
   void openDetail();
-  void armSleepOverride();
   std::string headerTitle() const;
 
  public:
