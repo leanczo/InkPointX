@@ -149,6 +149,10 @@ enum UIIcon {
   Sismos,
   Tracker,
   Cartelera,
+  Horoscope,
+  Frase,
+  UnitConverter,
+  Notes,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

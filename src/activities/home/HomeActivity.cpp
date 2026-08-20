@@ -420,9 +420,10 @@ int HomeActivity::pageItemCount() const {
   if (pageIndex == 0) return 1;
   if (pageIndex == 1) return 8;
   if (pageIndex == 2) return 7;  // Games: Snake, Dice, TicTacToe, 2048, Minesweeper, Simon, Sudoku.
-  if (pageIndex == 3) return 5;  // Herramientas: Calculator, Calendar, Clock, Reminders, Weather.
+  if (pageIndex == 3)
+    return 7;  // Herramientas: Calculator, Calendar, Clock, Reminders, Weather, Unit Converter, Notes.
   if (pageIndex == 4)
-    return 7;  // Apps: Football, F1, RSS, On This Day, Sismos, Personal Tracker, Cartelera.
+    return 9;  // Apps: Football, F1, RSS, On This Day, Sismos, Personal Tracker, Cartelera, Horoscopo, Frase del Dia.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -513,6 +514,12 @@ void HomeActivity::openSelection() {
       case 4:
         activityManager.goToWeather();
         break;
+      case 5:
+        activityManager.goToUnitConverter();
+        break;
+      case 6:
+        activityManager.goToNotes();
+        break;
       default:
         break;
     }
@@ -541,6 +548,12 @@ void HomeActivity::openSelection() {
         break;
       case 6:
         activityManager.goToCartelera();
+        break;
+      case 7:
+        activityManager.goToHoroscopo();
+        break;
+      case 8:
+        activityManager.goToFraseDelDia();
         break;
       default:
         break;
@@ -859,16 +872,19 @@ void HomeActivity::render(RenderLock&&) {
     const std::array<const char*, 7> gamesLabels = {
         tr(STR_SNAKE),          tr(STR_DICE_TITLE),  tr(STR_TICTACTOE_TITLE), tr(STR_2048_TITLE),
         tr(STR_MINESWEEPER_TITLE), tr(STR_SIMON_TITLE), tr(STR_SUDOKU_TITLE)};
-    constexpr std::array<UIIcon, 5> toolsIcons = {UIIcon::Calculator, UIIcon::Calendar, UIIcon::Clock,
-                                                  UIIcon::Reminders, UIIcon::Weather};
-    const std::array<const char*, 5> toolsLabels = {tr(STR_CALCULATOR), tr(STR_CALENDAR_TITLE), tr(STR_CLOCK),
-                                                     tr(STR_REMINDERS_TITLE), tr(STR_WEATHER_TITLE)};
-    constexpr std::array<UIIcon, 7> appsIcons = {UIIcon::Football,  UIIcon::F1,      UIIcon::Rss,
-                                                 UIIcon::OnThisDay, UIIcon::Sismos,  UIIcon::Tracker,
-                                                 UIIcon::Cartelera};
-    const std::array<const char*, 7> appsLabels = {
-        tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE),      tr(STR_RSS_TITLE),       tr(STR_OTD_TITLE),
-        tr(STR_SISMOS_TITLE),   tr(STR_TRACKER_TITLE), tr(STR_CARTELERA_TITLE)};
+    constexpr std::array<UIIcon, 7> toolsIcons = {UIIcon::Calculator, UIIcon::Calendar, UIIcon::Clock,
+                                                  UIIcon::Reminders, UIIcon::Weather,   UIIcon::UnitConverter,
+                                                  UIIcon::Notes};
+    const std::array<const char*, 7> toolsLabels = {
+        tr(STR_CALCULATOR),    tr(STR_CALENDAR_TITLE), tr(STR_CLOCK),          tr(STR_REMINDERS_TITLE),
+        tr(STR_WEATHER_TITLE), tr(STR_CONVERTER_TITLE), tr(STR_NOTES_TITLE)};
+    constexpr std::array<UIIcon, 9> appsIcons = {UIIcon::Football,  UIIcon::F1,       UIIcon::Rss,
+                                                 UIIcon::OnThisDay, UIIcon::Sismos,   UIIcon::Tracker,
+                                                 UIIcon::Cartelera, UIIcon::Horoscope, UIIcon::Frase};
+    const std::array<const char*, 9> appsLabels = {
+        tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE),        tr(STR_RSS_TITLE),      tr(STR_OTD_TITLE),
+        tr(STR_SISMOS_TITLE),   tr(STR_TRACKER_TITLE),   tr(STR_CARTELERA_TITLE), tr(STR_HOROSCOPE_TITLE),
+        tr(STR_FRASE_TITLE)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,

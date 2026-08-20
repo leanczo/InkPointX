@@ -234,18 +234,26 @@ void MinesweeperActivity::render(RenderLock&&) {
   char minesBuf[32];
   snprintf(minesBuf, sizeof(minesBuf), "%s %d", tr(STR_MINESWEEPER_MINES_LABEL), remainingMines);
   const int subHeaderY = metrics.topPadding + metrics.headerHeight;
-  GUI.drawSubHeader(renderer, Rect{0, subHeaderY, pageWidth, SUBHEADER_HEIGHT}, minesBuf, nullptr);
 
   // Toolbar: two pills, "New" and the Reveal/Flag mode toggle, right-aligned
-  // inline within the same subheader row as the mine count (rather than a
-  // separate row below it, which used to collide with the subheader's bottom
-  // hairline). Each pill is sized to its own label plus padding, so short
-  // translations don't leave an oversized button; the mode pill uses the
-  // wider of its two labels so it doesn't resize when the mode toggles.
+  // inline within the same row as the mine count (rather than a separate row
+  // below it, which used to collide with the subheader's bottom hairline).
+  // The mine count is drawn directly instead of through GUI.drawSubHeader:
+  // that helper always draws a hairline along the row's bottom edge, which on
+  // this compact 30px-tall row read as a stray line under the buttons rather
+  // than a section divider. Both the label and the buttons below are centered
+  // with the same formula so they land on the same baseline. Each pill is
+  // sized to its own label plus padding, so short translations don't leave an
+  // oversized button; the mode pill uses the wider of its two labels so it
+  // doesn't resize when the mode toggles.
   const int toolbarBtnH = TOOLBAR_BTN_HEIGHT;
   const int toolbarY = subHeaderY + (SUBHEADER_HEIGHT - toolbarBtnH) / 2;
   const int toolbarGap = 12;
   const int toolbarPadX = 14;
+
+  const int minesTextH = renderer.getLineHeight(UI_10_FONT_ID);
+  renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, subHeaderY + (SUBHEADER_HEIGHT - minesTextH) / 2,
+                    minesBuf, true, EpdFontFamily::BOLD);
 
   const char* newGameLabel = tr(STR_MINESWEEPER_NEW_GAME);
   const char* revealLabel = tr(STR_MINESWEEPER_MODE_REVEAL);

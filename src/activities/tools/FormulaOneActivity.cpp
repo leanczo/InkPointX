@@ -581,16 +581,14 @@ void FormulaOneActivity::render(RenderLock&&) {
   int contentTop = tabBarY + 30 + metrics.verticalSpacing;
 
   if (currentTab == F1Tab::Results && !raceName.empty()) {
-    const int subHeaderHeight = 30;
     const std::string displayDate = shortDate(raceDate);
-    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, subHeaderHeight}, raceName.c_str(),
+    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, raceName.c_str(),
                        displayDate.c_str());
-    contentTop += subHeaderHeight + metrics.verticalSpacing;
+    contentTop += metrics.subHeaderHeight + metrics.verticalSpacing;
   } else if (currentTab == F1Tab::SessionSchedule) {
-    const int subHeaderHeight = 30;
-    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, subHeaderHeight}, sessionScheduleRaceName.c_str(),
+    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, sessionScheduleRaceName.c_str(),
                        nullptr);
-    contentTop += subHeaderHeight + metrics.verticalSpacing;
+    contentTop += metrics.subHeaderHeight + metrics.verticalSpacing;
   }
 
   const int tab = static_cast<int>(currentTab);

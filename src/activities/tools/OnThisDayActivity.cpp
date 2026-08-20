@@ -18,6 +18,7 @@
 #include "activities/reader/QrDisplayActivity.h"
 #include "activities/settings/ClockSyncActivity.h"
 #include "components/UITheme.h"
+#include "components/icons/lucide_ui.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "util/ButtonNavigator.h"
@@ -518,19 +519,38 @@ void OnThisDayActivity::render(RenderLock&&) {
   // side-by-side so the row costs a third of the vertical space it used to.
   constexpr int kActionRowHeight = 30;
   constexpr int kActionGap = 8;
-  const char* syntheticLabels[3] = {tr(STR_OTD_REFRESH), tr(STR_OTD_PREV_DAY), tr(STR_OTD_NEXT_DAY)};
+  constexpr int kArrowIconSize = 24;  // matches LucideChevronLeft24/Right24's baked-in size -- see design-qa.md
   const int actionBtnW = (rowWidth - kActionGap * 2) / 3;
-  const int actionTextH = renderer.getLineHeight(UI_10_FONT_ID);
+  // SMALL_FONT_ID to match the tab strip directly above this row (drawTabStrip
+  // uses the same font) -- UI_10_FONT_ID here previously made this row read
+  // visibly larger than the tabs right above it.
+  const int actionTextH = renderer.getLineHeight(SMALL_FONT_ID);
   int y = contentTop;
   for (int i = 0; i < 3; i++) {
     const bool isSelected = (selectedRow[cat] == i);
     const int bx = sideX + i * (actionBtnW + kActionGap);
-    renderer.drawRoundedRect(bx, y, actionBtnW, kActionRowHeight, 1, 6, true);
-    if (isSelected) renderer.fillRoundedRect(bx, y, actionBtnW, kActionRowHeight, 6, Color::Black);
-    const auto label = renderer.truncatedText(UI_10_FONT_ID, syntheticLabels[i], actionBtnW - 8);
-    const int textW = renderer.getTextWidth(UI_10_FONT_ID, label.c_str());
-    renderer.drawText(UI_10_FONT_ID, bx + (actionBtnW - textW) / 2, y + (kActionRowHeight - actionTextH) / 2,
-                      label.c_str(), !isSelected);
+    // drawIcon has no inverted/white variant, so a solid black selection fill
+    // (the old behavior) would swallow the prev/next arrow glyphs. drawSelection
+    // is the same dithered highlight the menu tiles use for exactly this reason
+    // -- it keeps black icons and text legible without needing a second asset.
+    if (isSelected) {
+      GUI.drawSelection(renderer, Rect{bx, y, actionBtnW, kActionRowHeight});
+    } else {
+      renderer.drawRoundedRect(bx, y, actionBtnW, kActionRowHeight, 1, 6, true);
+    }
+    if (i == 0) {
+      const auto label = renderer.truncatedText(SMALL_FONT_ID, tr(STR_OTD_REFRESH), actionBtnW - 8);
+      const int textW = renderer.getTextWidth(SMALL_FONT_ID, label.c_str());
+      renderer.drawText(SMALL_FONT_ID, bx + (actionBtnW - textW) / 2, y + (kActionRowHeight - actionTextH) / 2,
+                        label.c_str(), true);
+    } else {
+      // i==1 Previous Day, i==2 Next Day -- an arrow reads the same regardless
+      // of language, so it replaces text that used to say "Previous Day"/"Next
+      // Day" in full.
+      const uint8_t* icon = (i == 1) ? LucideChevronLeft24 : LucideChevronRight24;
+      renderer.drawIcon(icon, bx + (actionBtnW - kArrowIconSize) / 2, y + (kActionRowHeight - kArrowIconSize) / 2,
+                        kArrowIconSize, kArrowIconSize);
+    }
   }
   y += kActionRowHeight + 6;
 

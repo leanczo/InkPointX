@@ -46,6 +46,7 @@
 #include "util/BookCacheUtils.h"
 #include "util/BootDiag.h"
 #include "util/ButtonNavigator.h"
+#include "util/PendingSleepScreenOverride.h"
 #include "util/ScreenshotUtil.h"
 
 // Native PDF parsing has legitimate recursive dictionary/array paths and can
@@ -465,6 +466,7 @@ void setup() {
   BootDiag::begin();
 
   SETTINGS.loadFromFile();
+  PendingSleepScreenOverride::consumeIfPending();
   halClock.restoreFromStorage();
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();

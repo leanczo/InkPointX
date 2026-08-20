@@ -75,6 +75,12 @@ ICONS = (
     ("LucideCircleDot32", "circle-dot", 32),
     ("LucideActivity32", "activity", 32),
     ("LucideClapperboard32", "clapperboard", 32),
+    ("LucideMoonStar32", "moon-star", 32),
+    ("LucideQuote32", "quote", 32),
+    ("LucideArrowLeftRight32", "arrow-left-right", 32),
+    ("LucideListChecks32", "list-checks", 32),
+    ("LucideSquare24", "square", 24),
+    ("LucideSquareCheck24", "square-check", 24),
 )
 
 

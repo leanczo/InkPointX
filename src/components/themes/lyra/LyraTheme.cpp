@@ -149,6 +149,14 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideCircleDot32;
       case UIIcon::Cartelera:
         return LucideClapperboard32;
+      case UIIcon::Horoscope:
+        return LucideMoonStar32;
+      case UIIcon::Frase:
+        return LucideQuote32;
+      case UIIcon::UnitConverter:
+        return LucideArrowLeftRight32;
+      case UIIcon::Notes:
+        return LucideListChecks32;
       default:
         return nullptr;
     }

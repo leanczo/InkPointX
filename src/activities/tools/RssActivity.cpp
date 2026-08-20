@@ -153,6 +153,16 @@ bool isHeadingTag(const std::string& lowerTagName) {
 // '\n' is escaped there (see RssParser::writeItem/unescapeNewlines).
 constexpr char kMarkdownHeadingSentinel = '\x01';
 
+// RssParser::writeItem caps every written field well under this (content is
+// the largest at 8192 raw bytes, ~16384 in the pathological all-newlines
+// escaped case), so a well-formed cache line never gets near it. It exists
+// only to bound the char-by-char std::string accumulation below against a
+// line that never finds its '\n' -- a truncated write from an earlier crash,
+// or any other on-disk corruption -- which would otherwise grow unbounded
+// and abort() on the first reallocation a fragmented heap can't satisfy
+// (this build has -fno-exceptions, so std::string OOM never throws, it aborts).
+constexpr size_t kMaxCacheLineBytes = 20000;
+
 std::string cleanField(const std::string& input) {
   std::string clean;
   clean.reserve(input.length());
@@ -599,9 +609,9 @@ bool loadSingleItemDetails(const std::string& filepath, const std::string& targe
       if (found && line.rfind("## ", 0) == 0) break;  // reached the next item after the target
       handleLine();
       line.clear();
-    } else {
+    } else if (line.length() < kMaxCacheLineBytes) {
       line += c;
-    }
+    }  // else: drop the rest of a corrupt/oversized line instead of growing it further
   }
   if (!line.empty()) handleLine();
 
@@ -938,6 +948,12 @@ bool RssActivity::parseFeedsFromMarkdown(const std::string& filepath, std::vecto
   HalFile file;
   if (!Storage.openFileForRead("RSS", filepath, file)) return false;
 
+  // RssParser::endElement caps writes at 25 items per feed, so this never
+  // grows past it -- reserving up front avoids the ~5-6 alloc-copy-free
+  // reallocations push_back would otherwise do while filling the vector,
+  // each of which leaves a hole in an already-tight heap.
+  targetList.reserve(targetList.size() + 25);
+
   std::string line;
   RssItem currentItem;
   bool inItem = false;
@@ -971,9 +987,9 @@ bool RssActivity::parseFeedsFromMarkdown(const std::string& filepath, std::vecto
       if (!line.empty() && line.back() == '\r') line.pop_back();
       handleLine();
       line.clear();
-    } else {
+    } else if (line.length() < kMaxCacheLineBytes) {
       line += c;
-    }
+    }  // else: drop the rest of a corrupt/oversized line instead of growing it further
   }
   if (!line.empty()) handleLine();
 
@@ -984,6 +1000,11 @@ bool RssActivity::parseFeedsFromMarkdown(const std::string& filepath, std::vecto
 
 bool RssActivity::loadOfflineFeeds() {
   allItems.clear();
+  // clear() frees each item's string buffers but keeps the vector's own
+  // backing array reserved -- shrink it so the parse below starts from a
+  // clean, tightly-fit block instead of growing on top of whatever
+  // capacity a previous (possibly larger) feed left behind.
+  allItems.shrink_to_fit();
   std::string filename = getSanitizedUrlFilename(activeFeed);
   std::string filepath = "/apps/rss/" + filename + ".md";
   bool success = parseFeedsFromMarkdown(filepath, allItems, true);
@@ -1154,6 +1175,7 @@ void RssActivity::loop() {
     if (state == RssState::FeedList) {
       activeFeed.clear();
       allItems.clear();
+      allItems.shrink_to_fit();  // leaving the feed entirely -- release its backing array, not just the items
       state = RssState::FeedSelection;
       requestUpdate();
     } else if (state == RssState::FeedSelection) {
@@ -1194,7 +1216,7 @@ void RssActivity::loop() {
   }
 
   if (state == RssState::FeedActionMenu) {
-    constexpr int kFeedActionCount = 3;  // Edit Title, Edit URL, Delete Feed
+    constexpr int kFeedActionCount = 4;  // Edit Title, Edit URL, Clear Cache, Delete Feed
     if (mappedInput.wasReleased(Button::Up)) {
       feedActionMenuIndex = (feedActionMenuIndex - 1 + kFeedActionCount) % kFeedActionCount;
       requestUpdate();
@@ -1256,6 +1278,13 @@ void RssActivity::loop() {
           state = RssState::FeedSelection;
           requestUpdate();
         });
+      } else if (feedActionMenuIndex == 2) {
+        // Clear Cache -- drop the downloaded .md for this feed only; the
+        // subscription itself is untouched, so the next open just re-fetches.
+        std::string filename = getSanitizedUrlFilename(subscriptions[selectedSubIndex].url);
+        Storage.remove(("/apps/rss/" + filename + ".md").c_str());
+        state = RssState::FeedSelection;
+        requestUpdate();
       } else {
         // Delete Feed
         std::string subToDelete = subscriptions[selectedSubIndex].url;
@@ -1561,15 +1590,16 @@ void RssActivity::render(RenderLock&&) {
                                        : tr(STR_RSS_TITLE);
     GUI.drawScriptHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, feedTitle.c_str());
 
-    constexpr int kFeedActionCount = 3;
+    constexpr int kFeedActionCount = 4;
     GUI.drawButtonMenu(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, kFeedActionCount, feedActionMenuIndex,
         [](int index) -> std::string {
           if (index == 0) return tr(STR_RSS_EDIT_TITLE);
           if (index == 1) return tr(STR_RSS_EDIT_URL);
+          if (index == 2) return tr(STR_RSS_CLEAR_CACHE);
           return tr(STR_RSS_DELETE_FEED);
         },
-        [](int) { return UIIcon::Library; });
+        [](int index) { return index == 3 ? UIIcon::ReaderTrash : index == 2 ? UIIcon::NetworkSync : UIIcon::Library; });
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), nullptr, nullptr);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

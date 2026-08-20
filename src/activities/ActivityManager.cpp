@@ -37,11 +37,15 @@
 #include "tools/ClockActivity.h"
 #include "tools/FootballActivity.h"
 #include "tools/FormulaOneActivity.h"
+#include "tools/FraseDelDiaActivity.h"
+#include "tools/HoroscopoActivity.h"
+#include "tools/NotesActivity.h"
 #include "tools/OnThisDayActivity.h"
 #include "tools/PersonalTrackerActivity.h"
 #include "tools/RemindersListActivity.h"
 #include "tools/RssActivity.h"
 #include "tools/SismosActivity.h"
+#include "tools/UnitConverterActivity.h"
 #include "tools/WeatherActivity.h"
 #include "util/BootDiag.h"
 #include "util/FullScreenMessageActivity.h"
@@ -396,6 +400,18 @@ void ActivityManager::goToCartelera() {
 void ActivityManager::goToPersonalTracker() {
   replaceActivity(makeUniqueNoThrow<PersonalTrackerActivity>(renderer, mappedInput));
 }
+
+void ActivityManager::goToHoroscopo() { replaceActivity(makeUniqueNoThrow<HoroscopoActivity>(renderer, mappedInput)); }
+
+void ActivityManager::goToFraseDelDia() {
+  replaceActivity(makeUniqueNoThrow<FraseDelDiaActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToUnitConverter() {
+  replaceActivity(makeUniqueNoThrow<UnitConverterActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToNotes() { replaceActivity(makeUniqueNoThrow<NotesActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToFileBrowser(std::string path) {
   replaceActivity(makeUniqueNoThrow<FileBrowserActivity>(renderer, mappedInput, std::move(path)));
