@@ -21,7 +21,6 @@ class FraseDelDiaActivity final : public Activity {
   bool loaded = false;
   bool refreshing = false;
   bool refreshFailed = false;
-  bool colorsInverted = false;
   std::string errorMessage;
   std::string phraseText;
 
