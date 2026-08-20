@@ -11,6 +11,9 @@ struct CarteleraMovie {
   std::string slug;       // "spider-man-un-nuevo-dia" - used to build the pelicula/ URL
   std::string title;      // "Spider-man: Un Nuevo Día" - title-cased from the site's ALL-CAPS alt text
   std::string posterUrl;  // "https://cdn.cinemark.com.ar/content/posters/HO00012566.jpg"
+  // Empty until the user opens "Sinopsis" for this movie - fetched on demand
+  // from the movie's own page (see fetchSynopsis()), not from the homepage.
+  std::string synopsis;
 };
 
 // Cinemark Hoyts Argentina has no public showtimes API: the real one
@@ -50,6 +53,12 @@ class CarteleraActivity final : public Activity {
   // for a heap-defrag reboot when this session actually used WiFi.
   bool wifiWasUsed = false;
 
+  // Whether the synopsis detail view (instead of the movie list) is on
+  // screen. Back from here returns to the list, not to the home menu.
+  bool showingSynopsis = false;
+  bool synopsisLoading = false;
+  bool synopsisFetchFailed = false;
+
   void startFetch();
   void doFetch();
   void fetchPosters();
@@ -61,6 +70,8 @@ class CarteleraActivity final : public Activity {
   static std::string movieUrl(const std::string& slug);
   static std::string posterPath(const std::string& slug);
   void showTicketsForSelected();
+  void startSynopsisFetch();
+  void doFetchSynopsis();
 
  public:
   explicit CarteleraActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)

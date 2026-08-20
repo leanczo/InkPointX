@@ -7,12 +7,10 @@
 
 #include <algorithm>
 
-#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "components/icons/lucide_ui.h"
 #include "fontIds.h"
-#include "util/PendingSleepScreenOverride.h"
 
 namespace {
 // Conservative cap for loading a note fully into memory to edit -- well
@@ -185,18 +183,6 @@ void NotesChecklistActivity::openDetail() {
   requestUpdate();
 }
 
-// Forces Quick Resume for the very next deep sleep only -- whatever's on
-// screen right now (this checklist) stays visible with no extra rendering
-// or bitmap file, since Quick Resume just leaves the e-ink panel as-is. The
-// user's normal sleep screen preference is saved to disk first and restored
-// automatically at the next boot (see PendingSleepScreenOverride) -- nothing
-// to undo by hand, and it doesn't touch any other screen's behavior.
-void NotesChecklistActivity::armSleepOverride() {
-  PendingSleepScreenOverride::arm(CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME);
-  sleepOverrideJustArmed = true;
-  requestUpdate();
-}
-
 std::string NotesChecklistActivity::headerTitle() const {
   const size_t slash = filePath.find_last_of('/');
   std::string name = (slash == std::string::npos) ? filePath : filePath.substr(slash + 1);
@@ -259,19 +245,12 @@ void NotesChecklistActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(Button::Left)) {
-    armSleepOverride();
-    return;
-  }
-
   if (mappedInput.wasReleased(Button::Right)) {
-    sleepOverrideJustArmed = false;
     openDetail();
     return;
   }
 
   if (mappedInput.wasPressed(Button::Confirm)) {
-    sleepOverrideJustArmed = false;
     const bool selectedIsChecklist = selectedIndex >= 0 && selectedIndex < static_cast<int>(items.size()) &&
                                      items[static_cast<size_t>(selectedIndex)].checklist;
     if (selectedIsChecklist) {
@@ -288,14 +267,12 @@ void NotesChecklistActivity::loop() {
   // (title + up to 2 lines of description), not a fixed-row GUI.drawList.
   if (mappedInput.wasReleased(Button::Up)) {
     if (selectedIndex > 0) {
-      sleepOverrideJustArmed = false;
       selectedIndex--;
       if (selectedIndex < itemsScrollOffset) itemsScrollOffset = selectedIndex;
       requestUpdate();
     }
   } else if (mappedInput.wasReleased(Button::Down)) {
     if (selectedIndex < static_cast<int>(items.size()) - 1) {
-      sleepOverrideJustArmed = false;
       if (selectedIndex >= lastVisibleItemIndex) {
         // Already at the bottom of the current page -- jump the whole window
         // to the next unseen item instead of scrolling by one card, so the
@@ -490,12 +467,8 @@ void NotesChecklistActivity::render(RenderLock&&) {
     }
   }
 
-  if (sleepOverrideJustArmed) {
-    GUI.drawPopup(renderer, tr(STR_NOTES_SLEEP_ARMED));
-  }
-
   const char* rightAction = items.empty() ? nullptr : tr(STR_NOTES_DETAIL);
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_NOTES_SLEEP_HINT), rightAction);
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), nullptr, rightAction);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

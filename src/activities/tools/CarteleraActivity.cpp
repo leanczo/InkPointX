@@ -100,6 +100,64 @@ std::string toTitleCase(const std::string& text) {
   return result;
 }
 
+// A movie's detail page (movieUrl()) is a MUI/Next.js app; every rendered
+// <p> carries a "MuiTypography-root MuiTypography-bodyN mui-<hash>" class,
+// where the hash is a build-specific Emotion style id - too unstable to
+// anchor on directly. The synopsis is reliably the FIRST
+// <p class="MuiTypography-root MuiTypography-body2 ...> paragraph on the
+// page: the genre/rating row above it renders as <span> chips, and every
+// later body2 paragraph (runtime, release date, distributor, cast) comes
+// after it - verified live across several movie pages. It sits ~125-130KB
+// into the page, well short of the ~300KB+ total, so streaming stops there
+// instead of downloading the whole thing.
+constexpr const char* kSynopsisAnchor = "<p class=\"MuiTypography-root MuiTypography-body2";
+
+// Bytes of trailing context kept between HttpDownloader chunks so an anchor
+// or a still-open synopsis paragraph straddling a chunk boundary isn't
+// missed - mirrors kAltSearchWindow's role in parseAndStore() above.
+constexpr size_t kSynopsisSearchWindow = 4096;
+
+// No single real synopsis has come close to this (longest seen ~1KB); it
+// exists to bound a malformed/never-closing <p> instead of buffering
+// unboundedly. Matches RSS's description/summary field cap.
+constexpr size_t kMaxSynopsisLen = 2048;
+
+// Streaming extractor for HttpDownloader::fetchUrl's DataCallback: scans
+// arriving chunks for kSynopsisAnchor and the text up to its closing </p>,
+// and reports "no more data needed" via feed()'s return value so the caller
+// aborts the HTTP transfer as soon as it has what it came for.
+class SynopsisExtractor {
+ public:
+  // Returns false once the synopsis has been found, or malformed markup has
+  // made it clear it won't be - signals the caller to abort the transfer.
+  bool feed(const uint8_t* data, size_t len) {
+    buffer.append(reinterpret_cast<const char*>(data), len);
+
+    const size_t anchorPos = buffer.find(kSynopsisAnchor);
+    if (anchorPos == std::string::npos) {
+      if (buffer.size() > kSynopsisSearchWindow) buffer.erase(0, buffer.size() - kSynopsisSearchWindow);
+      return true;
+    }
+
+    const size_t textStart = buffer.find('>', anchorPos);
+    if (textStart == std::string::npos) return true;  // need more data to see the tag's closing '>'
+
+    const size_t textEnd = buffer.find("</p>", textStart);
+    if (textEnd == std::string::npos) {
+      if (buffer.size() - textStart > kMaxSynopsisLen) return false;  // malformed - not worth trusting further
+      return true;  // need more data
+    }
+
+    result = buffer.substr(textStart + 1, std::min(textEnd - textStart - 1, kMaxSynopsisLen));
+    return false;
+  }
+
+  std::string result;
+
+ private:
+  std::string buffer;
+};
+
 }  // namespace
 
 std::string CarteleraActivity::cachePath() { return "/apps/cartelera/cartelera.html"; }
@@ -299,7 +357,65 @@ void CarteleraActivity::showTicketsForSelected() {
                          [this](const ActivityResult&) { requestUpdate(); });
 }
 
+void CarteleraActivity::startSynopsisFetch() {
+  if (selectedRow < 0 || selectedRow >= static_cast<int>(movies.size())) return;
+  showingSynopsis = true;
+  if (!movies[selectedRow].synopsis.empty()) {
+    // Already fetched this session (e.g. the user backed out and reopened
+    // it) - nothing to do over the network.
+    requestUpdate();
+    return;
+  }
+  synopsisLoading = true;
+  synopsisFetchFailed = false;
+  requestUpdate();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.mode(WIFI_STA);
+    startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
+                           [this](const ActivityResult& result) {
+                             if (result.isCancelled) {
+                               synopsisLoading = false;
+                               synopsisFetchFailed = true;
+                               requestUpdate();
+                             } else {
+                               doFetchSynopsis();
+                             }
+                           });
+    return;
+  }
+
+  doFetchSynopsis();
+}
+
+void CarteleraActivity::doFetchSynopsis() {
+  if (selectedRow < 0 || selectedRow >= static_cast<int>(movies.size())) return;
+  requestUpdateAndWait();  // paint the "Cargando sinopsis..." state before the blocking call below
+  wifiWasUsed = true;
+
+  SynopsisExtractor extractor;
+  HttpDownloader::fetchUrl(movieUrl(movies[selectedRow].slug),
+                           [&extractor](const uint8_t* data, size_t len) { return extractor.feed(data, len); });
+
+  synopsisLoading = false;
+  if (!extractor.result.empty()) {
+    movies[selectedRow].synopsis = std::move(extractor.result);
+    synopsisFetchFailed = false;
+  } else {
+    synopsisFetchFailed = true;
+  }
+  requestUpdate();
+}
+
 void CarteleraActivity::loop() {
+  if (showingSynopsis) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      showingSynopsis = false;
+      requestUpdate();
+    }
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     onGoHome(HomeMenuItem::APPS_MENU);
     return;
@@ -312,6 +428,8 @@ void CarteleraActivity::loop() {
     requestUpdate();
   } else if (!movies.empty() && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     showTicketsForSelected();
+  } else if (!movies.empty() && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+    startSynopsisFetch();
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
     startFetch();
   }
@@ -328,6 +446,42 @@ void CarteleraActivity::render(RenderLock&& lock) {
 
   const int listTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int listBottom = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing;
+
+  if (showingSynopsis) {
+    const auto& movie = movies[selectedRow];
+    GUI.drawSubHeader(renderer, Rect{0, listTop, pageWidth, metrics.subHeaderHeight}, movie.title.c_str());
+    const int textTop = listTop + metrics.subHeaderHeight + metrics.verticalSpacing;
+
+    if (synopsisLoading) {
+      const int textY = textTop + (listBottom - textTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
+      renderer.drawCenteredText(UI_12_FONT_ID, textY, tr(STR_CARTELERA_SYNOPSIS_LOADING));
+    } else if (movie.synopsis.empty()) {
+      const char* msg = tr(STR_CARTELERA_SYNOPSIS_UNAVAILABLE);
+      const int errWidth = pageWidth - 2 * metrics.contentSidePadding;
+      auto errLines = renderer.wrappedText(UI_12_FONT_ID, msg, errWidth, 2, EpdFontFamily::REGULAR);
+      const int errLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+      int errY = textTop + (listBottom - textTop) / 2 - (static_cast<int>(errLines.size()) * errLineHeight) / 2;
+      for (const auto& line : errLines) {
+        renderer.drawCenteredText(UI_12_FONT_ID, errY, line.c_str());
+        errY += errLineHeight;
+      }
+    } else {
+      const int wrapWidth = pageWidth - 2 * metrics.contentSidePadding;
+      const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+      const int maxLines = std::max(1, (listBottom - textTop) / lineHeight);
+      auto lines = renderer.wrappedText(UI_10_FONT_ID, movie.synopsis.c_str(), wrapWidth, maxLines, EpdFontFamily::REGULAR);
+      int textY = textTop;
+      for (const auto& line : lines) {
+        renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, textY, line.c_str(), true, EpdFontFamily::REGULAR);
+        textY += lineHeight;
+      }
+    }
+
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), nullptr, nullptr, nullptr);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 
   if (refreshing) {
     const int textY = listTop + (listBottom - listTop) / 2 - renderer.getLineHeight(UI_12_FONT_ID) / 2;
@@ -362,6 +516,7 @@ void CarteleraActivity::render(RenderLock&& lock) {
     const int rowLeft = metrics.contentSidePadding;
     const int rowRight = pageWidth - metrics.contentSidePadding;
     const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+    const int excerptLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
 
     for (int i = pageStart; i < pageEnd; ++i) {
       const int rowY = listTop + (i - pageStart) * rowHeight;
@@ -390,11 +545,21 @@ void CarteleraActivity::render(RenderLock&& lock) {
 
       const int textLeft = thumbX + thumbWidth + kThumbToTitleGap;
       const int textWidth = std::max(0, rowRight - 4 - textLeft);
-      auto titleLines = renderer.wrappedText(UI_12_FONT_ID, movies[i].title.c_str(), textWidth, 3, EpdFontFamily::REGULAR);
+      // Capped at 2 lines (was 3) to leave room for the synopsis excerpt
+      // below - only shown once the user has opened "Sinopsis" for this
+      // movie at least once this session, see startSynopsisFetch().
+      auto titleLines = renderer.wrappedText(UI_12_FONT_ID, movies[i].title.c_str(), textWidth, 2, EpdFontFamily::REGULAR);
       int textY = rowY + std::max(0, (rowHeight - static_cast<int>(titleLines.size()) * titleLineHeight) / 2);
       for (const auto& line : titleLines) {
         renderer.drawText(UI_12_FONT_ID, textLeft, textY, line.c_str(), true, EpdFontFamily::REGULAR);
         textY += titleLineHeight;
+      }
+      if (!movies[i].synopsis.empty()) {
+        auto excerptLines = renderer.wrappedText(SMALL_FONT_ID, movies[i].synopsis.c_str(), textWidth, 1, EpdFontFamily::REGULAR);
+        for (const auto& line : excerptLines) {
+          renderer.drawText(SMALL_FONT_ID, textLeft, textY, line.c_str(), true, EpdFontFamily::REGULAR);
+          textY += excerptLineHeight;
+        }
       }
     }
   }
@@ -403,7 +568,8 @@ void CarteleraActivity::render(RenderLock&& lock) {
     GUI.drawPopup(renderer, tr(STR_CARTELERA_REFRESH_FAILED));
   }
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CARTELERA_BUY_TICKET), nullptr, tr(STR_CARTELERA_REFRESH));
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CARTELERA_BUY_TICKET),
+                                            movies.empty() ? nullptr : tr(STR_CARTELERA_SYNOPSIS), tr(STR_CARTELERA_REFRESH));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

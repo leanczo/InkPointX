@@ -16,6 +16,8 @@ class FraseDelDiaActivity final : public Activity {
  private:
   FraseState state = FraseState::CategoryPicker;
   int selectedCategoryIndex = 0;
+  int fontChoiceIndex = 0;
+  bool colorsInverted = false;
   bool loaded = false;
   bool refreshing = false;
   bool refreshFailed = false;
