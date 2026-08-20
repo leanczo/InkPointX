@@ -161,6 +161,7 @@ void FraseDelDiaActivity::onEnter() {
   loaded = false;
   refreshing = false;
   refreshFailed = false;
+  colorsInverted = false;
   wifiWasUsed = false;
   requestUpdate();
 }
@@ -236,6 +237,7 @@ void FraseDelDiaActivity::loop() {
   if (mappedInput.wasReleased(Button::Back)) {
     if (state == FraseState::Result) {
       loaded = false;
+      colorsInverted = false;
       state = FraseState::CategoryPicker;
       requestUpdate();
     } else {
@@ -260,6 +262,9 @@ void FraseDelDiaActivity::loop() {
   if (state == FraseState::Result) {
     if (mappedInput.wasReleased(Button::Right) || mappedInput.wasReleased(Button::Confirm)) {
       startFetch();  // another random phrase from the same category
+    } else if (mappedInput.wasReleased(Button::Left)) {
+      colorsInverted = !colorsInverted;
+      requestUpdate();
     }
   }
 }
@@ -310,8 +315,10 @@ void FraseDelDiaActivity::render(RenderLock&&) {
     if (refreshFailed) {
       GUI.drawPopup(renderer, tr(STR_FRASE_REFRESH_FAILED));
     }
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), nullptr, nullptr, tr(STR_FRASE_REFRESH));
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), nullptr, tr(STR_FRASE_INVERT), tr(STR_FRASE_REFRESH));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+
+    if (colorsInverted) renderer.invertScreen();
   }
 
   renderer.displayBuffer();
