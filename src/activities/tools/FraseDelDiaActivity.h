@@ -8,10 +8,10 @@ enum class FraseState { CategoryPicker, Loading, Result };
 
 // Network fetch is synchronous, same pattern as every other tools/ activity
 // -- see HoroscopoActivity, which this mirrors closely (a picker before the
-// fetch, no persistence of the choice). The category is asked every time
-// (deliberately not persisted) and the response is a small RSS/XML payload
-// fetched straight into memory -- a stale quote has no value, so there's no
-// SD cache/offline fallback.
+// fetch). The category is asked every time (deliberately not persisted,
+// unlike HoroscopoActivity's sign) and the response is a small RSS/XML
+// payload fetched straight into memory -- a stale quote has no value, so
+// there's no SD cache/offline fallback.
 class FraseDelDiaActivity final : public Activity {
  private:
   FraseState state = FraseState::CategoryPicker;

@@ -16,6 +16,9 @@ class CrossPointState {
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
+  // Last zodiac sign consulted in HoroscopoActivity (index into kZodiacSigns), so
+  // reopening the activity starts on it instead of always defaulting to Aries.
+  uint8_t lastHoroscopeSignIndex = 0;
 
   // Returns true if idx was shown within the last checkCount picks.
   // Walks backwards from the most recently written slot.

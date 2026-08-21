@@ -1,13 +1,17 @@
 #include "HoroscopoActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <I18n.h>
 #include <WiFi.h>
 #include <XmlParserUtils.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 
+#include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -32,6 +36,29 @@ constexpr ZodiacSign kZodiacSigns[] = {
     {"acuario", StrId::STR_ZODIAC_AQUARIUS},  {"piscis", StrId::STR_ZODIAC_PISCES},
 };
 constexpr int kZodiacSignCount = sizeof(kZodiacSigns) / sizeof(kZodiacSigns[0]);
+
+constexpr StrId kLuckyColors[] = {
+    StrId::STR_LUCKY_COLOR_RED,   StrId::STR_LUCKY_COLOR_ORANGE, StrId::STR_LUCKY_COLOR_YELLOW,
+    StrId::STR_LUCKY_COLOR_GREEN, StrId::STR_LUCKY_COLOR_TURQUOISE, StrId::STR_LUCKY_COLOR_BLUE,
+    StrId::STR_LUCKY_COLOR_PURPLE, StrId::STR_LUCKY_COLOR_PINK, StrId::STR_LUCKY_COLOR_GOLD,
+    StrId::STR_LUCKY_COLOR_SILVER,
+};
+constexpr int kLuckyColorCount = sizeof(kLuckyColors) / sizeof(kLuckyColors[0]);
+
+// No source publishes a "lucky number/color" over RSS (see the research in the
+// PR this landed with -- every horoscope site just invents its own), so this
+// derives both from a plain integer hash of the wall-clock date + sign index.
+// Deterministic per day/sign, no state to persist, and exactly as legitimate
+// as picking one out of a hat -- which is what the real sites do too.
+uint32_t hashDateAndSign(int year, int month, int day, int signIndex) {
+  uint32_t h = static_cast<uint32_t>(year) * 10000u + static_cast<uint32_t>(month) * 100u +
+               static_cast<uint32_t>(day);
+  h = h * 2654435761u + static_cast<uint32_t>(signIndex) * 40503u;
+  h ^= h >> 15;
+  h *= 0x85ebca6bu;
+  h ^= h >> 13;
+  return h;
+}
 
 // Streams horoscopo-del-dia.com's feed.xml (an RSS 2.0 feed with one <item>
 // per zodiac sign) through Expat looking for the single <item> whose <link>
@@ -130,7 +157,7 @@ class HoroscopeItemParser {
 void HoroscopoActivity::onEnter() {
   Activity::onEnter();
   state = HoroscopeState::SignSelect;
-  selectedSignIndex = 0;
+  selectedSignIndex = std::min<int>(APP_STATE.lastHoroscopeSignIndex, kZodiacSignCount - 1);
   loaded = false;
   refreshing = false;
   refreshFailed = false;
@@ -201,6 +228,7 @@ void HoroscopoActivity::doFetch() {
     loaded = true;
     state = HoroscopeState::Result;
     detailScrollOffset = 0;
+    updateLuckyLine();
   } else if (!loaded) {
     errorMessage = tr(STR_HOROSCOPE_NO_DATA);
     state = HoroscopeState::SignSelect;
@@ -209,6 +237,18 @@ void HoroscopoActivity::doFetch() {
     state = HoroscopeState::Result;
   }
   requestUpdate();
+}
+
+void HoroscopoActivity::updateLuckyLine() {
+  struct tm t{};
+  if (!halClock.hasValidTime() || !halClock.getDateTime(t, SETTINGS.clockUtcOffsetQ)) {
+    luckyNumber = -1;
+    luckyColorText.clear();
+    return;
+  }
+  const uint32_t h = hashDateAndSign(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, selectedSignIndex);
+  luckyNumber = 1 + static_cast<int>(h % 99u);
+  luckyColorText = I18N.get(kLuckyColors[(h / 99u) % kLuckyColorCount]);
 }
 
 void HoroscopoActivity::loop() {
@@ -235,6 +275,10 @@ void HoroscopoActivity::loop() {
       selectedSignIndex = (selectedSignIndex + 1) % kZodiacSignCount;
       requestUpdate();
     } else if (mappedInput.wasReleased(Button::Confirm)) {
+      if (APP_STATE.lastHoroscopeSignIndex != selectedSignIndex) {
+        APP_STATE.lastHoroscopeSignIndex = static_cast<uint8_t>(selectedSignIndex);
+        APP_STATE.saveToFile();
+      }
       startFetch();
     }
     return;
@@ -288,7 +332,14 @@ void HoroscopoActivity::render(RenderLock&&) {
   } else {  // Result
     const std::string signLabel = I18N.get(kZodiacSigns[selectedSignIndex].labelKey);
     GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, signLabel.c_str());
-    const int textTop = contentTop + metrics.subHeaderHeight + metrics.verticalSpacing;
+    int textTop = contentTop + metrics.subHeaderHeight + metrics.verticalSpacing;
+
+    if (luckyNumber >= 0) {
+      char luckyBuf[64];
+      snprintf(luckyBuf, sizeof(luckyBuf), tr(STR_HOROSCOPE_LUCKY_LINE), luckyNumber, luckyColorText.c_str());
+      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, textTop, luckyBuf, true, EpdFontFamily::REGULAR);
+      textTop += renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
+    }
 
     const int wrapWidth = pageWidth - 2 * metrics.contentSidePadding;
     auto lines = HtmlTextCleanup::wrapParagraphs(renderer, UI_10_FONT_ID, horoscopeText, wrapWidth, 500,

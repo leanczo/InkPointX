@@ -57,6 +57,16 @@ void drawCircle(const GfxRenderer& renderer, int x0, int y0, int radius, int thi
   }
 }
 
+// The header (title + separator) and the button-hints bar at the bottom are
+// different heights, so centering strictly within the leftover space between
+// them visually drifts toward whichever one is shorter. Centering on the
+// screen's true midpoint instead reads as balanced, as long as it still fits
+// between header and footer.
+int opticalCenterY(int screenHeight, int contentTop, int contentBottom, int blockHeight) {
+  int idealTop = (screenHeight - blockHeight) / 2;
+  return std::clamp(idealTop, contentTop, contentBottom - blockHeight);
+}
+
 void fillCircle(const GfxRenderer& renderer, int x0, int y0, int radius, bool state) {
   int x = radius;
   int y = 0;
@@ -140,10 +150,12 @@ void ClockActivity::syncClock() {
 }
 
 bool ClockActivity::preventAutoSleep() {
-  // Keep the device awake while a countdown/stopwatch is actively running —
-  // both live entirely in this Activity's RAM, so falling asleep and getting
-  // evicted would silently lose the running timer.
-  return (mode == ClockMode::Stopwatch && stopwatchRunning) || (mode == ClockMode::Timer && timerRunning);
+  // Never auto-sleep while the Clock screen is open, in any mode — it's meant
+  // to double as a bedside/always-on display. This also sidesteps the X4's
+  // internal RTC drifting during deep sleep, since the clock stays accurate
+  // while the device stays awake. Stopwatch/Timer additionally need this to
+  // avoid losing state that lives only in this Activity's RAM.
+  return true;
 }
 
 void ClockActivity::loop() {
@@ -288,7 +300,7 @@ void ClockActivity::drawAnalogClock(const ThemeMetrics& metrics, int contentTop,
                                     uint8_t hour, uint8_t minute) {
   (void)metrics;
   int cx = pageWidth / 2;
-  int cy = contentTop + contentHeight / 2;
+  int cy = opticalCenterY(renderer.getScreenHeight(), contentTop, contentTop + contentHeight, 2 * 120) + 120;
   int radius = 120;
 
   drawCircle(renderer, cx, cy, radius, 1, true);
@@ -331,7 +343,7 @@ void ClockActivity::drawDigitalClock(const ThemeMetrics& metrics, int contentTop
 
   int totalW = 4 * digitW + 2 * spacing + colonW + 2 * spacing;
   int startX = (pageWidth - totalW) / 2;
-  int startY = contentTop + (contentHeight - digitH) / 2;
+  int startY = opticalCenterY(renderer.getScreenHeight(), contentTop, contentTop + contentHeight, digitH);
 
   uint8_t displayHour = hour;
   if (use12Hour) {
@@ -349,11 +361,6 @@ void ClockActivity::drawDigitalClock(const ThemeMetrics& metrics, int contentTop
   drawColon(startX + 2 * digitW + 2 * spacing, startY, blockSize, Color::Black);
   drawDigit(startX + 2 * digitW + 2 * spacing + colonW + spacing, startY, m1, blockSize, Color::Black);
   drawDigit(startX + 3 * digitW + 3 * spacing + colonW + spacing, startY, m2, blockSize, Color::Black);
-
-  char infoBuf[32];
-  double tzOffset = (static_cast<int>(SETTINGS.clockUtcOffsetQ) - 48) * 0.25;
-  snprintf(infoBuf, sizeof(infoBuf), "%s  (UTC%+0.2f)", (use12Hour ? (hour >= 12 ? "PM" : "AM") : "24H"), tzOffset);
-  renderer.drawCenteredText(NOTOSANS_14_FONT_ID, startY + digitH + 30, infoBuf);
 }
 
 void ClockActivity::drawFlipClock(const ThemeMetrics& metrics, int contentTop, int contentHeight, int pageWidth,
@@ -366,7 +373,7 @@ void ClockActivity::drawFlipClock(const ThemeMetrics& metrics, int contentTop, i
 
   int totalW = 4 * cardW + 2 * spacing + centerGap;
   int startX = (pageWidth - totalW) / 2;
-  int startY = contentTop + (contentHeight - cardH) / 2;
+  int startY = opticalCenterY(renderer.getScreenHeight(), contentTop, contentTop + contentHeight, cardH);
 
   uint8_t displayHour = hour;
   if (use12Hour) {
@@ -391,16 +398,10 @@ void ClockActivity::drawFlipClock(const ThemeMetrics& metrics, int contentTop, i
   drawCard(startX + cardW + spacing, h2);
   drawCard(startX + 2 * cardW + 2 * spacing + centerGap, m1);
   drawCard(startX + 3 * cardW + 3 * spacing + centerGap, m2);
-
-  char infoBuf[32];
-  double tzOffset = (static_cast<int>(SETTINGS.clockUtcOffsetQ) - 48) * 0.25;
-  snprintf(infoBuf, sizeof(infoBuf), "%s  (UTC%+0.2f)", (use12Hour ? (hour >= 12 ? "PM" : "AM") : "24H"), tzOffset);
-  renderer.drawCenteredText(NOTOSANS_14_FONT_ID, startY + cardH + 30, infoBuf);
 }
 
 // Shared MM:SS block-digit layout for Stopwatch/Timer — mirrors
-// drawDigitalClock's digit math intentionally but without the AM/PM/UTC info
-// line, which doesn't apply here.
+// drawDigitalClock's digit math intentionally.
 void ClockActivity::drawBigTime(int contentTop, int contentHeight, int pageWidth, int minutes, int seconds) {
   int blockSize = 18;
   int digitW = 5 * blockSize;

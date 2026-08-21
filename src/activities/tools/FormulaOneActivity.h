@@ -5,12 +5,14 @@
 
 #include "activities/Activity.h"
 
-// SessionSchedule, like Results, isn't a real tab in the bar — it's a detail
-// view reached only by confirming a Calendar row for a race that hasn't run
-// yet (Results is for one that already has). Qualifying/Sprint are likewise
-// drill-in only, reached by cycling Left/Right within a past race's detail
-// view (see detailSessionTabs()) rather than from the bar or the Calendar
-// directly.
+// SessionSchedule and Results/Qualifying/Sprint aren't real tabs in the bar —
+// confirming a Calendar row always opens SessionSchedule first, listing every
+// session of that weekend (past or future, finished or not). Once a
+// session's own time has passed, its row shows "Ver" instead of the
+// scheduled time and can be confirmed to drill into that one session's
+// results (Results/Qualifying/Sprint, whichever it is). Practice sessions
+// never get a "Ver": the data source (jolpica-f1) doesn't expose practice
+// results.
 enum class F1Tab { Drivers = 0, Constructors = 1, Results = 2, Calendar = 3, SessionSchedule = 4, Qualifying = 5, Sprint = 6 };
 constexpr int F1_TAB_COUNT = 7;
 
@@ -32,6 +34,7 @@ struct F1RaceWeekend {
   std::string sprintQualDate, sprintQualTime;
   std::string sprintDate, sprintTime;
   std::string qualDate, qualTime;
+  std::string raceDate, raceTime;
 };
 
 // Bio fields for one driver, parallel to rows[Drivers] (same order/index).
@@ -76,33 +79,22 @@ class FormulaOneActivity final : public Activity {
   // state instead of a slot in the per-tab arrays above.
   bool showingDriverDetail = false;
   int detailDriverIndex = -1;
-  // Wikipedia summary fetched on demand for the driver currently open in
-  // detail — mirrors CarteleraActivity's synopsis state/flow exactly.
-  std::string driverBioSummary;
-  bool bioSummaryLoading = false;
-  bool bioSummaryFetchFailed = false;
   // Swallows the Confirm release that ends a hold-to-refresh, so it doesn't
   // also open the detail view for the row under the cursor — same idiom as
   // CalendarActivity's holidayHoldFired.
   bool driverRefreshHoldFired = false;
   void openDriverDetail(int index);
-  void startBioSummaryFetch();
-  void doFetchBioSummary();
 
   // Results normally shows the latest race ("current/last/results/", the
-  // -1 case). Confirming a past race from the Calendar tab instead drills
-  // into that specific round, reusing the same Results slot/cache mechanism
+  // -1 case). Confirming a SessionSchedule "Ver" row instead drills into
+  // that specific round, reusing the same Results slot/cache mechanism
   // parameterized by round number.
   int selectedRound = -1;
-  // Whether the currently drilled-into weekend (selectedRound) had a sprint
-  // session, decided once at drill-in time from calendarWeekends. Drives
-  // whether Sprint shows up as a cyclable session in detailSessionTabs().
-  bool selectedRoundHasSprint = false;
-
-  // Results/Qualifying/Sprint sessions available for the weekend currently
-  // drilled into, in display order. Shared by loop()'s Left/Right cycling and
-  // render()'s mini tab-strip so the two never drift apart.
-  std::vector<F1Tab> detailSessionTabs() const;
+  // Sets selectedRound/currentTab, clears the three session tabs' stale
+  // state, and loads targetTab — reached only by confirming a SessionSchedule
+  // "Ver" row (Calendar confirm always opens the schedule first, see
+  // loop()), so Back out of a session always returns there.
+  void enterSessionResults(F1Tab targetTab, int round);
 
   // Round number and raw ISO date per row in rows[Calendar], same order/index
   // — round lets Confirm know which round to fetch; date is what decides
@@ -111,6 +103,16 @@ class FormulaOneActivity final : public Activity {
   std::vector<std::string> calendarDatesIso;
   std::vector<F1RaceWeekend> calendarWeekends;  // session times, same order/index
   std::string sessionScheduleRaceName;          // subheader while viewing SessionSchedule
+  // calendarWeekends/calendarRounds index the weekend the SessionSchedule
+  // screen currently on display was built from — needed to resolve the round
+  // number when a schedule row itself is confirmed, and to rebuild the same
+  // schedule when Back returns to it.
+  int sessionScheduleCalendarIdx = -1;
+  // Target tab to drill into when each rows[SessionSchedule] entry is
+  // confirmed, same order/index. F1Tab::SessionSchedule itself is the
+  // sentinel for "not viewable" (session hasn't happened yet, or is a
+  // practice session the API never provides results for).
+  std::vector<F1Tab> sessionScheduleTargets;
   // One-shot: the first time the Calendar loads, jump the cursor to the most
   // recent already-run race so it's immediately selectable without
   // scrolling. Doesn't fight the user's own scrolling on later visits.

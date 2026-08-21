@@ -129,6 +129,7 @@ std::string cleanField(const std::string& input) {
   bool lastWasSpace = true;
   bool inTag = false;
   bool tagIsClosing = false;
+  bool tagNameDone = false;
   std::string currentTagName;
   // Some feeds (notably markdown-formatted ones, with no HTML tags at all)
   // mark paragraph breaks with a blank line in the raw text instead of a
@@ -189,6 +190,7 @@ std::string cleanField(const std::string& input) {
       inTag = true;
       currentTagName.clear();
       tagIsClosing = false;
+      tagNameDone = false;
       continue;
     } else if (c == '>') {
       inTag = false;
@@ -209,13 +211,18 @@ std::string cleanField(const std::string& input) {
     if (inTag) {
       // Collect the tag name (e.g. "p" from both "<p>" and "</p>" -- the
       // leading '/' of a closing tag isn't alnum so it's simply skipped,
-      // just noted below) stopping at the first attribute space so
-      // "<p class=...>" still yields "p".
-      if (currentTagName.empty() && c == '/') {
+      // just noted below) stopping at the first attribute character (e.g.
+      // the space in "<p class=...>" or "<h2 id=...>") so it doesn't keep
+      // swallowing attribute letters into the name.
+      if (tagNameDone) {
+        continue;
+      } else if (currentTagName.empty() && c == '/') {
         tagIsClosing = true;
       } else if (currentTagName.empty() ? std::isalpha(static_cast<unsigned char>(c))
                                         : std::isalnum(static_cast<unsigned char>(c))) {
         currentTagName += c;
+      } else if (!currentTagName.empty()) {
+        tagNameDone = true;
       }
       continue;
     }
