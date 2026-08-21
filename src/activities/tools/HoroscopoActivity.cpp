@@ -331,15 +331,13 @@ void HoroscopoActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else {  // Result
     const std::string signLabel = I18N.get(kZodiacSigns[selectedSignIndex].labelKey);
-    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, signLabel.c_str());
-    int textTop = contentTop + metrics.subHeaderHeight + metrics.verticalSpacing;
-
+    char luckyBuf[64];
     if (luckyNumber >= 0) {
-      char luckyBuf[64];
       snprintf(luckyBuf, sizeof(luckyBuf), tr(STR_HOROSCOPE_LUCKY_LINE), luckyNumber, luckyColorText.c_str());
-      renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, textTop, luckyBuf, true, EpdFontFamily::REGULAR);
-      textTop += renderer.getLineHeight(UI_10_FONT_ID) + metrics.verticalSpacing;
     }
+    GUI.drawSubHeader(renderer, Rect{0, contentTop, pageWidth, metrics.subHeaderHeight}, signLabel.c_str(),
+                      luckyNumber >= 0 ? luckyBuf : nullptr);
+    int textTop = contentTop + metrics.subHeaderHeight + metrics.verticalSpacing;
 
     const int wrapWidth = pageWidth - 2 * metrics.contentSidePadding;
     auto lines = HtmlTextCleanup::wrapParagraphs(renderer, UI_10_FONT_ID, horoscopeText, wrapWidth, 500,

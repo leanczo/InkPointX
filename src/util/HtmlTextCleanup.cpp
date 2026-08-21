@@ -203,7 +203,15 @@ std::string cleanField(const std::string& input) {
         }
         // Only on the opening tag, so the sentinel lands on the heading
         // paragraph's first character rather than trailing its last one.
-        if (isHeadingTag(lowerTagName) && !tagIsClosing) clean += kHeadingSentinel;
+        if (isHeadingTag(lowerTagName) && !tagIsClosing) {
+          // Headings (e.g. the "Amor"/"Trabajo" sub-sections in horoscope
+          // feeds) get a full paragraph break -- a blank line -- before them
+          // so they visually separate from whatever text preceded, not just
+          // a single line-wrap. Nothing is added after the heading itself,
+          // so its own paragraph text still hugs the label directly below.
+          if (clean.size() >= 2 && clean[clean.size() - 2] != '\n') clean += '\n';
+          clean += kHeadingSentinel;
+        }
       }
       continue;
     }

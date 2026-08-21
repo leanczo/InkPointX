@@ -157,6 +157,12 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return LucideArrowLeftRight32;
       case UIIcon::Notes:
         return LucideListChecks32;
+      case UIIcon::Strava:
+        // No running/cycling glyph exists in lucide_ui.h yet - Flame is the
+        // closest available fit for a fitness tracker, and the only other
+        // unused 32px icon (Globe) reads even less like "activity". Revisit
+        // if a better icon gets added to the set.
+        return LucideFlame32;
       default:
         return nullptr;
     }

@@ -45,6 +45,7 @@
 #include "tools/RemindersListActivity.h"
 #include "tools/RssActivity.h"
 #include "tools/SismosActivity.h"
+#include "tools/StravaActivity.h"
 #include "tools/UnitConverterActivity.h"
 #include "tools/WeatherActivity.h"
 #include "util/BootDiag.h"
@@ -374,6 +375,8 @@ void ActivityManager::goToFootball() { replaceActivity(makeUniqueNoThrow<Footbal
 void ActivityManager::goToFormulaOne() {
   replaceActivity(makeUniqueNoThrow<FormulaOneActivity>(renderer, mappedInput));
 }
+
+void ActivityManager::goToStrava() { replaceActivity(makeUniqueNoThrow<StravaActivity>(renderer, mappedInput)); }
 
 void ActivityManager::goToCalendar() { replaceActivity(makeUniqueNoThrow<CalendarActivity>(renderer, mappedInput)); }
 

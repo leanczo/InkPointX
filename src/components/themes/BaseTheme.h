@@ -153,6 +153,7 @@ enum UIIcon {
   Frase,
   UnitConverter,
   Notes,
+  Strava,
 };
 
 enum class UIAccessory { None, Chevron, Check, ToggleOff, ToggleOn, Favorite };

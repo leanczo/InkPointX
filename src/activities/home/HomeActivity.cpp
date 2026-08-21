@@ -423,7 +423,8 @@ int HomeActivity::pageItemCount() const {
   if (pageIndex == 3)
     return 7;  // Herramientas: Calculator, Calendar, Clock, Reminders, Weather, Unit Converter, Notes.
   if (pageIndex == 4)
-    return 9;  // Apps: Football, F1, RSS, On This Day, Sismos, Personal Tracker, Cartelera, Horoscopo, Frase del Dia.
+    return 10;  // Apps: Football, F1, RSS, On This Day, Sismos, Personal Tracker, Cartelera, Horoscopo, Frase del
+                // Dia, Strava.
   return SettingsActivity::CATEGORY_COUNT;
 }
 
@@ -554,6 +555,9 @@ void HomeActivity::openSelection() {
         break;
       case 8:
         activityManager.goToFraseDelDia();
+        break;
+      case 9:
+        activityManager.goToStrava();
         break;
       default:
         break;
@@ -878,13 +882,14 @@ void HomeActivity::render(RenderLock&&) {
     const std::array<const char*, 7> toolsLabels = {
         tr(STR_CALCULATOR),    tr(STR_CALENDAR_TITLE), tr(STR_CLOCK),          tr(STR_REMINDERS_TITLE),
         tr(STR_WEATHER_TITLE), tr(STR_CONVERTER_TITLE), tr(STR_NOTES_TITLE)};
-    constexpr std::array<UIIcon, 9> appsIcons = {UIIcon::Football,  UIIcon::F1,       UIIcon::Rss,
-                                                 UIIcon::OnThisDay, UIIcon::Sismos,   UIIcon::Tracker,
-                                                 UIIcon::Cartelera, UIIcon::Horoscope, UIIcon::Frase};
-    const std::array<const char*, 9> appsLabels = {
+    constexpr std::array<UIIcon, 10> appsIcons = {UIIcon::Football,  UIIcon::F1,        UIIcon::Rss,
+                                                  UIIcon::OnThisDay, UIIcon::Sismos,    UIIcon::Tracker,
+                                                  UIIcon::Cartelera, UIIcon::Horoscope, UIIcon::Frase,
+                                                  UIIcon::Strava};
+    const std::array<const char*, 10> appsLabels = {
         tr(STR_FOOTBALL_TITLE), tr(STR_F1_TITLE),        tr(STR_RSS_TITLE),      tr(STR_OTD_TITLE),
         tr(STR_SISMOS_TITLE),   tr(STR_TRACKER_TITLE),   tr(STR_CARTELERA_TITLE), tr(STR_HOROSCOPE_TITLE),
-        tr(STR_FRASE_TITLE)};
+        tr(STR_FRASE_TITLE),    tr(STR_STRAVA_TITLE)};
     constexpr std::array<UIIcon, SettingsActivity::CATEGORY_COUNT> settingsIcons = {
         UIIcon::Interface, UIIcon::Power,       UIIcon::Reading, UIIcon::Controls,
         UIIcon::Files,     UIIcon::NetworkSync, UIIcon::System,

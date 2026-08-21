@@ -132,6 +132,7 @@ class ActivityManager {
   void goToCalculator();
   void goToFootball();
   void goToFormulaOne();
+  void goToStrava();
   void goToCalendar();
   void goToClock();
   void goToReminders();
