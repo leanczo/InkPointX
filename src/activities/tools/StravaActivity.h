@@ -6,6 +6,8 @@
 
 #include "activities/Activity.h"
 
+class HalFile;
+
 enum class StravaTab { Stats = 0, Activities = 1 };
 constexpr int STRAVA_TAB_COUNT = 2;
 
@@ -55,7 +57,10 @@ class StravaActivity final : public Activity {
   bool refreshFailed[STRAVA_TAB_COUNT] = {false, false};
   std::string errorMessage[STRAVA_TAB_COUNT];
 
-  // Stats tab cycles Run/Ride/Swim with Up/Down - see StravaSportTotals.
+  // Stats tab toggles Run/Ride with Up/Down (Swim intentionally dropped from
+  // the UI - see sportSelectorLabel in StravaActivity.cpp). Index 2 (Swim) in
+  // StravaSportTotals is still populated from the API response but never
+  // selected.
   int selectedSport = 0;
   StravaStats stats;
 
@@ -89,8 +94,8 @@ class StravaActivity final : public Activity {
   void startFetch(int tab);
   void doFetch(int tab);
   bool loadCacheFromSd(int tab);
-  bool parseStats(const std::string& json);
-  bool parseActivities(const std::string& json);
+  bool parseStats(HalFile& file);
+  bool parseActivities(HalFile& file);
   std::string cachePath(int tab) const;
   std::string apiUrl(int tab) const;
 

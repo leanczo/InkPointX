@@ -188,6 +188,16 @@ class FormulaOneActivity final : public Activity {
   void parseAndStore(int tab, const std::string& json);
   std::string cachePath(int tab) const;
   std::string apiUrl(int tab) const;
+  // Frees a tab's parsed rows (and, for Drivers, the parallel driverBios)
+  // when switching away from it in the main tab bar. Keeping all of them
+  // resident for the whole session fragmented the heap badly enough to fail
+  // a later TLS handshake even with tens of KB still nominally free; the next
+  // visit re-populates from the on-disk cache via loadCacheFromSd (no
+  // network) instead of staying loaded forever. Calendar's calendarWeekends/
+  // calendarRounds are deliberately untouched — SessionSchedule and the
+  // session-detail drill-down need them regardless of which main tab is
+  // showing.
+  void evictTabData(int tab);
 
   // No GUI.drawTabBar in this theme (the source app's theme grew one this
   // codebase doesn't have) — draws a small row of rounded-rect tabs directly,

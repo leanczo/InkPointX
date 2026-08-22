@@ -87,6 +87,25 @@ bool writeStravaCache(const char* path, const std::string& content) {
   return true;
 }
 
+// Adapts a HalFile to the read()/readBytes() shape ArduinoJson's Reader
+// wants, so deserializeJson can parse straight off the SD card instead of
+// first copying the whole cached response into a String and then a
+// std::string. The 30-activity response can run past 50KB - authenticatedGetToFile
+// already streams the download itself for exactly this reason (see its header
+// comment); reading it back the same way avoids needing one ~58KB contiguous
+// heap block for the copy, which was failing outright (and once corrupting
+// the heap enough to abort()) even when total free heap looked fine, because
+// the largest contiguous free block on this device runs well under that.
+struct HalFileReader {
+  explicit HalFileReader(HalFile& f) : file(f) {}
+  int read() { return file.read(); }
+  size_t readBytes(char* buffer, size_t length) {
+    const int n = file.read(buffer, length);
+    return n > 0 ? static_cast<size_t>(n) : 0;
+  }
+  HalFile& file;
+};
+
 std::string formatDistanceKm(double meters) {
   char buf[24];
   snprintf(buf, sizeof(buf), "%.1f km", meters / 1000.0);
@@ -143,6 +162,15 @@ bool isPaceSport(const std::string& sportType) {
         sportType == "VirtualRun";
 }
 
+// The Activities list only shows running, cycling, and hiking sport types -
+// a personal preference to keep it focused, filtering out swim (and anything
+// else Strava might report) rather than showing every sport type verbatim.
+bool isDisplayedSport(const std::string& sportType) {
+  return sportType == "Run" || sportType == "TrailRun" || sportType == "VirtualRun" || sportType == "Walk" ||
+        sportType == "Hike" || sportType == "Ride" || sportType == "VirtualRide" ||
+        sportType == "MountainBikeRide" || sportType == "GravelRide" || sportType == "EBikeRide";
+}
+
 // Curated labels for the sport types this dashboard's Stats tab covers, plus
 // the few others common enough to be worth translating. Anything else falls
 // back to Strava's own sport_type string verbatim (foreign API data, not app
@@ -154,15 +182,12 @@ std::string sportTypeLabel(const std::string& sportType) {
   return sportType;
 }
 
+// Only Run/Ride are offered here - a personal preference to drop Swim from
+// the cycle. Hike isn't an option either: Strava's /athletes/{id}/stats
+// endpoint (see StravaStats) only ever returns Run/Ride/Swim totals, so
+// there's no hiking data for this dashboard to show.
 const char* sportSelectorLabel(int sportIndex) {
-  switch (sportIndex) {
-    case 0:
-      return tr(STR_STRAVA_SPORT_RUN);
-    case 1:
-      return tr(STR_STRAVA_SPORT_RIDE);
-    default:
-      return tr(STR_STRAVA_SPORT_SWIM);
-  }
+  return sportIndex == 0 ? tr(STR_STRAVA_SPORT_RUN) : tr(STR_STRAVA_SPORT_RIDE);
 }
 
 // A single cell of the stat grid (see render()) - bold value over a small
@@ -194,14 +219,27 @@ void drawStravaDistanceBars(const GfxRenderer& renderer, int x, int y, int w, in
   constexpr int kRows = 3;
   constexpr int labelColW = 90;
   constexpr int barLeftGap = 8;
+  constexpr int valueGap = 6;
   constexpr int rightPadding = 12;
   const int rowH = h / kRows;
   const int barH = std::max(8, rowH - 12);
   double maxDist = 0;
   for (int i = 0; i < kRows; i++) maxDist = std::max(maxDist, distances[i]);
 
+  // The value column is reserved at a fixed width (the widest of the three
+  // formatted strings - all-time is usually both the longest bar and the
+  // longest string) so it always fits before the chart's right edge, instead
+  // of being placed right after the bar's fill and potentially running past
+  // it when that bar happens to be both long and have a long value.
+  std::string valueTexts[kRows];
+  int maxValueW = 0;
+  for (int i = 0; i < kRows; i++) {
+    valueTexts[i] = formatDistanceKm(distances[i]);
+    maxValueW = std::max(maxValueW, renderer.getTextWidth(SMALL_FONT_ID, valueTexts[i].c_str()));
+  }
+
   const int barX = x + labelColW + barLeftGap;
-  const int barMaxW = std::max(0, w - labelColW - barLeftGap - rightPadding);
+  const int barMaxW = std::max(0, w - labelColW - barLeftGap - valueGap - maxValueW - rightPadding);
   for (int i = 0; i < kRows; i++) {
     const int rowTop = y + i * rowH;
     const int barY = rowTop + (rowH - barH) / 2;
@@ -212,8 +250,8 @@ void drawStravaDistanceBars(const GfxRenderer& renderer, int x, int y, int w, in
       fillW = std::max(2, static_cast<int>((barMaxW * distances[i]) / maxDist));
     }
     if (fillW > 0) renderer.fillRect(barX, barY, fillW, barH, true);
-    const std::string valueText = formatDistanceKm(distances[i]);
-    renderer.drawText(SMALL_FONT_ID, barX + fillW + barLeftGap, labelY, valueText.c_str());
+    const int valueW = renderer.getTextWidth(SMALL_FONT_ID, valueTexts[i].c_str());
+    renderer.drawText(SMALL_FONT_ID, x + w - rightPadding - valueW, labelY, valueTexts[i].c_str());
   }
 }
 
@@ -401,17 +439,16 @@ void StravaActivity::doFetch(int tab) {
 }
 
 bool StravaActivity::loadCacheFromSd(int tab) {
-  const String input = Storage.readFile(cachePath(tab).c_str());
-  if (input.length() == 0) return false;
-  const std::string json(input.c_str());
-  const bool ok =
-      (tab == static_cast<int>(StravaTab::Stats)) ? parseStats(json) : parseActivities(json);
+  HalFile file;
+  if (!Storage.openFileForRead("STRAVA", cachePath(tab), file)) return false;
+  const bool ok = (tab == static_cast<int>(StravaTab::Stats)) ? parseStats(file) : parseActivities(file);
+  file.close();
   loaded[tab] = ok;
   if (ok) errorMessage[tab].clear();
   return ok;
 }
 
-bool StravaActivity::parseStats(const std::string& json) {
+bool StravaActivity::parseStats(HalFile& file) {
   // Only keep the fields this screen renders - cuts ArduinoJson's parsed-tree
   // memory well below what the full response (biggest_ride_distance,
   // biggest_climb_elevation_gain, achievement_count, etc.) would need.
@@ -425,13 +462,14 @@ bool StravaActivity::parseStats(const std::string& json) {
     filter[key]["elevation_gain"] = true;
   }
 
+  HalFileReader reader(file);
   JsonDocument doc;
-  const DeserializationError err = deserializeJson(doc, json, DeserializationOption::Filter(filter));
+  const DeserializationError err = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
   if (err) {
-    LOG_ERR("STRAVA", "Stats JSON parse failed (%u bytes): %s", static_cast<unsigned>(json.size()), err.c_str());
+    const unsigned fileBytes = static_cast<unsigned>(file.fileSize());
+    LOG_ERR("STRAVA", "Stats JSON parse failed (%u bytes): %s", fileBytes, err.c_str());
     char buf[128];
-    snprintf(buf, sizeof(buf), "[strava] stats parse failed (%u bytes): %s\n", static_cast<unsigned>(json.size()),
-            err.c_str());
+    snprintf(buf, sizeof(buf), "[strava] stats parse failed (%u bytes): %s\n", fileBytes, err.c_str());
     writeDebugLine(buf);
     return false;
   }
@@ -461,7 +499,7 @@ bool StravaActivity::parseStats(const std::string& json) {
   return true;
 }
 
-bool StravaActivity::parseActivities(const std::string& json) {
+bool StravaActivity::parseActivities(HalFile& file) {
   JsonDocument filter;
   filter[0]["name"] = true;
   filter[0]["sport_type"] = true;
@@ -472,13 +510,14 @@ bool StravaActivity::parseActivities(const std::string& json) {
   filter[0]["average_speed"] = true;
   filter[0]["kudos_count"] = true;
 
+  HalFileReader reader(file);
   JsonDocument doc;
-  const DeserializationError err = deserializeJson(doc, json, DeserializationOption::Filter(filter));
+  const DeserializationError err = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
   if (err) {
-    LOG_ERR("STRAVA", "Activities JSON parse failed (%u bytes): %s", static_cast<unsigned>(json.size()), err.c_str());
+    const unsigned fileBytes = static_cast<unsigned>(file.fileSize());
+    LOG_ERR("STRAVA", "Activities JSON parse failed (%u bytes): %s", fileBytes, err.c_str());
     char buf[128];
-    snprintf(buf, sizeof(buf), "[strava] activities parse failed (%u bytes): %s\n", static_cast<unsigned>(json.size()),
-            err.c_str());
+    snprintf(buf, sizeof(buf), "[strava] activities parse failed (%u bytes): %s\n", fileBytes, err.c_str());
     writeDebugLine(buf);
     return false;
   }
@@ -497,6 +536,7 @@ bool StravaActivity::parseActivities(const std::string& json) {
     entry.averageSpeed = item["average_speed"] | 0.0;
     entry.kudosCount = item["kudos_count"] | 0;
     if (entry.name.empty()) continue;
+    if (!isDisplayedSport(entry.sportType)) continue;
     newItems.push_back(std::move(entry));
   }
 
@@ -583,11 +623,11 @@ void StravaActivity::loop() {
     const int tab = static_cast<int>(currentTab);
     if (!loaded[tab] && errorMessage[tab].empty()) startFetch(tab);
     requestUpdate();
-  } else if (currentTab == StravaTab::Stats && mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-    selectedSport = (selectedSport + 2) % 3;
-    requestUpdate();
-  } else if (currentTab == StravaTab::Stats && mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-    selectedSport = (selectedSport + 1) % 3;
+  } else if (currentTab == StravaTab::Stats && (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
+                                                mappedInput.wasReleased(MappedInputManager::Button::Down))) {
+    // Only Run/Ride are offered (see sportSelectorLabel), so either direction
+    // just toggles between the two.
+    selectedSport = 1 - selectedSport;
     requestUpdate();
   } else if (currentTab == StravaTab::Stats && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     startFetch(static_cast<int>(currentTab));
@@ -699,34 +739,50 @@ void StravaActivity::render(RenderLock&&) {
       const char* barLabels[3] = {tr(STR_STRAVA_CHART_RECENT), tr(STR_STRAVA_CHART_YTD), tr(STR_STRAVA_CHART_ALL)};
       drawStravaDistanceBars(renderer, cardX + 10, contentTop + 6, cardW - 20, chartH - 12, distances, barLabels);
 
+      // Two columns (YTD | all-time) with each section's four stats stacked
+      // vertically, rather than four narrow columns - a value like a
+      // multi-year all-time distance/duration was getting truncated at
+      // colW == cardW/4. Doubling the column width to cardW/2 gives every
+      // value room to actually be read.
       const int gridY = contentTop + chartH + metrics.verticalSpacing;
       const int gridH = listBottom - gridY;
-      const int rowH = gridH / 2;
-      const int colW = cardW / 4;
+      const int colW = cardW / 2;
+      const int headerH = renderer.getLineHeight(SMALL_FONT_ID) + 8;
+      const int bodyY = gridY + headerH;
+      const int rowH = (gridH - headerH) / 4;
       renderer.drawRect(cardX, gridY, cardW, gridH);
-      renderer.drawLine(cardX, gridY + rowH, cardX + cardW, gridY + rowH);
       renderer.drawLine(cardX + colW, gridY, cardX + colW, gridY + gridH);
-      renderer.drawLine(cardX + colW * 2, gridY, cardX + colW * 2, gridY + gridH);
-      renderer.drawLine(cardX + colW * 3, gridY, cardX + colW * 3, gridY + gridH);
+      renderer.drawLine(cardX, bodyY, cardX + cardW, bodyY);
+      for (int i = 1; i < 4; i++) {
+        renderer.drawLine(cardX, bodyY + rowH * i, cardX + cardW, bodyY + rowH * i);
+      }
+
+      const int headerTextY = gridY + (headerH - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
+      const char* ytdHeader = tr(STR_STRAVA_CHART_YTD);
+      const char* allHeader = tr(STR_STRAVA_CHART_ALL);
+      const int ytdHeaderW = renderer.getTextWidth(SMALL_FONT_ID, ytdHeader);
+      const int allHeaderW = renderer.getTextWidth(SMALL_FONT_ID, allHeader);
+      renderer.drawText(SMALL_FONT_ID, cardX + (colW - ytdHeaderW) / 2, headerTextY, ytdHeader);
+      renderer.drawText(SMALL_FONT_ID, cardX + colW + (colW - allHeaderW) / 2, headerTextY, allHeader);
 
       const auto& ytd = stats.ytd[selectedSport];
       const auto& allTime = stats.allTime[selectedSport];
-      drawStravaStatCell(renderer, cardX, gridY, colW, rowH, formatDistanceKm(ytd.distanceMeters),
+      drawStravaStatCell(renderer, cardX, bodyY, colW, rowH, formatDistanceKm(ytd.distanceMeters),
                          tr(STR_STRAVA_STAT_DISTANCE));
-      drawStravaStatCell(renderer, cardX + colW, gridY, colW, rowH, formatDuration(ytd.movingTimeSec),
+      drawStravaStatCell(renderer, cardX, bodyY + rowH, colW, rowH, formatDuration(ytd.movingTimeSec),
                          tr(STR_STRAVA_STAT_TIME));
-      drawStravaStatCell(renderer, cardX + colW * 2, gridY, colW, rowH, formatElevation(ytd.elevationGainMeters),
+      drawStravaStatCell(renderer, cardX, bodyY + rowH * 2, colW, rowH, formatElevation(ytd.elevationGainMeters),
                          tr(STR_STRAVA_STAT_ELEVATION));
-      drawStravaStatCell(renderer, cardX + colW * 3, gridY, cardW - colW * 3, rowH, std::to_string(ytd.count),
+      drawStravaStatCell(renderer, cardX, bodyY + rowH * 3, colW, rowH, std::to_string(ytd.count),
                          tr(STR_STRAVA_STAT_COUNT));
 
-      drawStravaStatCell(renderer, cardX, gridY + rowH, colW, rowH, formatDistanceKm(allTime.distanceMeters),
+      drawStravaStatCell(renderer, cardX + colW, bodyY, colW, rowH, formatDistanceKm(allTime.distanceMeters),
                          tr(STR_STRAVA_STAT_DISTANCE));
-      drawStravaStatCell(renderer, cardX + colW, gridY + rowH, colW, rowH, formatDuration(allTime.movingTimeSec),
+      drawStravaStatCell(renderer, cardX + colW, bodyY + rowH, colW, rowH, formatDuration(allTime.movingTimeSec),
                          tr(STR_STRAVA_STAT_TIME));
-      drawStravaStatCell(renderer, cardX + colW * 2, gridY + rowH, colW, rowH,
+      drawStravaStatCell(renderer, cardX + colW, bodyY + rowH * 2, colW, rowH,
                          formatElevation(allTime.elevationGainMeters), tr(STR_STRAVA_STAT_ELEVATION));
-      drawStravaStatCell(renderer, cardX + colW * 3, gridY + rowH, cardW - colW * 3, rowH,
+      drawStravaStatCell(renderer, cardX + colW, bodyY + rowH * 3, colW, rowH,
                          std::to_string(allTime.count), tr(STR_STRAVA_STAT_COUNT));
     }
   } else {

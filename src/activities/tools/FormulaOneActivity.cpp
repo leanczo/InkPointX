@@ -6,6 +6,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -25,6 +26,12 @@
 #include "util/HoldGestures.h"
 
 namespace {
+
+// Mirrors HttpDownloader.cpp's private MIN_TLS_LARGEST_BLOCK — a failed
+// download with plenty of free heap but no block this large left is heap
+// fragmentation, not a real network/server error (see doFetch()). Keep the
+// two values in sync if that threshold ever changes.
+constexpr size_t kMinTlsContiguousHeap = 32 * 1024;
 
 // The API returns dates as ISO "YYYY-MM-DD". Every race in a season falls in
 // the same year, so showing it on every row/subheader is just noise — this
@@ -325,6 +332,20 @@ void FormulaOneActivity::doFetch(int tab) {
     return;
   }
 
+  // Written before the blocking call below, not just after: if this task gets
+  // killed mid-fetch (TWDT reset, crash) instead of returning normally, the
+  // post-fetch writeDebugLine() call further down never runs, and the debug
+  // log otherwise stays completely silent about a failure that clearly
+  // happened - see the "Client init failed" style reports that never showed
+  // up in /apps/f1/debug.log. A "start" line with no matching "result" line
+  // on the next boot is itself the diagnostic.
+  {
+    char startLine[128];
+    const int len = snprintf(startLine, sizeof(startLine), "tab=%d fetch start heap free=%u largest=%u\n", tab,
+                             (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    if (len > 0) writeDebugLine(startLine);
+  }
+
   // downloadToFile already writes destPath transactionally (hidden temp file,
   // verified size, atomic replace only on full success — see
   // NetworkFileTransaction in HttpDownloader.cpp) so the previous cache
@@ -333,6 +354,25 @@ void FormulaOneActivity::doFetch(int tab) {
   // which could silently leave stale data in place if it ever failed.
   const auto result = HttpDownloader::downloadToFile(apiUrl(tab), cachePath(tab));
   refreshing[tab] = false;
+
+  // Free heap can look fine (60-70KB) while every fetch still fails, because
+  // the app keeps every tab's parsed data resident for instant switching —
+  // that residency leaves the heap fragmented into pieces too small for a
+  // TLS handshake's contiguous buffer. Once that happens it doesn't recover on
+  // its own: retrying just repeats the same failure (confirmed in the field —
+  // three straight Qualifying attempts logging the identical stuck largest-
+  // block value). silentRestart() is the same heap-defrag reboot every other
+  // WiFi tool in this app already relies on when leaving; triggering it here
+  // instead of leaving the user stuck on a permanently failing tab.
+  if (result == HttpDownloader::HTTP_ERROR && ESP.getMaxAllocHeap() < kMinTlsContiguousHeap) {
+    LOG_ERR("F1", "tab=%d download failed with fragmented heap (largest=%u) - restarting to recover", tab,
+            (unsigned)ESP.getMaxAllocHeap());
+    char debugLine[128];
+    const int len = snprintf(debugLine, sizeof(debugLine), "tab=%d fragmented-heap restart (largest=%u)\n", tab,
+                             (unsigned)ESP.getMaxAllocHeap());
+    if (len > 0) writeDebugLine(debugLine);
+    silentRestart();  // never returns unless a deep sleep is in progress
+  }
 
   if (result == HttpDownloader::OK) {
     loadCacheFromSd(tab);
@@ -402,7 +442,11 @@ void FormulaOneActivity::doFetchSessionResult() {
   JsonDocument roundsFilter;
   roundsFilter["data"][0]["id"] = true;
   JsonDocument roundsDoc;
+  // Same TWDT-feeding discipline as parseAndStore's deserializeJson — this
+  // runs right after a TLS teardown, on the same fragmented-heap-prone path.
+  esp_task_wdt_reset();
   const auto err = deserializeJson(roundsDoc, std::string(roundsInput.c_str()), DeserializationOption::Filter(roundsFilter));
+  esp_task_wdt_reset();
   JsonArray data = roundsDoc["data"];
   if (err || data.size() == 0) {
     LOG_ERR("F1", "alpha round lookup failed for year=%s round=%d: %s", sessionResultYear.c_str(), selectedRound,
@@ -446,6 +490,17 @@ bool FormulaOneActivity::loadCacheFromSd(int tab) {
   if (input.length() == 0) return false;
   parseAndStore(tab, std::string(input.c_str()));
   return loaded[tab];
+}
+
+void FormulaOneActivity::evictTabData(int tab) {
+  if (!loaded[tab]) return;  // nothing resident to free
+  rows[tab].clear();
+  rows[tab].shrink_to_fit();
+  if (tab == static_cast<int>(F1Tab::Drivers)) {
+    driverBios.clear();
+    driverBios.shrink_to_fit();
+  }
+  loaded[tab] = false;
 }
 
 void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
@@ -527,10 +582,23 @@ void FormulaOneActivity::parseAndStore(int tab, const std::string& json) {
     filter["MRData"]["RaceTable"]["Races"][0]["SprintShootout"]["time"] = true;
   }
 
+  // HttpDownloader.cpp's own read loop resets the task watchdog because a
+  // slow multi-minute download can otherwise trip it (loopTask is on the
+  // TWDT) - deserializeJson() below has no such reset. Parsing a fragmented
+  // heap can force ArduinoJson to grow its pool many times over, and a
+  // deeply-nested response (Results, with a Driver+Constructor object per
+  // row) does more of that than a flatter one of similar byte size. Feeding
+  // it immediately before matches the same discipline for the same reason.
+  esp_task_wdt_reset();
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, json, DeserializationOption::Filter(filter));
+  esp_task_wdt_reset();
   if (err) {
     LOG_ERR("F1", "JSON parse failed for tab %d (%u bytes): %s", tab, static_cast<unsigned>(json.size()), err.c_str());
+    char debugLine[128];
+    const int len = snprintf(debugLine, sizeof(debugLine), "tab=%d JSON parse failed (%u bytes): %s\n", tab,
+                             static_cast<unsigned>(json.size()), err.c_str());
+    if (len > 0) writeDebugLine(debugLine);
     errorMessage[tab] = tr(STR_F1_NO_DATA);
     return;
   }
@@ -821,20 +889,25 @@ void FormulaOneActivity::onEnter() {
   Activity::onEnter();
   LOG_INF("F1", "onEnter start: free=%u largest=%u", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 
-  for (int tab = 0; tab < F1_TAB_COUNT; tab++) {
-    // SessionSchedule is never fetched/cached on its own — it's built
-    // in-memory from the Calendar's own data (see showSessionSchedule()).
-    if (tab == static_cast<int>(F1Tab::SessionSchedule)) continue;
-    if (!loaded[tab]) {
-      loadCacheFromSd(tab);
+  // Only the tab actually starting on screen gets loaded here. Eagerly
+  // parsing all 8 tabs upfront kept every one of them resident in RAM for
+  // the whole session regardless of whether the user ever visited most of
+  // them — that permanent residency is what fragmented the heap badly enough
+  // to fail a later TLS handshake even with tens of KB still nominally free
+  // (see evictTabData()/doFetch()'s fragmented-heap restart). Left/Right and
+  // the drill-down entry points already lazy-load whichever tab they switch
+  // to, same as this does for the starting one. SessionSchedule is skipped —
+  // it's never fetched/cached on its own, only built in-memory from the
+  // Calendar's own data (see showSessionSchedule()), and currentTab is never
+  // SessionSchedule this early anyway.
+  const int startTab = static_cast<int>(currentTab);
+  if (currentTab != F1Tab::SessionSchedule && !loaded[startTab]) {
+    if (!loadCacheFromSd(startTab)) {
+      startFetch(startTab);
     }
   }
   LOG_INF("F1", "onEnter after cache load: free=%u largest=%u", (unsigned)ESP.getFreeHeap(),
           (unsigned)ESP.getMaxAllocHeap());
-
-  if (!loaded[static_cast<int>(currentTab)]) {
-    startFetch(static_cast<int>(currentTab));
-  }
 
   requestUpdate();
 }
@@ -929,8 +1002,13 @@ void FormulaOneActivity::loop() {
     }
     // Session schedule is also reached only from Calendar — same "back to
     // parent" treatment, just without anything to cancel/reload since
-    // showing it never involved a fetch in the first place.
+    // showing it never involved a fetch in the first place. Whichever detail
+    // tab (Results/Qualifying/Sprint/SessionResult) was last viewed for this
+    // weekend would otherwise sit resident in RAM for the rest of the
+    // session — nothing else frees it until a *different* one is opened (see
+    // clearSessionDetailTabsState()'s own callers).
     if (currentTab == F1Tab::SessionSchedule) {
+      clearSessionDetailTabsState();
       currentTab = F1Tab::Calendar;
       requestUpdate();
       return;
@@ -948,6 +1026,7 @@ void FormulaOneActivity::loop() {
                               currentTab == F1Tab::Sprint || currentTab == F1Tab::SessionSchedule ||
                               currentTab == F1Tab::SessionResult);
   if (mappedInput.wasReleased(MappedInputManager::Button::Left) && !inDetailView) {
+    const int leavingTab = static_cast<int>(currentTab);
     if (currentTab == F1Tab::Drivers) {
       currentTab = F1Tab::Calendar;
     } else if (currentTab == F1Tab::Constructors) {
@@ -955,12 +1034,14 @@ void FormulaOneActivity::loop() {
     } else {
       currentTab = F1Tab::Constructors;  // was Calendar
     }
+    evictTabData(leavingTab);
     int tab = static_cast<int>(currentTab);
-    if (!loaded[tab] && errorMessage[tab].empty()) {
+    if (!loaded[tab] && errorMessage[tab].empty() && !loadCacheFromSd(tab)) {
       startFetch(tab);
     }
     requestUpdate();
   } else if (mappedInput.wasReleased(MappedInputManager::Button::Right) && !inDetailView) {
+    const int leavingTab = static_cast<int>(currentTab);
     if (currentTab == F1Tab::Drivers) {
       currentTab = F1Tab::Constructors;
     } else if (currentTab == F1Tab::Constructors) {
@@ -968,8 +1049,9 @@ void FormulaOneActivity::loop() {
     } else {
       currentTab = F1Tab::Drivers;  // was Calendar
     }
+    evictTabData(leavingTab);
     int tab = static_cast<int>(currentTab);
-    if (!loaded[tab] && errorMessage[tab].empty()) {
+    if (!loaded[tab] && errorMessage[tab].empty() && !loadCacheFromSd(tab)) {
       startFetch(tab);
     }
     requestUpdate();
@@ -990,8 +1072,13 @@ void FormulaOneActivity::loop() {
       // Always opens the session schedule, whether the race already ran or
       // not — it lists every session either way, formatted time if it
       // hasn't happened yet or "Ver" once it has (see showSessionSchedule()).
+      // The loaded[] check matters now that evictTabData()/a failed reload
+      // can leave rows[Calendar] empty while calendarWeekends still holds an
+      // older, evicted-away tab's stale contents — without it, a Confirm
+      // pressed during that brief error state could open a schedule that
+      // doesn't match whatever failed to (re)load.
       const int idx = selectedRow[static_cast<int>(F1Tab::Calendar)];
-      if (idx >= 0 && idx < static_cast<int>(calendarWeekends.size())) {
+      if (loaded[static_cast<int>(F1Tab::Calendar)] && idx >= 0 && idx < static_cast<int>(calendarWeekends.size())) {
         showSessionSchedule(idx);
         requestUpdate();
       }
