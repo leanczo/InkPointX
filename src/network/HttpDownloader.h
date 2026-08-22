@@ -65,4 +65,20 @@ class HttpDownloader {
                                       ProgressCallback progress = nullptr, bool* cancelFlag = nullptr,
                                       const std::string& username = "", const std::string& password = "",
                                       uint32_t* outCrc32 = nullptr);
+
+  /**
+   * Short, human-readable reason for the most recent HTTP_ERROR/FILE_ERROR
+   * result from downloadToFile() (e.g. "status=429", "incomplete: 512/2048
+   * bytes"), cleared to "" at the start of every downloadToFile() call.
+   * DownloadError alone can't distinguish a bad server response from a
+   * dropped connection or a heap allocation failure — this is the same
+   * detail that already reaches LOG_ERR, exposed for callers (like
+   * FormulaOneActivity's debug.log) that need it on hardware with no serial
+   * monitor attached. Not thread-safe: every fetch in this app runs
+   * synchronously on the one task that calls it, so there's no concurrent
+   * writer to race with. The fetchUrl() overloads share the same underlying
+   * runGet() failure sites but don't clear the buffer themselves, so only
+   * rely on this after a downloadToFile() call.
+   */
+  static const char* lastErrorDetail();
 };

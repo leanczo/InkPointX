@@ -389,10 +389,11 @@ void FormulaOneActivity::doFetch(int tab) {
   }
 
   if (result != HttpDownloader::OK) {
-    char debugLine[160];
-    const int len = snprintf(debugLine, sizeof(debugLine), "tab=%d result=%d heap free=%u largest=%u url=%s\n", tab,
-                              static_cast<int>(result), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(),
-                              apiUrl(tab).c_str());
+    char debugLine[220];
+    const int len =
+        snprintf(debugLine, sizeof(debugLine), "tab=%d result=%d (%s) heap free=%u largest=%u url=%s\n", tab,
+                 static_cast<int>(result), HttpDownloader::lastErrorDetail(), (unsigned)ESP.getFreeHeap(),
+                 (unsigned)ESP.getMaxAllocHeap(), apiUrl(tab).c_str());
     if (len > 0) writeDebugLine(debugLine);
   }
   LOG_INF("F1", "doFetch tab=%d done: free=%u largest=%u", tab, (unsigned)ESP.getFreeHeap(),

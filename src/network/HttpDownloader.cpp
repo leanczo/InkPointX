@@ -16,6 +16,7 @@ extern "C" void wolfSSL_Arduino_Serial_Print(const char* const msg) { LOG_DBG("W
 #endif
 
 #include <cctype>
+#include <cstdarg>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -112,6 +113,19 @@ constexpr size_t READ_CHUNK = 2048;
 // known reserve for GitHub's redirect and CDN headers.
 constexpr size_t RESPONSE_HEADER_RESERVE = 12 * 1024;
 constexpr int MAX_REDIRECTS = 5;
+
+// See HttpDownloader::lastErrorDetail() — a fixed buffer rather than
+// std::string/String so recording *why* a request failed never itself costs
+// a heap allocation on a device where fragmentation is already the thing
+// most likely to be causing that failure.
+char g_lastErrorDetail[80] = "";
+
+void setLastErrorDetail(const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(g_lastErrorDetail, sizeof(g_lastErrorDetail), fmt, args);
+  va_end(args);
+}
 
 struct Sink {
   std::function<bool(const uint8_t*, size_t)> write;  // returns false to abort the transfer
@@ -419,6 +433,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (!client) {
     LOG_ERR("HTTP", "client init failed");
+    setLastErrorDetail("client init failed");
     return HttpDownloader::HTTP_ERROR;
   }
 
@@ -445,6 +460,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
     if (openResult != ESP_OK) {
       LOG_ERR("HTTP", "open failed: %d (%s), heap free=%u largest=%u", openResult, esp_err_to_name(openResult),
                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+      setLastErrorDetail("open failed: %s", esp_err_to_name(openResult));
       return false;
     }
 
@@ -456,6 +472,8 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
     status = esp_http_client_get_status_code(client);
     if (contentLength < 0 || status <= 0) {
       LOG_ERR("HTTP", "response header fetch failed");
+      setLastErrorDetail("response header fetch failed (contentLength=%lld status=%d)", (long long)contentLength,
+                          status);
       return false;
     }
     return true;
@@ -496,6 +514,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
 
   if (status != 200) {
     LOG_ERR("HTTP", "unexpected status: %d", status);
+    setLastErrorDetail("status=%d", status);
     esp_http_client_cleanup(client);
     return HttpDownloader::HTTP_ERROR;
   }
@@ -521,6 +540,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
     if (read < 0) {
       LOG_ERR("HTTP", "read error after %zu bytes, heap free=%u largest=%u", sink.downloaded,
                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+      setLastErrorDetail("read error after %zu bytes", sink.downloaded);
       esp_http_client_cleanup(client);
       return HttpDownloader::HTTP_ERROR;
     }
@@ -538,6 +558,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
   if (!complete) {
     LOG_ERR("HTTP", "incomplete: got %zu of %zu bytes, heap free=%u largest=%u", sink.downloaded, sink.total,
              (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    setLastErrorDetail("incomplete: %zu/%zu bytes", sink.downloaded, sink.total);
     return HttpDownloader::HTTP_ERROR;
   }
   return HttpDownloader::OK;
@@ -655,6 +676,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
                                                              const std::string& username, const std::string& password,
                                                              uint32_t* outCrc32) {
   LOG_DBG("HTTP", "Downloading: %s -> %s", url.c_str(), destPath.c_str());
+  g_lastErrorDetail[0] = '\0';
 
   const String finalPath = destPath.c_str();
   if (Storage.exists(finalPath.c_str())) {
@@ -662,6 +684,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     if (existing && existing.isDirectory()) {
       existing.close();
       LOG_ERR("HTTP", "Download destination is a directory");
+      setLastErrorDetail("destination is a directory");
       return FILE_ERROR;
     }
     if (existing) existing.close();
@@ -695,6 +718,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       if (!waitOrCancel(headroomBackoffMs, cancelFlag)) return ABORTED;
       if (!hasTlsHeadroom()) {
         LOG_ERR("HTTP", "Skipping attempt %d/%d: insufficient TLS heap headroom", attempt + 1, maxAttempts);
+        setLastErrorDetail("insufficient TLS heap headroom (largest=%u)", (unsigned)ESP.getMaxAllocHeap());
         continue;
       }
     }
@@ -704,6 +728,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     String tempPath;
     if (!NetworkFileTransaction::prepare(finalPath, ".http-tmp", "HTTP", tempPath)) {
       LOG_ERR("HTTP", "Failed to prepare transactional download");
+      setLastErrorDetail("failed to prepare transactional download");
       return FILE_ERROR;
     }
 
@@ -711,6 +736,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     if (!Storage.openFileForWrite("HTTP", tempPath.c_str(), file)) {
       Storage.remove(tempPath.c_str());
       LOG_ERR("HTTP", "Failed to open staged file for writing");
+      setLastErrorDetail("failed to open staged file for writing");
       return FILE_ERROR;
     }
 
@@ -738,6 +764,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
     if (result == OK && sink.downloaded == 0) {
       LOG_ERR("HTTP", "no data received");
+      setLastErrorDetail("no data received");
       result = HTTP_ERROR;
     }
 
@@ -747,6 +774,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       if (staged) staged.close();
       if (!sizeMatches) {
         LOG_ERR("HTTP", "staged download size mismatch");
+        setLastErrorDetail("staged size mismatch (downloaded=%zu)", sink.downloaded);
         result = FILE_ERROR;
       }
     }
@@ -755,6 +783,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
       if (!NetworkFileTransaction::commit(finalPath, tempPath, "HTTP")) {
         Storage.remove(tempPath.c_str());
         LOG_ERR("HTTP", "Failed to replace destination safely");
+        setLastErrorDetail("failed to replace destination safely");
         return FILE_ERROR;
       }
       LOG_DBG("HTTP", "Downloaded %zu bytes", sink.downloaded);
@@ -772,3 +801,5 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
 
   return HTTP_ERROR;
 }
+
+const char* HttpDownloader::lastErrorDetail() { return g_lastErrorDetail; }
